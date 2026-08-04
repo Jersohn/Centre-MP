@@ -3,6 +3,8 @@ import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 
+const repoName = process.env.GITHUB_REPOSITORY?.split('/')[1] ?? 'Centre-MP'
+const base = process.env.GITHUB_ACTIONS === 'true' ? `/${repoName}/` : '/'
 
 function figmaAssetResolver() {
   return {
@@ -17,6 +19,7 @@ function figmaAssetResolver() {
 }
 
 export default defineConfig({
+  base,
   plugins: [
     figmaAssetResolver(),
     // The React and Tailwind plugins are both required for Make, even if
