@@ -18,6 +18,11 @@ function clientApiKey() {
   return import.meta.env.VITE_GROQ_API_KEY?.trim() || "";
 }
 
+function aiChatEndpoint() {
+  const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+  return `${base}/api/ai-chat`;
+}
+
 async function callGroqDirect(payload: {
   model: string;
   messages: AiChatMessage[];
@@ -27,7 +32,7 @@ async function callGroqDirect(payload: {
   const key = clientApiKey();
   if (!key) {
     throw new Error(
-      "Clé Groq manquante. Ajoutez GROQ_API_KEY (dev) ou VITE_GROQ_API_KEY dans votre fichier .env."
+      "Clé Groq manquante. En production, définissez GROQ_API_KEY sur Vercel. En local, ajoutez-la dans Centre-MP/.env."
     );
   }
 
@@ -41,12 +46,7 @@ async function callGroqDirect(payload: {
   });
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(
-      detail
-        ? `Groq a renvoyé une erreur (${response.status}).`
-        : `Impossible de joindre Groq (${response.status}).`
-    );
+    throw new Error(`Impossible de joindre Groq (${response.status}).`);
   }
 
   const data = (await response.json()) as {
@@ -69,7 +69,17 @@ function buildMessages(input: GroqChatRequest): AiChatMessage[] {
   ];
 }
 
-/** Appelle le proxy Vite `/api/ai-chat`, avec repli direct Groq si besoin. */
+async function readApiPayload(response: Response): Promise<{ content?: string; error?: string } | null> {
+  const type = response.headers.get("content-type") || "";
+  if (!type.includes("application/json")) return null;
+  try {
+    return (await response.json()) as { content?: string; error?: string };
+  } catch {
+    return null;
+  }
+}
+
+/** Appelle le proxy `/api/ai-chat` (Vite en local, Vercel en prod). */
 export async function sendAiChat(input: GroqChatRequest): Promise<string> {
   const messages = buildMessages(input);
   const body = {
@@ -81,25 +91,28 @@ export async function sendAiChat(input: GroqChatRequest): Promise<string> {
   };
 
   try {
-    const response = await fetch("/api/ai-chat", {
+    const response = await fetch(aiChatEndpoint(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(body),
     });
 
-    if (response.ok) {
-      const data = (await response.json()) as { content?: string; error?: string };
-      if (data.content?.trim()) return data.content.trim();
-      if (data.error) throw new Error(data.error);
+    const data = await readApiPayload(response);
+
+    if (response.ok && data?.content?.trim()) {
+      return data.content.trim();
     }
 
-    // Proxy absent (hébergement statique) → appel client si clé VITE présente
-    if (response.status === 404 || response.status === 501) {
+    if (data?.error) {
+      throw new Error(data.error);
+    }
+
+    // API absente (HTML SPA / 404) → repli client si clé VITE présente
+    if (!data || response.status === 404 || response.status === 501) {
       return callGroqDirect(body);
     }
 
-    const err = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(err?.error || `Erreur assistant (${response.status}).`);
+    throw new Error(`Erreur assistant (${response.status}).`);
   } catch (error) {
     if (clientApiKey()) {
       try {

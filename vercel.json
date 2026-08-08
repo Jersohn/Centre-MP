@@ -15,6 +15,18 @@
   ],
   "routes": [
     {
+      "src": "/api/ai-chat",
+      "dest": "/api/ai-chat.js"
+    },
+    {
+      "src": "/api/gosho-du-jour",
+      "dest": "/api/gosho-du-jour.js"
+    },
+    {
+      "src": "/api/encouragement-du-jour",
+      "dest": "/api/encouragement-du-jour.js"
+    },
+    {
       "src": "/api/(.*)",
       "dest": "/api/$1"
     },
