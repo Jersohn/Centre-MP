@@ -10,12 +10,50 @@ export const ROLE_LABELS: Record<PlatformRole, string> = {
   groupe: "Responsable groupe",
 };
 
-export type ModuleKey = "dashboard" | "membres" | "finances" | "directives" | "statistiques" | "settings" | "contenu";
+export type ModuleKey =
+  | "dashboard"
+  | "membres"
+  | "finances"
+  | "collectes"
+  | "directives"
+  | "statistiques"
+  | "settings"
+  | "contenu"
+  | "profil";
+
+/** Accès admin complet : le responsable centre pilote l’application. */
+const ADMIN_MODULES: ModuleKey[] = [
+  "dashboard",
+  "membres",
+  "finances",
+  "collectes",
+  "statistiques",
+  "profil",
+  "settings",
+  "contenu",
+];
+
+/** Chapitre / district : pilotage opérationnel + collectes (VP & zaimu). */
+const LOCAL_MODULES: ModuleKey[] = [
+  "dashboard",
+  "membres",
+  "collectes",
+  "statistiques",
+  "profil",
+];
+
+/** Groupe : suivi opérationnel sans module statistiques. */
+const GROUPE_MODULES: ModuleKey[] = [
+  "dashboard",
+  "membres",
+  "collectes",
+  "profil",
+];
 
 export const MODULE_ACCESS: Record<PlatformRole, ModuleKey[]> = {
-  admin: ["dashboard", "membres", "finances", "directives", "statistiques", "settings", "contenu"],
-  centre: ["dashboard", "membres", "directives", "statistiques", "settings", "contenu"],
-  chapitre: ["dashboard", "membres", "directives", "statistiques", "settings"],
-  district: ["dashboard", "membres", "directives", "statistiques", "settings"],
-  groupe: ["dashboard", "membres", "directives", "statistiques", "settings"],
+  admin: [...ADMIN_MODULES],
+  centre: [...ADMIN_MODULES],
+  chapitre: [...LOCAL_MODULES],
+  district: [...LOCAL_MODULES],
+  groupe: [...GROUPE_MODULES],
 };

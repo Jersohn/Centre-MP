@@ -1,7 +1,9 @@
 node_modules/
 dist/
+dev-dist/
 .env
 .env.*
+!.env.example
 .package-lock.json
 .vscode/
 .DS_Store

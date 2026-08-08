@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
 import { parseISO, format } from "date-fns";
@@ -10,37 +10,52 @@ import {
   ArrowUpRight, ArrowDownRight, TrendingUp,
   CheckCircle, Clock, XCircle, Send, Globe, BookOpen,
   Calendar, Target, X, Menu, LogOut, Settings, Layers,
-  ChevronLeft
+  ChevronLeft, SquarePen, Moon, Sun, HeartHandshake, Camera, FileUp, UserRound,
 } from "lucide-react";
+import { useTheme } from "../theme/ThemeProvider";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, ComposedChart
 } from "recharts";
 import sgiLogo from "../../image/logo-sgi.jpg";
-import { createMemberFromForm } from "./memberFormUtils";
+import { createMemberFromForm, readImageAsDataUrl } from "./memberFormUtils";
+import { DashboardAiAssistant } from "../components/ai/DashboardAiAssistant";
+import { MEMBERS_SEED } from "./membersData";
+import { MemberAvatar } from "./MemberAvatar";
 import AdminEditLanding from "../pages/AdminEditLanding";
-import CentreEditLanding from "../pages/CentreEditLanding";
-import { ALLOWED_ROLES, MODULE_ACCESS, ROLE_LABELS, type PlatformRole } from "./roles";
+import CollectesModule, { COLLECTES_SEED } from "./CollectesModule";
+import RoleDashboard from "./RoleDashboard";
+import MembersKpiPanel from "./MembersKpiPanel";
+import MembersImportExportBar from "./MembersImportExportBar";
+import ZaimuQuotaPanel from "./ZaimuQuotaPanel";
+import ProfilePage from "./ProfilePage";
+import { DEMO_ORG_SCOPE, filterMembersByScope } from "./memberListStats";
+import {
+  formatCdf,
+  getMemberSpecialAssignment,
+  getMemberZaimuPaid,
+  ZAIMU_SPECIAL_CAMPAIGN,
+} from "./zaimuQuota";
+import { RowActionsMenu } from "./RowActionsMenu";
+import { ALLOWED_ROLES, MODULE_ACCESS, ROLE_LABELS, type ModuleKey, type PlatformRole } from "./roles";
+import { INITIAL_PROFILES, type ProfileStatus, type UserProfile as Profile } from "./profilesData";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
 const CHAPITRES = ["Tous", "Chapitre 1 – Kinshasa", "Chapitre 2 – Brazzaville", "Chapitre 3 – Paris", "Chapitre 4 – Abidjan"];
 const DISTRICTS = ["Tous", "District Nord", "District Sud", "District Est", "District Ouest"];
 const STATUTS = ["Tous", "Actif", "En attente", "Suspendu"];
+const RESPONSABILITES = [
+  "Membre simple",
+  "Responsable groupe",
+  "Responsable district",
+  "Responsable chapitre",
+  "Responsable centre",
+] as const;
+const RESPONSABILITE_FILTERS = ["Tous", ...RESPONSABILITES] as const;
 
-const membres = [
-  { id: 1, nom: "Kabongo Mwamba", prenom: "Jean-Pierre", email: "jp.kabongo@email.com", telephone: "+243 81 234 5678", dateNaissance: "1992-03-15", departement: "Administration", categorie: "Homme", responsabilite: "Responsable centre", dateDebutPratique: "2015-04-01", abonnementVaguePaix: true, quartier: "Gombe", chapitre: "Chapitre 1 – Kinshasa", district: "District Nord", statut: "Actif", cotisation: "À jour", adhesion: "2019-03-15", abonnement: true, totalCotisations: 480000, totalDons: 120000 },
-  { id: 2, nom: "Mbeki Nkosi", prenom: "Amara", email: "amara.mbeki@email.com", telephone: "+242 06 789 0123", dateNaissance: "1997-07-22", departement: "Culture", categorie: "Femme", responsabilite: "Responsable chapitre", dateDebutPratique: "2018-08-10", abonnementVaguePaix: true, quartier: "Poto-Poto", chapitre: "Chapitre 2 – Brazzaville", district: "District Sud", statut: "Actif", cotisation: "À jour", adhesion: "2020-07-22", abonnement: true, totalCotisations: 360000, totalDons: 85000 },
-  { id: 3, nom: "Fontaine", prenom: "Cécile", email: "c.fontaine@email.fr", telephone: "+33 6 12 34 56 78", dateNaissance: "2001-01-10", departement: "Jeunesse", categorie: "Jeune fille", responsabilite: "Membre", dateDebutPratique: "2021-02-01", abonnementVaguePaix: false, quartier: "Belleville", chapitre: "Chapitre 3 – Paris", district: "District Ouest", statut: "Actif", cotisation: "En retard", adhesion: "2021-01-10", abonnement: false, totalCotisations: 240000, totalDons: 45000 },
-  { id: 4, nom: "Konaté", prenom: "Ibrahim", email: "i.konate@email.ci", telephone: "+225 07 456 7890", dateNaissance: "2004-11-03", departement: "Avenir", categorie: "Jeune homme", responsabilite: "Membre", dateDebutPratique: "2023-01-15", abonnementVaguePaix: false, quartier: "Plateau", chapitre: "Chapitre 4 – Abidjan", district: "District Est", statut: "En attente", cotisation: "Non renseigné", adhesion: "2023-11-03", abonnement: false, totalCotisations: 60000, totalDons: 10000 },
-  { id: 5, nom: "Tshisekedi Wa", prenom: "Marie-Claire", email: "mc.tshisekedi@email.com", telephone: "+243 99 876 5432", dateNaissance: "1990-06-28", departement: "Éducation", categorie: "Femme", responsabilite: "Responsable district", dateDebutPratique: "2012-09-01", abonnementVaguePaix: true, quartier: "Kalamu", chapitre: "Chapitre 1 – Kinshasa", district: "District Nord", statut: "Actif", cotisation: "À jour", adhesion: "2018-06-28", abonnement: true, totalCotisations: 720000, totalDons: 200000 },
-  { id: 6, nom: "Diallo", prenom: "Ousmane", email: "o.diallo@email.ci", telephone: "+225 05 111 2233", dateNaissance: "1988-02-14", departement: "Santé", categorie: "Homme", responsabilite: "Responsable groupe", dateDebutPratique: "2010-03-01", abonnementVaguePaix: false, quartier: "Yopougon", chapitre: "Chapitre 4 – Abidjan", district: "District Nord", statut: "Suspendu", cotisation: "En retard", adhesion: "2020-02-14", abonnement: false, totalCotisations: 180000, totalDons: 0 },
-  { id: 7, nom: "Ngandu", prenom: "Patrick", email: "p.ngandu@email.com", telephone: "+243 82 333 4444", dateNaissance: "1995-09-05", departement: "Logistique", categorie: "Homme", responsabilite: "Responsable groupe", dateDebutPratique: "2017-10-01", abonnementVaguePaix: true, quartier: "Lingwala", chapitre: "Chapitre 1 – Kinshasa", district: "District Sud", statut: "Actif", cotisation: "À jour", adhesion: "2022-09-05", abonnement: true, totalCotisations: 300000, totalDons: 75000 },
-  { id: 8, nom: "Lemaire", prenom: "Sophie", email: "s.lemaire@email.fr", telephone: "+33 7 88 99 00 11", dateNaissance: "1994-04-19", departement: "Communication", categorie: "Femme", responsabilite: "Responsable chapitre", dateDebutPratique: "2016-05-01", abonnementVaguePaix: true, quartier: "Montreuil", chapitre: "Chapitre 3 – Paris", district: "District Ouest", statut: "Actif", cotisation: "À jour", adhesion: "2021-04-19", abonnement: true, totalCotisations: 420000, totalDons: 95000 },
-  { id: 9, nom: "Bakary", prenom: "Moussa", email: "m.bakary@email.cg", telephone: "+242 05 678 9012", dateNaissance: "1998-12-01", departement: "Avenir", categorie: "Jeune homme", responsabilite: "Membre", dateDebutPratique: "2022-01-01", abonnementVaguePaix: false, quartier: "Moungali", chapitre: "Chapitre 2 – Brazzaville", district: "District Est", statut: "Actif", cotisation: "À jour", adhesion: "2019-12-01", abonnement: false, totalCotisations: 540000, totalDons: 110000 },
-  { id: 10, nom: "Deschamps", prenom: "Laurent", email: "l.deschamps@email.fr", telephone: "+33 6 55 44 33 22", dateNaissance: "2002-01-15", departement: "Jeunesse", categorie: "Jeune homme", responsabilite: "Membre", dateDebutPratique: "2024-02-01", abonnementVaguePaix: false, quartier: "Nanterre", chapitre: "Chapitre 3 – Paris", district: "District Nord", statut: "En attente", cotisation: "Non renseigné", adhesion: "2024-01-15", abonnement: false, totalCotisations: 30000, totalDons: 5000 },
-];
+const membres = MEMBERS_SEED;
 
 const cotisationsMensuelles = [
   { mois: "Fév", montant: 2850000, membres: 84 },
@@ -104,39 +119,24 @@ const directives = [
   },
 ];
 
-type ModuleKey = "dashboard" | "membres" | "finances" | "directives" | "statistiques" | "settings";
-type ProfileStatus = "Actif" | "En attente" | "Suspendu";
-
-interface Profile {
-  id: number;
-  name: string;
-  email: string;
-  role: PlatformRole;
-  status: ProfileStatus;
-  chapitre: string;
-  department: string;
-}
-
-const INITIAL_PROFILES: Profile[] = [
-  { id: 1, name: "Amina Kasongo", email: "amina.kasongo@sgi.org", role: "admin", status: "Actif", chapitre: "Siège international", department: "Direction générale" },
-  { id: 2, name: "Jean-Michel Luyeye", email: "jm.luyeye@sgi.org", role: "centre", status: "Actif", chapitre: "Centre principal", department: "Administration" },
-  { id: 3, name: "Eric Mbenza", email: "eric.mbenza@sgi.org", role: "chapitre", status: "Actif", chapitre: "Chapitre 2 – Brazzaville", department: "Coordination" },
-  { id: 4, name: "Clara Ndaye", email: "clara.ndaye@sgi.org", role: "district", status: "Actif", chapitre: "Chapitre 3 – Paris", department: "District" },
-  { id: 5, name: "Josephine Mbala", email: "josephine.mbala@sgi.org", role: "groupe", status: "En attente", chapitre: "Chapitre 4 – Abidjan", department: "Groupe" },
-];
-
 const RBAC_MATRIX = [
   { module: "Tableau de bord", roles: { admin: true, centre: true, chapitre: true, district: true, groupe: true } },
   { module: "Membres", roles: { admin: true, centre: true, chapitre: true, district: true, groupe: true } },
-  { module: "Finances", roles: { admin: true, centre: false, chapitre: false, district: false, groupe: false } },
-  { module: "Directives", roles: { admin: true, centre: true, chapitre: true, district: true, groupe: true } },
-  { module: "Statistiques", roles: { admin: true, centre: true, chapitre: true, district: true, groupe: true } },
-  { module: "Paramètres", roles: { admin: true, centre: true, chapitre: true, district: true, groupe: true } },
+  { module: "Finances", roles: { admin: true, centre: true, chapitre: false, district: false, groupe: false } },
+  { module: "Collectes", roles: { admin: true, centre: true, chapitre: true, district: true, groupe: true } },
+  { module: "Statistiques", roles: { admin: true, centre: true, chapitre: true, district: true, groupe: false } },
+  { module: "Contenu", roles: { admin: true, centre: true, chapitre: false, district: false, groupe: false } },
+  { module: "Paramètres", roles: { admin: true, centre: true, chapitre: false, district: false, groupe: false } },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const fmt = (n: number) => new Intl.NumberFormat("fr-FR").format(n);
+/** ASCII-safe (évite \u202f fr-FR mal rendu en PDF comme "/"). */
+const fmt = (n: number) => {
+  if (!Number.isFinite(n)) return "0";
+  const sign = n < 0 ? "-" : "";
+  return `${sign}${String(Math.abs(Math.round(n))).replace(/\B(?=(\d{3})+(?!\d))/g, " ")}`;
+};
 
 function SgiOfficialLogo({ className }: { className?: string }) {
   return (
@@ -236,120 +236,312 @@ function KpiCard({ label, value, sub, icon: Icon, trend, color }: {
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
 const NAV = [
-  { key: "dashboard", label: "Tableau de bord", icon: LayoutDashboard },
-  { key: "statistiques", label: "Statistiques", icon: BarChart3 },
-  { key: "membres", label: "Membres", icon: Users },
-  { key: "finances", label: "Finances", icon: Wallet },
-  { key: "directives", label: "Directives", icon: FileText },
-  { key: "contenu", label: "Contenu", icon: FileText },
-  { key: "settings", label: "Paramètres", icon: Settings },
-];
+  { key: "dashboard", label: "Tableau de bord", icon: LayoutDashboard, group: "principal" },
+  { key: "statistiques", label: "Statistiques", icon: BarChart3, group: "principal" },
+  { key: "membres", label: "Membres", icon: Users, group: "gestion" },
+  { key: "collectes", label: "Collectes", icon: HeartHandshake, group: "gestion" },
+  { key: "finances", label: "Finances", icon: Wallet, group: "gestion" },
+  { key: "contenu", label: "Contenu", icon: SquarePen, group: "gestion" },
+  { key: "profil", label: "Mon profil", icon: UserRound, group: "compte" },
+  { key: "settings", label: "Paramètres", icon: Settings, group: "compte" },
+] as const;
 
-function Sidebar({ active, setActive, collapsed, setCollapsed, allowedModules, onOpenSettings, onLogout }: {
-  active: string; setActive: (k: ModuleKey) => void; collapsed: boolean; setCollapsed: (v: boolean) => void; allowedModules: ModuleKey[]; onOpenSettings: () => void; onLogout: () => void;
+const ROLE_SPACE: Record<PlatformRole, { title: string; subtitle: string }> = {
+  admin: { title: "Espace Admin", subtitle: "Pilotage global du centre" },
+  centre: { title: "Espace Centre", subtitle: "Pilotage de l’application" },
+  chapitre: { title: "Espace Chapitre", subtitle: "Animation du chapitre" },
+  district: { title: "Espace District", subtitle: "Suivi des groupes" },
+  groupe: { title: "Espace Groupe", subtitle: "Accompagnement des membres" },
+};
+
+function SidebarNavItems({
+  active,
+  onNavigate,
+  allowedModules,
+  collapsed = false,
+}: {
+  active: string;
+  onNavigate: (key: ModuleKey) => void;
+  allowedModules: ModuleKey[];
+  collapsed?: boolean;
 }) {
   const visibleNav = NAV.filter(({ key }) => allowedModules.includes(key as ModuleKey));
-  const navigate = useNavigate();
-  const role = typeof window !== "undefined" ? window.localStorage.getItem("sgi-current-role") : null;
+  const groups = [
+    { id: "principal", label: "Vue" },
+    { id: "gestion", label: "Travail" },
+    { id: "compte", label: "Compte" },
+  ] as const;
+
   return (
-    <aside
-      className="hidden md:flex flex-col h-screen sticky top-0 transition-all duration-300 select-none"
-      style={{ width: collapsed ? 64 : 240, background: "var(--sidebar)", borderRight: "1px solid var(--sidebar-border)" }}
-    >
-      {/* Logo */}
-      <div className="border-b" style={{ borderColor: "var(--sidebar-border)" }}>
-        <div className="flex items-center justify-center px-4 py-5">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden ring-1 ring-white/15" style={{ background: "linear-gradient(135deg, rgba(217,161,26,0.95), rgba(163,59,45,0.9))" }}>
-            <SgiEmblem className="w-10 h-10 object-cover" />
+    <nav className="sgi-sidebar-scroll flex-1 space-y-6 overflow-y-auto px-3 py-5">
+      {groups.map((group) => {
+        const items = visibleNav.filter((item) => item.group === group.id);
+        if (items.length === 0) return null;
+        return (
+          <div key={group.id}>
+            {!collapsed && (
+              <p className="mb-2 px-3 text-[11px] font-semibold tracking-[0.04em] text-muted-foreground">
+                {group.label}
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {items.map(({ key, label, icon: Icon }) => {
+                const isActive = active === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => onNavigate(key as ModuleKey)}
+                    title={collapsed ? label : undefined}
+                    aria-current={isActive ? "page" : undefined}
+                    className={`group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-[13.5px] font-medium transition-all duration-200 ease-out ${
+                      collapsed ? "justify-center px-0" : ""
+                    } ${
+                      isActive
+                        ? "bg-[var(--sgi-blue)] text-white shadow-[0_8px_20px_rgba(10,47,82,0.22)]"
+                        : "text-foreground/70 hover:bg-[var(--sgi-gold)]/10 hover:text-foreground"
+                    }`}
+                  >
+                    <span
+                      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-200 ${
+                        isActive
+                          ? "bg-[var(--sgi-gold)] text-[var(--sgi-blue-deep)]"
+                          : "bg-transparent text-foreground/50 group-hover:text-[var(--sgi-blue)]"
+                      }`}
+                    >
+                      <Icon size={17} strokeWidth={isActive ? 2.25 : 1.9} />
+                    </span>
+                    {!collapsed && (
+                      <>
+                        <span className="min-w-0 flex-1 truncate">{label}</span>
+                        {isActive && (
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--sgi-red)]" aria-hidden />
+                        )}
+                      </>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
+function SidebarShell({
+  active,
+  onNavigate,
+  allowedModules,
+  role,
+  onLogout,
+  collapsed = false,
+  setCollapsed,
+  onClose,
+  showCollapse = false,
+}: {
+  active: string;
+  onNavigate: (key: ModuleKey) => void;
+  allowedModules: ModuleKey[];
+  role: PlatformRole;
+  onLogout: () => void;
+  collapsed?: boolean;
+  setCollapsed?: (value: boolean) => void;
+  onClose?: () => void;
+  showCollapse?: boolean;
+}) {
+  const space = ROLE_SPACE[role];
+  const initials = ROLE_LABELS[role]
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  return (
+    <>
+      <div className="sgi-tricolor h-1.5 w-full shrink-0" aria-hidden />
+
+      <div className={`relative z-[1] flex items-center gap-3 border-b border-border px-3 py-4 ${collapsed ? "flex-col" : ""}`}>
+        <div className={`flex min-w-0 flex-1 items-center ${collapsed ? "justify-center" : "gap-3"}`}>
+          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl ring-2 ring-[var(--sgi-gold)]/50">
+            <SgiEmblem className="h-10 w-10 object-cover" />
           </div>
           {!collapsed && (
-            <div className="min-w-0 ml-3">
-              <div className="text-white text-sm font-semibold leading-tight whitespace-nowrap overflow-hidden text-ellipsis" style={{ fontFamily: "var(--font-display)" }}>Soka Gakkai International</div>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[10px] text-[var(--sidebar-foreground)]" style={{ opacity: 0.88 }}>
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1.5 whitespace-nowrap">
-                  <span className="flex items-center justify-center w-4 h-4 rounded-sm overflow-hidden border border-white/10 bg-slate-900">
-                    <span className="block w-1 h-full bg-[#F77F00]" />
-                    <span className="block w-1 h-full bg-white" />
-                    <span className="block w-1 h-full bg-[#138808]" />
-                  </span>
-                  <span className="font-medium text-[11px] text-white">Côte d’Ivoire</span>
-                </div>
-                <div className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-[11px] text-white/80 whitespace-nowrap">
-                  Centre Miroir Parfait
-                </div>
+            <div className="min-w-0">
+              <p className="truncate font-display text-[15px] font-semibold leading-tight text-foreground">
+                Miroir Parfait
+              </p>
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--sgi-blue)]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--sgi-gold)]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--sgi-red)]" />
+                <span className="text-[11px] text-muted-foreground">SGI Côte d’Ivoire</span>
               </div>
             </div>
           )}
         </div>
 
-        <div className="flex justify-center pb-4">
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+            aria-label="Fermer le menu"
+          >
+            <X size={18} />
+          </button>
+        )}
+
+        {showCollapse && setCollapsed && (
           <button
             type="button"
             onClick={() => setCollapsed(!collapsed)}
-            className="inline-flex items-center justify-center w-10 h-10 rounded-full border border-white/15 bg-white/15 text-white shadow-sm transition hover:bg-white/25"
-            style={{ color: "var(--sidebar-foreground)" }}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm transition hover:border-[var(--sgi-gold)]/40 hover:text-[var(--sgi-blue)]"
             aria-label={collapsed ? "Déployer la barre latérale" : "Réduire la barre latérale"}
-            title={collapsed ? "Déployer la barre latérale" : "Réduire la barre latérale"}
+            title={collapsed ? "Déployer" : "Réduire"}
           >
-            {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
-        </div>
+        )}
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 py-4 flex flex-col gap-0.5 px-2 overflow-y-auto">
-        {visibleNav.map(({ key, label, icon: Icon }) => {
-          const isActive = active === key;
-          return (
-            <button
-              key={key}
-              onClick={() => setActive(key)}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-left w-full ${collapsed ? "justify-center" : ""}`}
-              style={{
-                background: isActive ? "var(--sidebar-accent)" : "transparent",
-                color: isActive ? "#FFFFFF" : "var(--sidebar-foreground)",
-                borderLeft: isActive ? "3px solid var(--sidebar-primary)" : "3px solid transparent",
-              }}
-              title={collapsed ? label : undefined}
-            >
-              <Icon size={16} className="flex-shrink-0" style={{ color: isActive ? "var(--sidebar-primary)" : undefined }} />
-              {!collapsed && <span>{label}</span>}
-            </button>
-          );
-        })}
-      </nav>
+      {!collapsed ? (
+        <div className="relative z-[1] px-3 pt-4">
+          <div className="overflow-hidden rounded-2xl bg-secondary/70 ring-1 ring-border">
+            <div className="sgi-tricolor h-1 w-full" aria-hidden />
+            <div className="flex items-center gap-3 px-3 py-3">
+              <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--sgi-blue)] font-display text-xs font-bold text-white">
+                {initials}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-foreground">{ROLE_LABELS[role]}</p>
+                <p className="truncate text-[11px] text-muted-foreground">{space.subtitle}</p>
+              </div>
+              <span className="shrink-0 rounded-md bg-[var(--sgi-red)]/12 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--sgi-red)]">
+                {space.title.replace("Espace ", "")}
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="relative z-[1] flex justify-center px-3 pt-4">
+          <div
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--sgi-blue)] font-display text-xs font-bold text-white ring-2 ring-[var(--sgi-gold)]/40"
+            title={`${ROLE_LABELS[role]} — ${space.title}`}
+          >
+            {initials}
+          </div>
+        </div>
+      )}
 
-      {/* Bottom */}
-      <div className="px-2 py-3 border-t" style={{ borderColor: "var(--sidebar-border)" }}>
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs w-full opacity-50 hover:opacity-80 transition-opacity"
-          style={{ color: "var(--sidebar-foreground)" }}
-        >
-          <Settings size={14} />
-          {!collapsed && "Paramètres"}
-        </button>
+      <SidebarNavItems
+        active={active}
+        onNavigate={onNavigate}
+        allowedModules={allowedModules}
+        collapsed={collapsed}
+      />
+
+      <div className="relative z-[1] mt-auto border-t border-border p-3">
         <button
           type="button"
           onClick={onLogout}
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs w-full opacity-50 hover:opacity-80 transition-opacity"
-          style={{ color: "var(--sidebar-foreground)" }}
+          className={`flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-[13.5px] font-medium text-[var(--sgi-red)] transition duration-200 hover:bg-[var(--sgi-red)]/10 ${
+            collapsed ? "justify-center" : ""
+          }`}
+          title="Déconnexion"
         >
-          <LogOut size={14} />
-          {!collapsed && "Déconnexion"}
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg">
+            <LogOut size={17} strokeWidth={1.9} />
+          </span>
+          {!collapsed && <span>Déconnexion</span>}
         </button>
       </div>
+    </>
+  );
+}
+
+function Sidebar({
+  active,
+  setActive,
+  collapsed,
+  setCollapsed,
+  allowedModules,
+  role,
+  onLogout,
+}: {
+  active: string;
+  setActive: (k: ModuleKey) => void;
+  collapsed: boolean;
+  setCollapsed: (v: boolean) => void;
+  allowedModules: ModuleKey[];
+  role: PlatformRole;
+  onOpenSettings: () => void;
+  onLogout: () => void;
+}) {
+  return (
+    <aside
+      className="relative sticky top-0 hidden h-screen select-none flex-col overflow-hidden border-r border-border bg-card transition-[width] duration-300 ease-out md:flex"
+      style={{ width: collapsed ? 88 : 272 }}
+    >
+      <div className="sgi-tricolor-rail absolute inset-y-0 left-0 w-[3px]" aria-hidden />
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-40 opacity-90"
+        style={{
+          background:
+            "radial-gradient(ellipse 80% 70% at 0% 0%, rgba(200,151,26,0.14), transparent 70%), radial-gradient(ellipse 60% 50% at 100% 0%, rgba(10,47,82,0.08), transparent 65%), radial-gradient(ellipse 50% 40% at 80% 20%, rgba(194,58,43,0.08), transparent 60%)",
+        }}
+        aria-hidden
+      />
+      <SidebarShell
+        active={active}
+        onNavigate={setActive}
+        allowedModules={allowedModules}
+        role={role}
+        onLogout={onLogout}
+        collapsed={collapsed}
+        setCollapsed={setCollapsed}
+        showCollapse
+      />
     </aside>
   );
 }
 
 // ─── Topbar ───────────────────────────────────────────────────────────────────
 
-function Topbar({ title, onOpenSettings, onOpenContent, onLogout, profileMenuOpen, setProfileMenuOpen, sidebarOpen, setSidebarOpen }: { title: string; onOpenSettings: () => void; onOpenContent: () => void; onLogout: () => void; profileMenuOpen: boolean; setProfileMenuOpen: (value: boolean) => void; sidebarOpen: boolean; setSidebarOpen: (value: boolean) => void; }) {
+function Topbar({
+  title,
+  role,
+  onOpenProfile,
+  onOpenSettings,
+  onOpenContent,
+  onLogout,
+  profileMenuOpen,
+  setProfileMenuOpen,
+  sidebarOpen,
+  setSidebarOpen,
+}: {
+  title: string;
+  role: PlatformRole;
+  onOpenProfile: () => void;
+  onOpenSettings: () => void;
+  onOpenContent: () => void;
+  onLogout: () => void;
+  profileMenuOpen: boolean;
+  setProfileMenuOpen: (value: boolean) => void;
+  sidebarOpen: boolean;
+  setSidebarOpen: (value: boolean) => void;
+}) {
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
-
-  const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
+  const space = ROLE_SPACE[role];
+  const initials = ROLE_LABELS[role]
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   useEffect(() => {
     if (!profileMenuOpen) return;
@@ -376,58 +568,137 @@ function Topbar({ title, onOpenSettings, onOpenContent, onLogout, profileMenuOpe
   }, [profileMenuOpen, setProfileMenuOpen]);
 
   return (
-    <header className="bg-card border-b border-border px-4 py-3 flex items-center gap-4 sticky top-0 z-10 md:px-6">
-      <button
-        type="button"
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-foreground transition hover:bg-secondary md:hidden"
-        aria-label={sidebarOpen ? "Fermer le menu" : "Ouvrir le menu"}
-      >
-        {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
-      </button>
-      <div className="flex-1">
-        <div className="flex items-center gap-3">
-          <h1 className="text-base font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>{title}</h1>
-          <a href="/" target="_blank" rel="noopener" className="text-sm text-[var(--sgi-blue)] hover:underline">Visiter le site</a>
+    <header className="sticky top-0 z-10 border-b border-border bg-card/90 backdrop-blur-md">
+      <div className="sgi-tricolor h-1 w-full" aria-hidden />
+      <div className="flex items-center gap-3 px-3 py-3 sm:gap-4 sm:px-6">
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-secondary text-foreground transition hover:bg-[var(--sgi-blue)]/10 md:hidden"
+          aria-label={sidebarOpen ? "Fermer le menu" : "Ouvrir le menu"}
+        >
+          {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="truncate font-display text-base font-semibold text-foreground sm:text-lg">
+              {title}
+            </h1>
+            <span className="hidden items-center rounded-md border border-[var(--sgi-gold)]/30 bg-[var(--sgi-gold)]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--sgi-gold)] sm:inline-flex">
+              {space.title}
+            </span>
+          </div>
+          <p className="mt-0.5 hidden text-xs text-muted-foreground sm:block">{space.subtitle}</p>
         </div>
-      </div>
-      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+        <a
+          href="/"
+          target="_blank"
+          rel="noopener"
+          className="hidden rounded-xl px-3 py-1.5 text-sm font-semibold text-[var(--sgi-blue)] transition hover:bg-[var(--sgi-blue)]/5 lg:inline-flex"
+        >
+          Site public
+        </a>
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition hover:border-[var(--sgi-gold)]/40 hover:text-[var(--sgi-gold)]"
+          aria-label={theme === "dark" ? "Activer le mode clair" : "Activer le mode sombre"}
+          title={theme === "dark" ? "Mode clair" : "Mode sombre"}
+        >
+          {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
         <div className="relative hidden sm:block">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
-            className="bg-muted rounded-lg pl-9 pr-4 py-1.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 ring-ring/40 w-52"
+            className="w-40 rounded-xl border border-border bg-secondary/60 py-2 pl-9 pr-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-[var(--sgi-blue)] focus:ring-2 focus:ring-[var(--sgi-blue)]/10 md:w-48"
             placeholder="Rechercher..."
           />
         </div>
-        <button type="button" className="relative w-8 h-8 rounded-lg bg-muted flex items-center justify-center hover:bg-secondary transition-colors">
-          <Bell size={14} className="text-muted-foreground" />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 rounded-full"></span>
+        <button
+          type="button"
+          className="relative hidden h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition hover:bg-secondary sm:inline-flex"
+        >
+          <Bell size={15} />
+          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-[var(--sgi-red)]" />
         </button>
-        <div ref={profileMenuRef} className="relative pl-2 border-l border-border">
+        <div ref={profileMenuRef} className="relative border-l border-border pl-2">
           <button
             type="button"
             onClick={() => setProfileMenuOpen(!profileMenuOpen)}
-            className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted transition-colors"
+            className="flex items-center gap-2 rounded-xl px-1.5 py-1.5 transition hover:bg-secondary sm:px-2"
           >
-            <div className="w-8 h-8 rounded-full border border-accent/30 bg-accent/10 text-accent text-xs font-semibold flex items-center justify-center">SG</div>
-            <span className="text-sm text-foreground hidden sm:block">Sec. Général</span>
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--sgi-blue)] text-xs font-bold text-white ring-2 ring-[var(--sgi-gold)]/35">
+              {initials}
+            </div>
+            <div className="hidden text-left sm:block">
+              <p className="text-sm font-semibold text-foreground">{ROLE_LABELS[role]}</p>
+              <p className="text-[11px] text-muted-foreground">{space.title}</p>
+            </div>
           </button>
           {profileMenuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-48 rounded-xl border border-border bg-card p-2 shadow-lg z-20">
-              <button type="button" onClick={() => { onOpenSettings(); setProfileMenuOpen(false); }} className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm hover:bg-muted">Profil & paramètres</button>
-              {(() => {
-                const role = window.localStorage.getItem("sgi-current-role");
-                if (role === "admin" || role === "centre") {
-                  return (
-                    <button type="button" onClick={() => { onOpenContent(); setProfileMenuOpen(false); }} className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm hover:bg-muted">Gérer le contenu</button>
-                  );
-                }
-                return null;
-              })()}
-              <button type="button" onClick={() => { onLogout(); setProfileMenuOpen(false); }} className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50">Déconnexion</button>
+            <div className="absolute right-0 top-full z-20 mt-2 w-56 rounded-2xl border border-border bg-card p-2 shadow-[var(--shadow-lift)]">
+              <button
+                type="button"
+                onClick={() => {
+                  toggleTheme();
+                  setProfileMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-secondary"
+              >
+                {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+                {theme === "dark" ? "Mode clair" : "Mode sombre"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenProfile();
+                  setProfileMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-secondary"
+              >
+                <UserRound size={15} />
+                Mon profil
+              </button>
+              {(role === "admin" || role === "centre") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenSettings();
+                    setProfileMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-secondary"
+                >
+                  <Settings size={15} />
+                  Paramètres
+                </button>
+              )}
+              {(role === "admin" || role === "centre") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenContent();
+                    setProfileMenuOpen(false);
+                  }}
+                  className="flex w-full items-center rounded-xl px-3 py-2.5 text-left text-sm hover:bg-secondary"
+                >
+                  Gérer le contenu
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  onLogout();
+                  setProfileMenuOpen(false);
+                }}
+                className="flex w-full items-center rounded-xl px-3 py-2.5 text-left text-sm text-[var(--sgi-red)] hover:bg-[var(--sgi-red)]/8"
+              >
+                Déconnexion
+              </button>
             </div>
           )}
         </div>
+      </div>
       </div>
     </header>
   );
@@ -435,164 +706,210 @@ function Topbar({ title, onOpenSettings, onOpenContent, onLogout, profileMenuOpe
 
 // ─── Dashboard Module ─────────────────────────────────────────────────────────
 
-function Dashboard() {
-  return (
-    <div className="p-6 flex flex-col gap-6">
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard label="Membres actifs" value="742" sub="+ 23 ce mois-ci" icon={Users} trend={3.2} color="bg-primary" />
-        <KpiCard label="Cotisations (Juil.)" value="4 120 000" sub="CDF collectés" icon={TrendingUp} trend={9.1} color="bg-accent" />
-        <KpiCard label="Vague de Paix actifs" value="318" sub="Abonnements en cours" icon={Globe} trend={5.4} color="bg-[#2E7D52]" />
-        <KpiCard label="Directives publiées" value="4" sub="Ce mois — 1 brouillon" icon={FileText} trend={undefined} color="bg-[#8B3A9E]" />
-      </div>
-
-      {/* Charts row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Line chart */}
-        <div className="lg:col-span-2 bg-card rounded-xl border border-border p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>Évolution des cotisations</div>
-              <div className="text-xs text-muted-foreground">6 derniers mois (CDF)</div>
-            </div>
-            <button className="flex items-center gap-1.5 text-xs text-muted-foreground border border-border rounded-lg px-3 py-1.5 hover:bg-muted transition-colors">
-              <Download size={12} /> Exporter
-            </button>
-          </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <ComposedChart data={cotisationsMensuelles} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
-              <XAxis dataKey="mois" tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="left" tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
-              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false} />
-              <Tooltip
-                contentStyle={{ background: "#fff", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 8, fontSize: 12 }}
-                formatter={(v: number, name: string) => [name === "montant" ? `${fmt(v)} CDF` : `${v} membres`, name === "montant" ? "Cotisations" : "Membres"]}
-              />
-              <Area yAxisId="left" type="monotone" dataKey="montant" fill="rgba(26,52,112,0.08)" stroke="#1A3470" strokeWidth={2} dot={{ fill: "#1A3470", r: 3 }} />
-              <Bar yAxisId="right" dataKey="membres" fill="rgba(196,146,14,0.25)" radius={[3, 3, 0, 0]} barSize={16} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Pie chart */}
-        <div className="bg-card rounded-xl border border-border p-5">
-          <div className="text-sm font-semibold text-foreground mb-0.5" style={{ fontFamily: "var(--font-display)" }}>Répartition Dons Zaimu</div>
-          <div className="text-xs text-muted-foreground mb-3">Par catégorie (Juil. 2024)</div>
-          <ResponsiveContainer width="100%" height={160}>
-            <PieChart>
-              <Pie data={donsZaimu} cx="50%" cy="50%" innerRadius={45} outerRadius={72} paddingAngle={3} dataKey="value">
-                {donsZaimu.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-              </Pie>
-              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} formatter={(v: number) => [`${v}%`]} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="flex flex-col gap-1.5 mt-2">
-            {donsZaimu.map((d) => (
-              <div key={d.name} className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: d.color }} />
-                  <span className="text-foreground">{d.name}</span>
-                </div>
-                <span className="font-medium text-muted-foreground">{d.value}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Recent directives */}
-      <div className="bg-card rounded-xl border border-border p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>Dernières directives</div>
-          <span className="text-xs text-[#1A3470] font-medium cursor-pointer hover:underline">Voir toutes →</span>
-        </div>
-        <div className="flex flex-col gap-0">
-          {directives.slice(0, 3).map((d, i) => (
-            <div key={d.id} className={`flex items-start gap-4 py-3 ${i < 2 ? "border-b border-border" : ""}`}>
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "#EFF2F8" }}>
-                <BookOpen size={13} className="text-[#1A3470]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium text-foreground truncate">{d.titre}</span>
-                  <PrioriteBadge priorite={d.priorite} />
-                  <StatutBadge statut={d.statut} />
-                </div>
-                <div className="text-xs text-muted-foreground mt-0.5">{d.audience} · {d.date}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+function Dashboard({ role }: { role: PlatformRole }) {
+  return <RoleDashboard role={role} />;
 }
 
 // ─── Membres Module ───────────────────────────────────────────────────────────
 
-function MembreDetail({ membre, onClose }: { membre: typeof membres[0]; onClose: () => void }) {
+function MembreDetailField({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-lg border border-border" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-border">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground font-bold text-sm flex items-center justify-center">
-              {membre.prenom[0]}{membre.nom[0]}
-            </div>
-            <div>
-              <div className="font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>{membre.prenom} {membre.nom}</div>
-              <div className="text-xs text-muted-foreground">{membre.chapitre}</div>
+    <div className="rounded-2xl border border-border/80 bg-background/50 p-3.5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+      <div className="mt-1.5 break-words text-sm font-semibold text-foreground">{value}</div>
+    </div>
+  );
+}
+
+function MembreDetail({ membre, onClose }: { membre: typeof membres[0]; onClose: () => void }) {
+  const zoPaye = getMemberZaimuPaid(COLLECTES_SEED, membre, "zaimu-ordinaire");
+  const zsPaye = getMemberZaimuPaid(COLLECTES_SEED, membre, "zaimu-special");
+  const zsAssigne = getMemberSpecialAssignment(ZAIMU_SPECIAL_CAMPAIGN, membre);
+  const zsReste = Math.max(0, zsAssigne - zsPaye);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-[var(--sgi-blue-deep)]/45 p-0 backdrop-blur-[3px] sm:items-center sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[94vh] w-full max-w-xl flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-[var(--shadow-lift)] sm:rounded-3xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sgi-tricolor h-1.5 w-full shrink-0" aria-hidden />
+
+        <div
+          className="relative shrink-0 overflow-hidden px-5 pb-5 pt-4 sm:px-6 sm:pt-5"
+          style={{
+            background:
+              "radial-gradient(ellipse 80% 120% at 0% 0%, rgba(200,151,26,0.18), transparent 55%), radial-gradient(ellipse 70% 100% at 100% 0%, rgba(10,47,82,0.14), transparent 50%), linear-gradient(180deg, color-mix(in srgb, var(--sgi-blue) 8%, transparent), transparent)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/80 bg-card/80 text-muted-foreground backdrop-blur hover:bg-muted hover:text-foreground"
+            aria-label="Fermer"
+          >
+            <X size={16} />
+          </button>
+
+          <div className="flex items-start gap-3 pr-12">
+            <MemberAvatar
+              photo={membre.photo}
+              prenom={membre.prenom}
+              nom={membre.nom}
+              size="xl"
+              className="shadow-md"
+            />
+            <div className="min-w-0 pt-0.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatutBadge statut={membre.statut} />
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${
+                    membre.responsabilite === "Membre" || membre.responsabilite === "Membre simple"
+                      ? "bg-muted text-muted-foreground"
+                      : "bg-[var(--sgi-gold)]/15 text-[var(--sgi-gold)]"
+                  }`}
+                >
+                  {membre.responsabilite === "Membre" ? "Membre simple" : membre.responsabilite}
+                </span>
+              </div>
+              <h3 className="mt-2 font-display text-xl font-semibold leading-tight text-foreground sm:text-2xl">
+                {membre.prenom} {membre.nom}
+              </h3>
+              <p className="mt-1 text-sm text-muted-foreground">{membre.chapitre}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted transition-colors"><X size={16} /></button>
+
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <a
+              href={`mailto:${membre.email}`}
+              className="rounded-2xl border border-border bg-card/90 px-3.5 py-3 text-sm shadow-sm backdrop-blur transition hover:border-[var(--sgi-blue)]/30"
+            >
+              <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Email</p>
+              <p className="mt-1 truncate font-medium text-[var(--sgi-blue)]">{membre.email}</p>
+            </a>
+            <a
+              href={`tel:${membre.telephone}`}
+              className="rounded-2xl border border-border bg-card/90 px-3.5 py-3 text-sm shadow-sm backdrop-blur transition hover:border-[var(--sgi-blue)]/30"
+            >
+              <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Téléphone</p>
+              <p className="mt-1 font-medium text-foreground">{membre.telephone}</p>
+            </a>
+          </div>
         </div>
-        <div className="p-5 grid grid-cols-2 gap-4 text-sm">
-          {[
-            ["Date de naissance", membre.dateNaissance],
-            ["Département", membre.departement],
-            ["Catégorie", membre.categorie],
-            ["Responsabilité", membre.responsabilite],
-            ["Date de début de pratique", membre.dateDebutPratique],
-            ["Vague de Paix (année en cours)", membre.abonnementVaguePaix ? <span className="text-emerald-600 font-medium">Oui</span> : <span className="text-muted-foreground">Non</span>],
-            ["Quartier", membre.quartier],
-            ["District", membre.district],
-            ["Statut", <StatutBadge statut={membre.statut} />],
-            ["Cotisation", <StatutBadge statut={membre.cotisation} />],
-            ["Abonnement", membre.abonnement ? <span className="text-emerald-600 font-medium">Abonné</span> : <span className="text-muted-foreground">Non abonné</span>],
-            ["Adhésion", membre.adhesion],
-            ["Email", membre.email],
-            ["Téléphone", membre.telephone],
-          ].map(([label, val], i) => (
-            <div key={i}>
-              <div className="text-xs text-muted-foreground mb-1">{label as string}</div>
-              <div className="text-foreground font-medium">{val as any}</div>
+
+        <div className="overflow-y-auto px-5 py-5 sm:px-6">
+          <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Identité & pratique</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <MembreDetailField label="Date de naissance" value={membre.dateNaissance} />
+            <MembreDetailField label="Catégorie" value={membre.categorie} />
+            <MembreDetailField label="Département" value={membre.departement} />
+            <MembreDetailField label="Début de pratique" value={membre.dateDebutPratique} />
+            <MembreDetailField label="Adhésion" value={membre.adhesion} />
+            <MembreDetailField
+              label="Vague de Paix"
+              value={
+                membre.abonnementVaguePaix ? (
+                  <span className="text-emerald-600 dark:text-emerald-400">Abonné (année en cours)</span>
+                ) : (
+                  "Non abonné"
+                )
+              }
+            />
+            <MembreDetailField
+              label="Sokahan"
+              value={
+                membre.sokahan ? (
+                  <span className="text-emerald-600 dark:text-emerald-400">Oui</span>
+                ) : (
+                  "Non"
+                )
+              }
+            />
+          </div>
+
+          <p className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Organisation</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <MembreDetailField
+              label="Responsabilité"
+              value={membre.responsabilite === "Membre" ? "Membre simple" : membre.responsabilite}
+            />
+            <MembreDetailField label="Quartier" value={membre.quartier} />
+            <MembreDetailField label="District" value={membre.district} />
+            <MembreDetailField label="Groupe" value={membre.groupe} />
+            <MembreDetailField
+              label="Abonnement"
+              value={
+                membre.abonnement ? (
+                  <span className="text-emerald-600 dark:text-emerald-400">Actif</span>
+                ) : (
+                  "Inactif"
+                )
+              }
+            />
+          </div>
+
+          <p className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Zaimu</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-[var(--sgi-gold)]/25 bg-[var(--sgi-gold)]/10 p-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--sgi-gold)]">Zaimu ordinaire</p>
+              <p className="mt-1 font-display text-2xl font-bold text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
+                {formatCdf(zoPaye)}
+              </p>
+              <p className="text-xs text-muted-foreground">CDF payés (validés)</p>
             </div>
-          ))}
+            <div className="rounded-2xl border border-[var(--sgi-red)]/25 bg-[var(--sgi-red)]/10 p-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--sgi-red)]">Zaimu spécial (cota)</p>
+              <p className="mt-1 font-display text-xl font-bold text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
+                {formatCdf(zsPaye)} / {formatCdf(zsAssigne)}
+              </p>
+              <p className="text-xs text-muted-foreground">Payé / assigné · reste {formatCdf(zsReste)} CDF</p>
+            </div>
+          </div>
         </div>
-        <div className="px-5 pb-5 border-t border-border pt-4 grid grid-cols-2 gap-3">
-          <div className="bg-muted rounded-lg p-3">
-            <div className="text-xs text-muted-foreground">Total cotisations</div>
-            <div className="text-base font-bold text-foreground mt-0.5" style={{ fontFamily: "var(--font-mono)" }}>{fmt(membre.totalCotisations)} CDF</div>
-          </div>
-          <div className="bg-muted rounded-lg p-3">
-            <div className="text-xs text-muted-foreground">Total dons zaimu</div>
-            <div className="text-base font-bold text-foreground mt-0.5" style={{ fontFamily: "var(--font-mono)" }}>{fmt(membre.totalDons)} CDF</div>
-          </div>
+
+        <div className="border-t border-border px-5 py-4 sm:px-6">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full rounded-xl bg-[var(--sgi-blue)] px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 sm:ml-auto sm:w-auto"
+          >
+            Fermer
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-function Membres() {
-  const [chapitreFilter, setChapitreFilter] = useState("Tous");
-  const [districtFilter, setDistrictFilter] = useState("Tous");
+type MembresTab = "liste" | "indicateurs" | "cota" | "import-export";
+
+const MEMBRES_TABS: { key: MembresTab; label: string; short: string; icon: typeof Users; hint: string }[] = [
+  { key: "liste", label: "Liste des membres", short: "Liste", icon: Users, hint: "Recherche, filtres, ajout et fiches" },
+  { key: "indicateurs", label: "Indicateurs", short: "Indicateurs", icon: BarChart3, hint: "Effectifs et bilans par période" },
+  { key: "cota", label: "Cota Zaimu", short: "Cota Zaimu", icon: Target, hint: "Assigné, payé et reste par niveau" },
+  { key: "import-export", label: "Import & export", short: "Import / Export", icon: FileUp, hint: "Template, import Excel, export PDF/Excel" },
+];
+
+function Membres({ role }: { role: PlatformRole }) {
+  const orgScope = DEMO_ORG_SCOPE[role];
+  const [activeTab, setActiveTab] = useState<MembresTab>("liste");
+  const [chapitreFilter, setChapitreFilter] = useState(orgScope.chapitre || "Tous");
+  const [districtFilter, setDistrictFilter] = useState(orgScope.district || "Tous");
   const [statutFilter, setStatutFilter] = useState("Tous");
+  const [responsabiliteFilter, setResponsabiliteFilter] = useState("Tous");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<typeof membres[0] | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [formValues, setFormValues] = useState({
+  const emptyForm = {
     prenom: "",
     nom: "",
     email: "",
@@ -600,28 +917,52 @@ function Membres() {
     dateNaissance: "",
     departement: "",
     categorie: "Homme",
-    responsabilite: "Membre",
+    responsabilite: "Membre simple",
     dateDebutPratique: "",
     abonnementVaguePaix: true,
+    sokahan: false,
     quartier: "",
-    chapitre: CHAPITRES[1],
-    district: DISTRICTS[1],
+    chapitre: orgScope.chapitre || CHAPITRES[1],
+    district: orgScope.district || DISTRICTS[1],
+    groupe: orgScope.groupe || "Groupe A",
     statut: "Actif",
-    cotisation: "À jour",
     abonnement: true,
-  });
+    photo: "",
+  };
+  const [formValues, setFormValues] = useState(emptyForm);
   const [members, setMembers] = useState(membres);
   const [formError, setFormError] = useState("");
+  const scopedMembers = useMemo(() => filterMembersByScope(members, orgScope), [members, orgScope]);
 
-  const cotisationOptions = ["À jour", "En retard", "Non renseigné"];
+  const handlePhotoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setFormError("Veuillez sélectionner une image (JPG, PNG, WEBP…).");
+      return;
+    }
+    if (file.size > 2.5 * 1024 * 1024) {
+      setFormError("La photo ne doit pas dépasser 2,5 Mo.");
+      return;
+    }
+    try {
+      const photo = await readImageAsDataUrl(file);
+      setFormValues((prev) => ({ ...prev, photo }));
+      setFormError("");
+    } catch {
+      setFormError("Impossible de lire la photo. Réessayez.");
+    }
+  };
 
-  const filtered = useMemo(() => members.filter((m) => {
+  const filtered = useMemo(() => scopedMembers.filter((m) => {
     if (chapitreFilter !== "Tous" && m.chapitre !== chapitreFilter) return false;
     if (districtFilter !== "Tous" && m.district !== districtFilter) return false;
     if (statutFilter !== "Tous" && m.statut !== statutFilter) return false;
+    const roleLabel = m.responsabilite === "Membre" ? "Membre simple" : m.responsabilite;
+    if (responsabiliteFilter !== "Tous" && roleLabel !== responsabiliteFilter) return false;
     if (search && !`${m.prenom} ${m.nom}`.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
-  }), [chapitreFilter, districtFilter, statutFilter, search, members]);
+  }), [chapitreFilter, districtFilter, statutFilter, responsabiliteFilter, search, scopedMembers]);
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -633,62 +974,140 @@ function Membres() {
     const newMember = createMemberFromForm(formValues, members as any);
     setMembers((prev) => [newMember, ...prev]);
     setShowForm(false);
-    setFormValues({
-      prenom: "",
-      nom: "",
-      email: "",
-      telephone: "",
-      dateNaissance: "",
-      departement: "",
-      categorie: "Homme",
-      responsabilite: "Membre",
-      dateDebutPratique: "",
-      abonnementVaguePaix: true,
-      quartier: "",
-      chapitre: CHAPITRES[1],
-      district: DISTRICTS[1],
-      statut: "Actif",
-      cotisation: "À jour",
-      abonnement: true,
-    });
+    setFormValues(emptyForm);
     setFormError("");
   };
 
+  const currentTab = MEMBRES_TABS.find((t) => t.key === activeTab) ?? MEMBRES_TABS[0];
+
   return (
-    <div className="p-6 flex flex-col gap-4">
+    <div className="dash-page gap-5 sm:gap-6">
       {selected && <MembreDetail membre={selected} onClose={() => setSelected(null)} />}
 
-      <div className="bg-card rounded-xl border border-border p-4 flex flex-wrap gap-3 items-end">
-        <div className="flex-1 min-w-40">
-          <label className="text-xs text-muted-foreground mb-1 block font-medium">Recherche</label>
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <div className="sgi-tricolor h-1.5 w-full" aria-hidden />
+        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end sm:justify-between sm:p-5">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--sgi-gold)]">
+              {ROLE_LABELS[role]} · Membres
+            </p>
+            <h2 className="mt-1 font-display text-xl font-semibold text-foreground">{currentTab.label}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{currentTab.hint}</p>
+          </div>
+          <p className="text-xs text-muted-foreground">{orgScope.label}</p>
+        </div>
+        <div className="flex gap-1 overflow-x-auto border-t border-border px-2 py-2 sm:px-3">
+          {MEMBRES_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const active = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => {
+                  setActiveTab(tab.key);
+                  if (tab.key !== "liste") setShowForm(false);
+                }}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                  active
+                    ? "bg-[var(--sgi-blue)] text-white shadow-sm"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                }`}
+              >
+                <Icon size={15} />
+                <span className="whitespace-nowrap">{tab.short}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {activeTab === "indicateurs" && (
+        <MembersKpiPanel role={role} members={members} collectes={COLLECTES_SEED} />
+      )}
+
+      {activeTab === "cota" && (
+        <ZaimuQuotaPanel role={role} collectes={COLLECTES_SEED} />
+      )}
+
+      {activeTab === "import-export" && (
+        <MembersImportExportBar
+          members={members}
+          filteredMembers={filtered}
+          collectes={COLLECTES_SEED}
+          scopeLabel={orgScope.label}
+          onImport={(imported) => setMembers((prev) => [...imported, ...prev])}
+        />
+      )}
+
+      {activeTab === "liste" && (
+      <>
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:flex-row sm:flex-wrap sm:items-end">
+        <div className="w-full min-w-0 flex-1 sm:min-w-[12rem]">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Recherche</label>
           <div className="relative">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input value={search} onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-input-background border border-border rounded-lg pl-8 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 ring-ring/30"
+              className="dash-field pl-8"
               placeholder="Nom du membre..." />
           </div>
         </div>
         {[
-          ["Chapitre", CHAPITRES, chapitreFilter, setChapitreFilter],
-          ["District", DISTRICTS, districtFilter, setDistrictFilter],
-          ["Statut", STATUTS, statutFilter, setStatutFilter],
-        ].map(([label, opts, val, set]: any) => (
-          <div key={label} className="min-w-36">
-            <label className="text-xs text-muted-foreground mb-1 block font-medium">{label}</label>
-            <select value={val} onChange={(e) => set(e.target.value)}
-              className="w-full bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:ring-2 ring-ring/30">
+          ["Chapitre", CHAPITRES, chapitreFilter, setChapitreFilter, Boolean(orgScope.chapitre)],
+          ["District", DISTRICTS, districtFilter, setDistrictFilter, Boolean(orgScope.district)],
+          ["Statut", STATUTS, statutFilter, setStatutFilter, false],
+          ["Responsabilité", RESPONSABILITE_FILTERS, responsabiliteFilter, setResponsabiliteFilter, false],
+        ].map(([label, opts, val, set, locked]: any) => (
+          <div key={label} className="w-full min-w-0 sm:w-auto sm:min-w-[9rem]">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">{label}</label>
+            <select
+              value={val}
+              disabled={locked}
+              onChange={(e) => set(e.target.value)}
+              className="dash-field disabled:cursor-not-allowed disabled:opacity-70"
+            >
               {opts.map((o: string) => <option key={o}>{o}</option>)}
             </select>
           </div>
         ))}
-        <button onClick={() => setShowForm((prev) => !prev)} className="ml-auto flex items-center gap-2 bg-primary text-primary-foreground text-sm font-medium px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">
+        <button type="button" onClick={() => setShowForm((prev) => !prev)} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--sgi-blue)] px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 sm:ml-auto sm:w-auto">
           <Plus size={14} /> {showForm ? "Fermer" : "Nouveau membre"}
         </button>
       </div>
 
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-card rounded-xl border border-border p-4 grid gap-4 md:grid-cols-2">
-          {formError && <div className="md:col-span-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</div>}
+        <form onSubmit={handleSubmit} className="grid gap-4 rounded-xl border border-border bg-card p-4 md:grid-cols-2">
+          {formError && <div className="rounded-lg border border-[var(--sgi-red)]/25 bg-[var(--sgi-red)]/10 px-3 py-2 text-sm text-[var(--sgi-red-deep)] dark:text-[var(--sgi-red-soft)] md:col-span-2">{formError}</div>}
+
+          <div className="md:col-span-2 rounded-2xl border border-dashed border-[var(--sgi-blue)]/25 bg-secondary/40 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Photo du membre</p>
+            <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center">
+              <MemberAvatar
+                photo={formValues.photo}
+                prenom={formValues.prenom || "N"}
+                nom={formValues.nom || "M"}
+                size="xl"
+              />
+              <div className="min-w-0 flex-1 space-y-2">
+                <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-[var(--sgi-blue)] px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90">
+                  <Camera size={15} />
+                  {formValues.photo ? "Changer la photo" : "Ajouter une photo"}
+                  <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                </label>
+                {formValues.photo && (
+                  <button
+                    type="button"
+                    onClick={() => setFormValues((prev) => ({ ...prev, photo: "" }))}
+                    className="ml-0 block text-sm font-medium text-[var(--sgi-red)] hover:underline sm:ml-3 sm:inline"
+                  >
+                    Retirer la photo
+                  </button>
+                )}
+                <p className="text-xs text-muted-foreground">JPG, PNG ou WEBP — 2,5 Mo max. Affichée dans la liste et la fiche détail.</p>
+              </div>
+            </div>
+          </div>
+
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Prénom</label>
             <input required value={formValues.prenom} onChange={(e) => setFormValues((prev) => ({ ...prev, prenom: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm" />
@@ -720,10 +1139,23 @@ function Membres() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Responsabilité</label>
-            <select value={formValues.responsabilite} onChange={(e) => setFormValues((prev) => ({ ...prev, responsabilite: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm">
-              {['Membre', 'Responsable centre', 'Responsable chapitre', 'Responsable district', 'Responsable groupe'].map((option) => <option key={option}>{option}</option>)}
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              Responsabilité
+            </label>
+            <select
+              value={formValues.responsabilite}
+              onChange={(e) => setFormValues((prev) => ({ ...prev, responsabilite: e.target.value }))}
+              className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm"
+            >
+              {RESPONSABILITES.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
             </select>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Précise si le membre est un membre simple ou un responsable.
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Date de début de pratique</label>
@@ -746,21 +1178,25 @@ function Membres() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Statut</label>
-            <select value={formValues.statut} onChange={(e) => setFormValues((prev) => ({ ...prev, statut: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm">
-              {STATUTS.filter((s) => s !== "Tous").map((s) => <option key={s}>{s}</option>)}
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Groupe</label>
+            <select value={formValues.groupe} onChange={(e) => setFormValues((prev) => ({ ...prev, groupe: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm">
+              {["Groupe A", "Groupe B", "Groupe C", "Groupe D"].map((g) => <option key={g}>{g}</option>)}
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Cotisation</label>
-            <select value={formValues.cotisation} onChange={(e) => setFormValues((prev) => ({ ...prev, cotisation: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm">
-              {cotisationOptions.map((option) => <option key={option}>{option}</option>)}
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Statut</label>
+            <select value={formValues.statut} onChange={(e) => setFormValues((prev) => ({ ...prev, statut: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm">
+              {STATUTS.filter((s) => s !== "Tous").map((s) => <option key={s}>{s}</option>)}
             </select>
           </div>
           <div className="md:col-span-2 flex flex-wrap gap-4">
             <label className="flex items-center gap-2 text-sm text-muted-foreground">
               <input type="checkbox" checked={formValues.abonnementVaguePaix} onChange={(e) => setFormValues((prev) => ({ ...prev, abonnementVaguePaix: e.target.checked }))} />
               Abonnement Vague de Paix de l’année en cours
+            </label>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input type="checkbox" checked={formValues.sokahan} onChange={(e) => setFormValues((prev) => ({ ...prev, sokahan: e.target.checked }))} />
+              Sokahan (possède le Gohonzon)
             </label>
             <label className="flex items-center gap-2 text-sm text-muted-foreground">
               <input type="checkbox" checked={formValues.abonnement} onChange={(e) => setFormValues((prev) => ({ ...prev, abonnement: e.target.checked }))} />
@@ -775,57 +1211,105 @@ function Membres() {
       )}
 
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <div className="px-5 py-3 border-b border-border flex items-center justify-between">
+        <div className="px-5 py-3 border-b border-border flex items-center justify-between gap-3">
           <span className="text-sm font-medium text-foreground">{filtered.length} membre{filtered.length !== 1 ? "s" : ""}</span>
-          <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-            <Download size={12} /> Exporter
+          <button
+            type="button"
+            onClick={() => setActiveTab("import-export")}
+            className="text-xs font-medium text-[var(--sgi-blue)] hover:underline"
+          >
+            Import / Export →
           </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                {["Membre", "Chapitre", "District", "Statut", "Cotisation", "Vague de Paix", "Actions"].map((h) => (
+                {["Membre", "Responsabilité", "Chapitre", "District", "Statut", "Zaimu ord.", "Zaimu sp. (payé/cota)", "Vague de Paix", "Actions"].map((h) => (
                   <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {filtered.map((m, i) => (
+              {filtered.map((m, i) => {
+                const zoPaye = getMemberZaimuPaid(COLLECTES_SEED, m, "zaimu-ordinaire");
+                const zsPaye = getMemberZaimuPaid(COLLECTES_SEED, m, "zaimu-special");
+                const zsAssigne = getMemberSpecialAssignment(ZAIMU_SPECIAL_CAMPAIGN, m);
+                const zsReste = Math.max(0, zsAssigne - zsPaye);
+                return (
                 <tr key={m.id} className={`border-b border-border hover:bg-muted/30 transition-colors ${i === filtered.length - 1 ? "border-b-0" : ""}`}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-primary/10 text-primary font-semibold text-xs flex items-center justify-center flex-shrink-0">
-                        {m.prenom[0]}{m.nom[0]}
-                      </div>
+                      <MemberAvatar photo={m.photo} prenom={m.prenom} nom={m.nom} size="sm" />
                       <div>
                         <div className="font-medium text-foreground">{m.prenom} {m.nom}</div>
                         <div className="text-xs text-muted-foreground">{m.email}</div>
                       </div>
                     </div>
                   </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                        (m.responsabilite === "Membre" || m.responsabilite === "Membre simple")
+                          ? "bg-muted text-muted-foreground"
+                          : "bg-[var(--sgi-gold)]/15 text-[var(--sgi-gold)]"
+                      }`}
+                    >
+                      {m.responsabilite === "Membre" ? "Membre simple" : m.responsabilite}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">{m.chapitre.split("–")[1]?.trim()}</td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">{m.district}</td>
                   <td className="px-4 py-3"><StatutBadge statut={m.statut} /></td>
-                  <td className="px-4 py-3"><StatutBadge statut={m.cotisation} /></td>
+                  <td className="px-4 py-3 font-mono text-xs text-foreground">{formatCdf(zoPaye)}</td>
                   <td className="px-4 py-3">
-                    {m.abonnement
+                    <div className="font-mono text-xs text-foreground">{formatCdf(zsPaye)} / {formatCdf(zsAssigne)}</div>
+                    <div className="text-[10px] text-muted-foreground">Reste {formatCdf(zsReste)}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {m.abonnementVaguePaix
                       ? <CheckCircle size={14} className="text-emerald-500" />
                       : <span className="text-xs text-muted-foreground">—</span>}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => setSelected(m)} className="p-1.5 rounded hover:bg-muted transition-colors" title="Voir détail"><Eye size={13} className="text-muted-foreground" /></button>
-                      <button className="p-1.5 rounded hover:bg-muted transition-colors" title="Modifier"><Edit2 size={13} className="text-muted-foreground" /></button>
-                      <button className="p-1.5 rounded hover:bg-muted transition-colors" title="Désactiver"><UserX size={13} className="text-muted-foreground" /></button>
-                    </div>
+                    <RowActionsMenu
+                      actions={[
+                        {
+                          label: "Voir le détail",
+                          icon: <Eye size={14} />,
+                          onClick: () => setSelected(m),
+                        },
+                        {
+                          label: "Modifier",
+                          icon: <Edit2 size={14} />,
+                          onClick: () => setSelected(m),
+                        },
+                        {
+                          label: "Désactiver",
+                          icon: <UserX size={14} />,
+                          tone: "danger",
+                          onClick: () => {
+                            if (window.confirm(`Désactiver ${m.prenom} ${m.nom} ?`)) {
+                              setMembers((prev) =>
+                                prev.map((member) =>
+                                  member.id === m.id ? { ...member, statut: "Suspendu" } : member,
+                                ),
+                              );
+                            }
+                          },
+                        },
+                      ]}
+                    />
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -849,21 +1333,21 @@ function Finances() {
   }), []);
 
   return (
-    <div className="p-6 flex flex-col gap-4">
+    <div className="dash-page">
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
         {[
-          { label: "Cotisations validées", value: totaux.cotisations, color: "text-[#1A3470]", bg: "bg-[#1A3470]/8" },
-          { label: "Dons Zaimu validés", value: totaux.dons, color: "text-[#C4920E]", bg: "bg-[#C4920E]/8" },
-          { label: "Abonnements validés", value: totaux.abonnements, color: "text-purple-600", bg: "bg-purple-50" },
+          { label: "Cotisations validées", value: totaux.cotisations, color: "text-[var(--sgi-blue)]", bg: "bg-[var(--sgi-blue)]/10" },
+          { label: "Dons Zaimu validés", value: totaux.dons, color: "text-[var(--sgi-gold)]", bg: "bg-[var(--sgi-gold)]/15" },
+          { label: "Abonnements validés", value: totaux.abonnements, color: "text-[var(--sgi-red)]", bg: "bg-[var(--sgi-red)]/10" },
         ].map(({ label, value, color, bg }) => (
-          <div key={label} className={`bg-card rounded-xl border border-border p-4 flex items-center gap-3`}>
+          <div key={label} className="flex items-center gap-3 rounded-xl border border-border bg-card p-4">
             <div className={`${bg} ${color} rounded-lg p-2.5`}>
               <Wallet size={16} />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="text-xs text-muted-foreground">{label}</div>
-              <div className={`text-lg font-bold ${color}`} style={{ fontFamily: "var(--font-mono)" }}>{fmt(value)}</div>
+              <div className={`truncate text-lg font-bold ${color}`} style={{ fontFamily: "var(--font-mono)" }}>{fmt(value)}</div>
               <div className="text-xs text-muted-foreground">CDF</div>
             </div>
           </div>
@@ -883,18 +1367,18 @@ function Finances() {
           {showForm ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>
         {showForm && (
-          <div className="border-t border-border px-5 py-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 gap-3 border-t border-border px-4 py-4 sm:grid-cols-2 sm:px-5 md:grid-cols-4">
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block font-medium">Type</label>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Type</label>
               <select value={formType} onChange={(e) => setFormType(e.target.value)}
-                className="w-full bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:ring-2 ring-ring/30">
+                className="dash-field">
                 {["Cotisation", "Don Zaimu", "Abonnement"].map((t) => <option key={t}>{t}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block font-medium">Membre</label>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Membre</label>
               <select value={formMembre} onChange={(e) => setFormMembre(e.target.value)}
-                className="w-full bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:ring-2 ring-ring/30">
+                className="dash-field">
                 <option value="">Sélectionner...</option>
                 {membres.map((m) => <option key={m.id}>{m.prenom} {m.nom}</option>)}
               </select>
@@ -916,12 +1400,12 @@ function Finances() {
 
       {/* Transactions table */}
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <div className="px-5 py-3 border-b border-border flex items-center gap-3">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:px-5">
           <span className="text-sm font-medium text-foreground">Transactions récentes</span>
-          <div className="flex gap-1.5 ml-auto">
+          <div className="flex flex-wrap gap-1.5 sm:ml-auto">
             {types.map((t) => (
-              <button key={t} onClick={() => setTypeFilter(t)}
-                className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${typeFilter === t ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-secondary"}`}>
+              <button key={t} type="button" onClick={() => setTypeFilter(t)}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${typeFilter === t ? "bg-[var(--sgi-blue)] text-white" : "bg-muted text-muted-foreground hover:bg-secondary"}`}>
                 {t}
               </button>
             ))}
@@ -993,7 +1477,7 @@ function Directives() {
   const [expanded, setExpanded] = useState<number | null>(null);
 
   return (
-    <div className="p-6 flex flex-col gap-4">
+    <div className="dash-page">
       {/* Editor */}
       <div className="bg-card rounded-xl border border-border overflow-hidden">
         <button
@@ -1036,11 +1520,11 @@ function Directives() {
                 rows={6} placeholder="Rédigez ici le contenu de la directive..."
                 className="w-full bg-input-background border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 ring-ring/30 resize-y" />
             </div>
-            <div className="flex gap-2">
-              <button className="flex items-center gap-2 bg-primary text-primary-foreground text-sm font-medium px-4 py-2 rounded-lg hover:opacity-90 transition-opacity">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <button type="button" className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--sgi-blue)] px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90">
                 <Send size={13} /> Publier
               </button>
-              <button className="flex items-center gap-2 bg-muted text-muted-foreground text-sm font-medium px-4 py-2 rounded-lg hover:bg-secondary transition-colors">
+              <button type="button" className="inline-flex items-center justify-center gap-2 rounded-lg bg-muted px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary">
                 Sauvegarder brouillon
               </button>
             </div>
@@ -1070,10 +1554,10 @@ function Directives() {
                     <StatutBadge statut={d.statut} />
                   </div>
                 </div>
-                <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1"><Calendar size={10} /> {d.date}</span>
-                  <span className="flex items-center gap-1"><Target size={10} /> {d.audience}</span>
-                  <span className="flex items-center gap-1"><BookOpen size={10} /> {d.auteur}</span>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1"><Calendar size={10} /> {d.date}</span>
+                  <span className="inline-flex items-center gap-1"><Target size={10} /> {d.audience}</span>
+                  <span className="inline-flex items-center gap-1"><BookOpen size={10} /> {d.auteur}</span>
                 </div>
               </button>
               {expanded === d.id && (
@@ -1215,28 +1699,45 @@ function Statistiques() {
   };
 
   return (
-    <div className="p-6 flex flex-col gap-4">
-      <div className="bg-card rounded-xl border border-border p-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div className="text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>Exporter les statistiques</div>
-          <div className="text-xs text-muted-foreground">Générez un PDF ou un fichier Excel pour la période choisie.</div>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-muted-foreground">Du :</label>
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-lg border border-border bg-input-background px-3 py-2 text-sm outline-none" />
+    <div className="dash-page">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="sgi-tricolor h-1.5 w-full" aria-hidden />
+        <div className="flex flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+              Exporter les statistiques
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Rapport PDF / Excel structuré pour la période sélectionnée.
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-muted-foreground">Au :</label>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="rounded-lg border border-border bg-input-background px-3 py-2 text-sm outline-none" />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={exportStatsPdf} className="inline-flex items-center gap-2 rounded-full bg-[var(--sgi-blue)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0d3660]">
-              <Download size={14} /> Exporter PDF
-            </button>
-            <button onClick={exportStatsExcel} className="inline-flex items-center gap-2 rounded-full border border-border bg-white px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted">
-              <Download size={14} /> Exporter Excel
-            </button>
+          <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end lg:w-auto">
+            <div className="grid flex-1 grid-cols-2 gap-2 sm:flex-none">
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Du</span>
+                <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="dash-field" />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Au</span>
+                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="dash-field" />
+              </label>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:flex">
+              <button
+                type="button"
+                onClick={exportStatsPdf}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--sgi-blue)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+              >
+                <Download size={14} /> Export PDF
+              </button>
+              <button
+                type="button"
+                onClick={exportStatsExcel}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--sgi-gold)]/40 bg-[var(--sgi-gold)]/10 px-4 py-2.5 text-sm font-semibold text-[var(--sgi-gold)] transition hover:bg-[var(--sgi-gold)]/20"
+              >
+                <Download size={14} /> Export Excel
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1360,29 +1861,19 @@ function Statistiques() {
 
 // ─── Settings Module ───────────────────────────────────────────────────────
 
-type SettingsTab = "profile" | "users" | "rbac" | "general";
+type SettingsTab = "users" | "rbac" | "general";
 
 function SettingsModule({ currentUserRole }: { currentUserRole: PlatformRole }) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("users");
   const [profiles, setProfiles] = useState(INITIAL_PROFILES);
   const [selectedRole, setSelectedRole] = useState<PlatformRole>("admin");
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(INITIAL_PROFILES[0]);
   const [rbacMatrix, setRbacMatrix] = useState(RBAC_MATRIX);
   const [appSettings, setAppSettings] = useState({ darkMode: false, emailAlerts: true, autoUpdates: false });
-  const [currentUserEdits, setCurrentUserEdits] = useState<Profile | null>(null);
-
-  const currentUserProfile = useMemo(() => profiles.find((profile) => profile.role === currentUserRole) ?? profiles[0], [profiles, currentUserRole]);
-
-  useEffect(() => {
-    setCurrentUserEdits(currentUserProfile);
-  }, [currentUserProfile]);
 
   const updateProfile = (id: number, patch: Partial<Profile>) => {
     setProfiles((current) => current.map((profile) => profile.id === id ? { ...profile, ...patch } : profile));
     setSelectedProfile((current) => current && current.id === id ? { ...current, ...patch } : current);
-    if (currentUserProfile?.id === id) {
-      setCurrentUserEdits((current) => current ? { ...current, ...patch } : current);
-    }
   };
 
   const visibleProfiles = useMemo(() => {
@@ -1400,6 +1891,9 @@ function SettingsModule({ currentUserRole }: { currentUserRole: PlatformRole }) 
       status: "En attente",
       chapitre: "Chapitre 1 – Kinshasa",
       department: "Administration",
+      telephone: "",
+      quartier: "",
+      bio: "",
     };
     setProfiles((current) => [...current, newProfile]);
     setSelectedProfile(newProfile);
@@ -1413,91 +1907,21 @@ function SettingsModule({ currentUserRole }: { currentUserRole: PlatformRole }) 
     } : row));
   };
 
-  const saveCurrentUser = () => {
-    if (!currentUserEdits) return;
-    updateProfile(currentUserEdits.id, {
-      name: currentUserEdits.name,
-      email: currentUserEdits.email,
-      chapitre: currentUserEdits.chapitre,
-      department: currentUserEdits.department,
-    });
-  };
-
   const renderTabContent = () => {
     switch (activeTab) {
-      case "profile":
-        return (
-          <div className="bg-card rounded-2xl border border-border p-5">
-            <div className="flex flex-col gap-4">
-              <div className="text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>Mon profil</div>
-              {currentUserEdits ? (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div className="space-y-3">
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground">Nom complet</label>
-                      <input
-                        value={currentUserEdits.name}
-                        onChange={(e) => setCurrentUserEdits({ ...currentUserEdits, name: e.target.value })}
-                        className="mt-1 w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground">Email</label>
-                      <input
-                        value={currentUserEdits.email}
-                        onChange={(e) => setCurrentUserEdits({ ...currentUserEdits, email: e.target.value })}
-                        className="mt-1 w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground">Chapitre</label>
-                      <input
-                        value={currentUserEdits.chapitre}
-                        onChange={(e) => setCurrentUserEdits({ ...currentUserEdits, chapitre: e.target.value })}
-                        className="mt-1 w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground">Département</label>
-                      <input
-                        value={currentUserEdits.department}
-                        onChange={(e) => setCurrentUserEdits({ ...currentUserEdits, department: e.target.value })}
-                        className="mt-1 w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-muted/30 p-5">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Informations</div>
-                    <div className="mt-3 space-y-2 text-sm text-foreground">
-                      <div><span className="font-medium">Rôle :</span> {ROLE_LABELS[currentUserEdits.role]}</div>
-                      <div><span className="font-medium">Statut :</span> {currentUserEdits.status}</div>
-                    </div>
-                    <button
-                      onClick={saveCurrentUser}
-                      className="mt-5 inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-                    >
-                      Enregistrer
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-sm text-muted-foreground">Aucun profil utilisateur actif trouvé.</div>
-              )}
-            </div>
-          </div>
-        );
       case "users":
         return (
           <div className="grid grid-cols-1 xl:grid-cols-[1.3fr_0.7fr] gap-4">
             <div className="bg-card rounded-2xl border border-border overflow-hidden">
-              <div className="px-5 py-3 border-b border-border flex items-center justify-between">
+              <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
                 <div>
                   <div className="text-sm font-semibold text-foreground">Gestion des utilisateurs</div>
                   <div className="text-xs text-muted-foreground">Ajouter, modifier et gérer les profils</div>
                 </div>
                 <button
+                  type="button"
                   onClick={addNewProfile}
-                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                  className="rounded-lg bg-[var(--sgi-blue)] px-3 py-2 text-xs font-medium text-white sm:py-1.5"
                 >
                   Ajouter un utilisateur
                 </button>
@@ -1548,19 +1972,26 @@ function SettingsModule({ currentUserRole }: { currentUserRole: PlatformRole }) 
                             ))}
                           </select>
                         </td>
-                        <td className="px-4 py-3 flex flex-wrap gap-2">
-                          <button
-                            onClick={() => setSelectedProfile(profile)}
-                            className="text-xs font-medium text-primary hover:underline"
-                          >
-                            Voir
-                          </button>
-                          <button
-                            onClick={() => setProfiles((current) => current.filter((item) => item.id !== profile.id))}
-                            className="text-xs font-medium text-red-600 hover:underline"
-                          >
-                            Supprimer
-                          </button>
+                        <td className="px-4 py-3">
+                          <RowActionsMenu
+                            actions={[
+                              {
+                                label: "Voir",
+                                icon: <Eye size={14} />,
+                                onClick: () => setSelectedProfile(profile),
+                              },
+                              {
+                                label: "Supprimer",
+                                icon: <UserX size={14} />,
+                                tone: "danger",
+                                onClick: () => {
+                                  if (window.confirm(`Supprimer ${profile.name} ?`)) {
+                                    setProfiles((current) => current.filter((item) => item.id !== profile.id));
+                                  }
+                                },
+                              },
+                            ]}
+                          />
                         </td>
                       </tr>
                     ))}
@@ -1658,16 +2089,15 @@ function SettingsModule({ currentUserRole }: { currentUserRole: PlatformRole }) 
   };
 
   return (
-    <div className="p-6 flex flex-col gap-4">
+    <div className="dash-page">
       <div className="bg-card rounded-2xl border border-border p-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <div className="text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>Paramètres</div>
-            <div className="text-xs text-muted-foreground">Séparez Profil, Utilisateurs, RBAC et options générales.</div>
+            <div className="text-xs text-muted-foreground">Utilisateurs, RBAC et options générales (admin / centre).</div>
           </div>
           <div className="flex flex-wrap gap-2">
             {([
-              { key: "profile", label: "Profil" },
               { key: "users", label: "Utilisateurs" },
               { key: "rbac", label: "RBAC" },
               { key: "general", label: "Paramètres" },
@@ -1694,39 +2124,87 @@ const MODULE_TITLES: Record<string, string> = {
   dashboard: "Tableau de bord — Vue générale",
   contenu: "Gestion du contenu — Landing page",
   membres: "Gestion des membres",
+  collectes: "Collectes — Vague de Paix & Zaimu",
   finances: "Module Finances",
   directives: "Directives & Communications",
   statistiques: "Statistiques & Analyses",
+  profil: "Mon profil",
   settings: "Paramètres & RBAC",
 };
 
+const DASHBOARD_ROLE_BY_PATH: Record<string, PlatformRole> = {
+  "/dashboard/admin": "admin",
+  "/dashboard/centre": "centre",
+  "/dashboard/chapitre": "chapitre",
+  "/dashboard/district": "district",
+  "/dashboard/groupe": "groupe",
+};
+
+function readStoredRole(): PlatformRole | null {
+  if (typeof window === "undefined") return null;
+  const saved = window.localStorage.getItem("sgi-current-role");
+  if (saved && ALLOWED_ROLES.includes(saved as PlatformRole)) {
+    return saved as PlatformRole;
+  }
+  return null;
+}
+
+function roleFromPath(pathname: string): PlatformRole | null {
+  return DASHBOARD_ROLE_BY_PATH[pathname] ?? null;
+}
+
+function resolveInitialRole(pathname: string): PlatformRole | null {
+  return readStoredRole() ?? roleFromPath(pathname);
+}
+
 export default function App() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [activeModule, setActiveModule] = useState<ModuleKey>("dashboard");
   const [collapsed, setCollapsed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [currentUserRole, setCurrentUserRole] = useState<PlatformRole>("admin");
+  const [currentUserRole, setCurrentUserRole] = useState<PlatformRole | null>(() =>
+    resolveInitialRole(typeof window !== "undefined" ? window.location.pathname : location.pathname),
+  );
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("sgi-current-role");
-    if (saved && ALLOWED_ROLES.includes(saved as PlatformRole)) {
-      setCurrentUserRole(saved as PlatformRole);
-    } else {
-      navigate("/login");
+    const resolved = readStoredRole() ?? roleFromPath(location.pathname);
+    if (resolved) {
+      setCurrentUserRole(resolved);
+      window.localStorage.setItem("sgi-current-role", resolved);
+      return;
     }
-  }, [navigate]);
+    navigate("/login", { replace: true });
+  }, [location.pathname, navigate]);
 
   useEffect(() => {
+    if (!currentUserRole) return;
     window.localStorage.setItem("sgi-current-role", currentUserRole);
   }, [currentUserRole]);
 
-  const allowedModules = useMemo(() => MODULE_ACCESS[currentUserRole], [currentUserRole]);
+  const allowedModules = useMemo(
+    () => (currentUserRole ? MODULE_ACCESS[currentUserRole] : []),
+    [currentUserRole],
+  );
+
+  useEffect(() => {
+    if (!currentUserRole) return;
+    if (!allowedModules.includes(activeModule)) {
+      setActiveModule("dashboard");
+    }
+  }, [allowedModules, activeModule, currentUserRole]);
 
   const switchModule = (module: ModuleKey) => {
     if (allowedModules.includes(module)) {
       setActiveModule(module);
     }
+  };
+
+  const handleOpenProfile = () => {
+    switchModule("profil");
+    setProfileMenuOpen(false);
+    setSidebarOpen(false);
   };
 
   const handleOpenSettings = () => {
@@ -1749,85 +2227,95 @@ export default function App() {
   const handleLogout = () => {
     window.localStorage.removeItem("sgi-current-role");
     setProfileMenuOpen(false);
-    navigate("/login");
+    setCurrentUserRole(null);
+    navigate("/login", { replace: true });
   };
 
+  if (!currentUserRole) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--sgi-surface)] text-sm text-muted-foreground">
+        Chargement de votre espace…
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-screen bg-background overflow-hidden" style={{ fontFamily: "var(--font-sans)" }}>
-      <Sidebar active={activeModule} setActive={switchModule} collapsed={collapsed} setCollapsed={setCollapsed} allowedModules={allowedModules} onOpenSettings={handleOpenSettings} onLogout={handleLogout} />
+    <div className="flex h-screen overflow-hidden bg-background" style={{ fontFamily: "var(--font-sans)" }}>
+      <Sidebar
+        active={activeModule}
+        setActive={switchModule}
+        collapsed={collapsed}
+        setCollapsed={setCollapsed}
+        allowedModules={allowedModules}
+        role={currentUserRole}
+        onOpenSettings={handleOpenSettings}
+        onLogout={handleLogout}
+      />
+
       {sidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm md:hidden" onClick={() => setSidebarOpen(false)}>
-          <aside className="absolute left-0 top-0 h-full w-72 bg-[var(--sidebar)] border-r border-[var(--sidebar-border)] shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between px-4 py-4 border-b border-[var(--sidebar-border)]">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#d9a11a] via-[#a33b2d] to-[#0f3d6e]">
-                    <SgiEmblem className="h-10 w-10 object-cover" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-white" style={{ fontFamily: "var(--font-display)" }}>SGI Côte d’Ivoire</div>
-                    <div className="text-xs text-[var(--sidebar-foreground)]">Centre Miroir Parfait</div>
-                  </div>
-                </div>
-                <button type="button" onClick={() => setSidebarOpen(false)} className="rounded-full p-2 text-[var(--sidebar-foreground)] hover:bg-white/10">
-                  <X size={18} />
-                </button>
-              </div>
-              <nav className="flex-1 overflow-y-auto px-2 py-4">
-                {NAV.filter(({ key }) => allowedModules.includes(key as ModuleKey)).map(({ key, label, icon: Icon }) => {
-                  const isActive = activeModule === key;
-                  return (
-                    <button
-                      key={key}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleNavigate(key as ModuleKey);
-                      }}
-                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-left transition ${isActive ? "bg-[rgba(255,255,255,0.08)] text-white" : "text-[var(--sidebar-foreground)] hover:bg-white/10"}`}
-                    >
-                      <Icon size={16} className="flex-shrink-0" />
-                      <span>{label}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-              <div className="px-2 py-3 border-t border-[var(--sidebar-border)]">
-                <button
-                  type="button"
-                  onClick={(event) => { event.stopPropagation(); handleOpenSettings(); }}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-left text-[var(--sidebar-foreground)] hover:bg-white/10"
-                >
-                  <Settings size={14} />
-                  Paramètres
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => { event.stopPropagation(); handleLogout(); }}
-                  className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-left text-[var(--sidebar-foreground)] hover:bg-white/10"
-                >
-                  <LogOut size={14} />
-                  Déconnexion
-                </button>
-              </div>
-            </div>
+        <div
+          className="fixed inset-0 z-40 bg-[var(--sgi-blue-deep)]/35 backdrop-blur-[2px] md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        >
+          <aside
+            className="sgi-drawer-panel absolute left-0 top-0 flex h-full w-[min(300px,88vw)] flex-col bg-card shadow-[var(--shadow-lift)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div
+              className="pointer-events-none absolute inset-x-0 top-0 h-40"
+              style={{
+                background:
+                  "radial-gradient(ellipse 80% 70% at 0% 0%, rgba(200,151,26,0.10), transparent 70%), radial-gradient(ellipse 60% 50% at 100% 0%, rgba(10,47,82,0.06), transparent 65%)",
+              }}
+              aria-hidden
+            />
+            <SidebarShell
+              active={activeModule}
+              onNavigate={handleNavigate}
+              allowedModules={allowedModules}
+              role={currentUserRole}
+              onLogout={handleLogout}
+              onClose={() => setSidebarOpen(false)}
+            />
           </aside>
         </div>
       )}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Topbar title={MODULE_TITLES[activeModule]} onOpenSettings={handleOpenSettings} onOpenContent={handleOpenContent} onLogout={handleLogout} profileMenuOpen={profileMenuOpen} setProfileMenuOpen={setProfileMenuOpen} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
-        <main className="flex-1 overflow-y-auto" style={{
-          scrollbarWidth: "thin",
-          scrollbarColor: "rgba(0,0,0,0.1) transparent",
-        }}>
-          {activeModule === "dashboard" && <Dashboard />}
-          {activeModule === "contenu" && (currentUserRole === "admin" ? <div className="p-6"><h2 className="text-lg font-semibold mb-4">Édition du contenu (Admin)</h2><AdminEditLanding /></div> : <div className="p-6"><h2 className="text-lg font-semibold mb-4">Édition du contenu (Centre)</h2><CentreEditLanding /></div>)}
-          {activeModule === "membres" && <Membres />}
+
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <Topbar
+          title={MODULE_TITLES[activeModule]}
+          role={currentUserRole}
+          onOpenProfile={handleOpenProfile}
+          onOpenSettings={handleOpenSettings}
+          onOpenContent={handleOpenContent}
+          onLogout={handleLogout}
+          profileMenuOpen={profileMenuOpen}
+          setProfileMenuOpen={setProfileMenuOpen}
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+        />
+        <main
+          className="flex-1 overflow-y-auto"
+          style={{
+            scrollbarWidth: "thin",
+            scrollbarColor: "rgba(0,0,0,0.1) transparent",
+          }}
+        >
+          {activeModule === "dashboard" && <Dashboard role={currentUserRole} />}
+          {activeModule === "contenu" && (currentUserRole === "admin" || currentUserRole === "centre") && (
+            <AdminEditLanding />
+          )}
+          {activeModule === "membres" && <Membres role={currentUserRole} />}
+          {activeModule === "collectes" && <CollectesModule role={currentUserRole} />}
           {activeModule === "finances" && <Finances />}
           {activeModule === "directives" && <Directives />}
           {activeModule === "statistiques" && <Statistiques />}
+          {activeModule === "profil" && <ProfilePage role={currentUserRole} />}
           {activeModule === "settings" && <SettingsModule currentUserRole={currentUserRole} />}
         </main>
       </div>
+
+      <DashboardAiAssistant role={currentUserRole} />
     </div>
   );
 }

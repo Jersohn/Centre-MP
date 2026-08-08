@@ -1,8 +1,20 @@
 import { Mail, MapPin, Phone } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
 import contentService from "../../services/contentService";
+import { landingHashPath, scrollToLandingHash } from "../../utils/landingNav";
+import { Reveal } from "./motion";
+
+const footerLinks = [
+  { label: "Présentation", href: "#centre", type: "hash" as const },
+  { label: "Galerie", href: "/galerie", type: "route" as const },
+  { label: "Agenda", href: "/agenda", type: "route" as const },
+  { label: "Contact", href: "#contact", type: "hash" as const },
+];
 
 export function Footer() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [content, setContent] = useState(contentService.getContent());
 
   useEffect(() => {
@@ -11,48 +23,79 @@ export function Footer() {
     return () => window.removeEventListener("landing-content-updated", handler);
   }, []);
 
+  const goToHash = (href: string) => {
+    if (location.pathname === "/") {
+      scrollToLandingHash(href);
+      return;
+    }
+    navigate(landingHashPath(href));
+  };
+
   return (
-    <footer id="contact" className="border-t border-slate-200 bg-slate-950 px-4 py-16 text-slate-200 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl space-y-12">
-        <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="space-y-5">
-            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-[#d9a11a]">Centre Miroir Parfait</p>
-            <h2 className="text-3xl font-semibold text-white sm:text-4xl">Un espace de transformation, d’échange et de paix.</h2>
-            <p className="max-w-2xl text-base leading-8 text-slate-300">Le centre accompagne les individus et les communautés dans leur cheminement vers la sagesse, la responsabilité et la construction d’un monde plus juste.</p>
-          </div>
+    <footer id="contact" className="border-t border-white/10 bg-[var(--sgi-blue-deep)] px-4 py-12 text-slate-200 sm:px-6 sm:py-16 lg:px-8">
+      <div className="mx-auto max-w-7xl space-y-10">
+        <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
+          <Reveal className="space-y-4" y={16}>
+            <p className="text-[0.7rem] font-bold uppercase tracking-[0.28em] text-[var(--sgi-gold-soft)]">
+              Centre Miroir Parfait
+            </p>
+            <div className="sgi-tricolor-soft mt-3 h-1 w-24 rounded-full" aria-hidden />
+            <h2 className="mt-3 font-display text-2xl font-semibold text-white sm:text-3xl">
+              Un espace de transformation, d’échange et de paix.
+            </h2>
+            <p className="max-w-2xl text-sm leading-7 text-slate-300 sm:text-base sm:leading-8">
+              Soka Gakkai International — Côte d’Ivoire. Accompagner les individus et les communautés vers la sagesse,
+              la responsabilité et l’unité.
+            </p>
+          </Reveal>
           <div className="grid gap-8 sm:grid-cols-2">
-            <div>
-              <h3 className="text-lg font-semibold text-white">Contact</h3>
+            <Reveal delay={0.08} y={14}>
+              <h3 className="font-display text-lg font-semibold text-white">Contact</h3>
               <ul className="mt-4 space-y-3 text-sm text-slate-300">
-                <li className="flex items-center gap-2"><Phone size={16} className="text-[#d9a11a]" /> {content.contactPhone}</li>
-                <li className="flex items-center gap-2"><Mail size={16} className="text-[#d9a11a]" /> {content.contactEmail}</li>
-                <li className="flex items-center gap-2"><MapPin size={16} className="text-[#d9a11a]" /> {content.contactAddress}</li>
+                <li className="flex items-center gap-2">
+                  <Phone size={16} className="text-[var(--sgi-gold-soft)]" /> {content.contactPhone}
+                </li>
+                <li className="flex items-center gap-2">
+                  <Mail size={16} className="text-[var(--sgi-red-soft)]" /> {content.contactEmail}
+                </li>
+                <li className="flex items-center gap-2">
+                  <MapPin size={16} className="text-[var(--sgi-gold-soft)]" /> {content.contactAddress}
+                </li>
               </ul>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-white">Navigation</h3>
+            </Reveal>
+            <Reveal delay={0.14} y={14}>
+              <h3 className="font-display text-lg font-semibold text-white">Navigation</h3>
               <ul className="mt-4 space-y-3 text-sm text-slate-300">
-                <li><a href="#hero" className="transition hover:text-white">Accueil</a></li>
-                <li><a href="#centre" className="transition hover:text-white">Présentation</a></li>
-                <li><a href="#activites" className="transition hover:text-white">Activités</a></li>
-                <li><a href="#galerie" className="transition hover:text-white">Galerie</a></li>
-                <li><a href="#actualites" className="transition hover:text-white">Actualités</a></li>
-                <li><a href="#agenda" className="transition hover:text-white">Agenda</a></li>
-                <li><a href="#temoignages" className="transition hover:text-white">Témoignages</a></li>
-                <li><a href="#contact" className="transition hover:text-white">Contact</a></li>
+                {footerLinks.map((link) => (
+                  <li key={link.href}>
+                    {link.type === "route" ? (
+                      <Link to={link.href} className="transition hover:text-white">
+                        {link.label}
+                      </Link>
+                    ) : (
+                      <a
+                        href={landingHashPath(link.href)}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          goToHash(link.href);
+                        }}
+                        className="transition hover:text-white"
+                      >
+                        {link.label}
+                      </a>
+                    )}
+                  </li>
+                ))}
               </ul>
-            </div>
+            </Reveal>
           </div>
         </div>
-        <div className="border-t border-slate-800 pt-6 text-sm text-slate-500 sm:flex sm:items-center sm:justify-between">
-          <p>© 2026 Soka Gakkai International — Centre Miroir Parfait. Tous droits réservés.</p>
-          <div className="mt-4 flex flex-wrap gap-4 sm:mt-0">
-            <a href="#hero" className="transition hover:text-white">Accueil</a>
-            <a href="#galerie" className="transition hover:text-white">Galerie</a>
-            <a href="#actualites" className="transition hover:text-white">Actualités</a>
-            <a href="#contact" className="transition hover:text-white">Contact</a>
+        <Reveal delay={0.1} y={10}>
+          <div className="border-t border-white/10 pt-6 text-xs text-slate-500 sm:flex sm:items-center sm:justify-between sm:text-sm">
+            <p>© 2026 Soka Gakkai International — Centre Miroir Parfait, Côte d’Ivoire.</p>
+            <p className="mt-3 sm:mt-0">Application installable sur votre appareil</p>
           </div>
-        </div>
+        </Reveal>
       </div>
     </footer>
   );

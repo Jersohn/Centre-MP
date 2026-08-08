@@ -11,11 +11,20 @@ describe("createMemberFromForm", () => {
         nom: " Hopper ",
         email: "grace@example.com",
         telephone: "+221 77 000 0000",
+        dateNaissance: "",
+        departement: "",
+        categorie: "Femme",
+        responsabilite: "Membre simple",
+        dateDebutPratique: "",
+        abonnementVaguePaix: false,
+        sokahan: true,
+        quartier: "",
         chapitre: "Chapitre 1 – Kinshasa",
         district: "District Nord",
+        groupe: "Groupe A",
         statut: "Actif",
-        cotisation: "À jour",
         abonnement: true,
+        photo: "data:image/png;base64,abc",
       },
       existingMembers
     );
@@ -25,7 +34,8 @@ describe("createMemberFromForm", () => {
     expect(member.nom).toBe("Hopper");
     expect(member.email).toBe("grace@example.com");
     expect(member.abonnement).toBe(true);
-    expect(member.totalCotisations).toBe(0);
+    expect(member.sokahan).toBe(true);
+    expect(member.photo).toBe("data:image/png;base64,abc");
     expect(member.totalDons).toBe(0);
   });
 });
