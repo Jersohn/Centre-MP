@@ -11,6 +11,7 @@ import {
 export type ThemeMode = "light" | "dark";
 
 const STORAGE_KEY = "sgi-theme";
+const MOBILE_LIGHT_MIGRATION_KEY = "sgi-theme-light-default-mobile-v1";
 
 type ThemeContextValue = {
   theme: ThemeMode;
@@ -20,11 +21,25 @@ type ThemeContextValue = {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
+function isMobileViewport() {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(max-width: 768px)").matches;
+}
+
 function readStoredTheme(): ThemeMode {
   if (typeof window === "undefined") return "light";
+
+  // Une fois : forcer le clair sur mobile (beaucoup de téléphones ont le sombre OS activé).
+  if (isMobileViewport() && window.localStorage.getItem(MOBILE_LIGHT_MIGRATION_KEY) !== "1") {
+    window.localStorage.setItem(MOBILE_LIGHT_MIGRATION_KEY, "1");
+    window.localStorage.setItem(STORAGE_KEY, "light");
+    return "light";
+  }
+
   const stored = window.localStorage.getItem(STORAGE_KEY);
   if (stored === "light" || stored === "dark") return stored;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  // Défaut application : mode clair (ne suit plus prefers-color-scheme).
+  return "light";
 }
 
 function applyTheme(mode: ThemeMode) {
@@ -41,17 +56,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyTheme(theme);
     window.localStorage.setItem(STORAGE_KEY, theme);
   }, [theme]);
-
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = (event: MediaQueryListEvent) => {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (stored === "light" || stored === "dark") return;
-      setThemeState(event.matches ? "dark" : "light");
-    };
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, []);
 
   const setTheme = useCallback((mode: ThemeMode) => {
     setThemeState(mode);

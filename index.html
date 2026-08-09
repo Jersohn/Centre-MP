@@ -10,11 +10,17 @@
     <script>
       (function () {
         try {
+          var isMobile = window.matchMedia("(max-width: 768px)").matches;
+          var migrationKey = "sgi-theme-light-default-mobile-v1";
+          if (isMobile && localStorage.getItem(migrationKey) !== "1") {
+            localStorage.setItem(migrationKey, "1");
+            localStorage.setItem("sgi-theme", "light");
+          }
           var stored = localStorage.getItem("sgi-theme");
-          var dark =
-            stored === "dark" ||
-            (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          // Défaut clair ; le sombre ne s'active que si l'utilisateur l'a choisi.
+          var dark = stored === "dark";
           if (dark) document.documentElement.classList.add("dark");
+          else document.documentElement.classList.remove("dark");
           document.documentElement.style.colorScheme = dark ? "dark" : "light";
           var meta = document.querySelector('meta[name="theme-color"]');
           if (meta) meta.setAttribute("content", dark ? "#061c33" : "#0a2f52");
