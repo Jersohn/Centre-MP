@@ -1,8 +1,11 @@
 /**
  * GET /api/encouragement-du-jour
- * Daily Encouragement officiel depuis https://www.sokaglobal.org/
- * Affiché en français (traduction automatique).
+ * Daily Encouragement officiel (directive / encouragement du jour) en français.
  */
+
+export const config = {
+  runtime: "edge",
+};
 
 const MONTH_SLUGS = [
   "january",
@@ -18,6 +21,17 @@ const MONTH_SLUGS = [
   "november",
   "december",
 ];
+
+function json(status, payload) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Access-Control-Allow-Origin": "*",
+    },
+  });
+}
 
 function decodeHtml(value) {
   return value
@@ -174,29 +188,19 @@ async function fetchOfficialDailyEncouragement(date = new Date()) {
   };
 }
 
-module.exports = async function handler(req, res) {
-  if (req.method !== "GET") {
-    res.statusCode = 405;
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.end(JSON.stringify({ error: "Method not allowed" }));
-    return;
+export default async function handler(request) {
+  if (request.method !== "GET") {
+    return json(405, { error: "Method not allowed" });
   }
 
   try {
     const payload = await fetchOfficialDailyEncouragement(new Date());
-    res.statusCode = 200;
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.setHeader("Cache-Control", "no-store");
-    res.end(JSON.stringify(payload));
+    return json(200, payload);
   } catch (error) {
-    res.statusCode = 502;
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.end(
-      JSON.stringify({
-        error: "Impossible de récupérer l’encouragement officiel",
-        details: String(error),
-        sourceUrl: "https://www.sokaglobal.org/resources/daily-encouragement/",
-      }),
-    );
+    return json(502, {
+      error: "Impossible de récupérer l’encouragement officiel",
+      details: String(error),
+      sourceUrl: "https://www.sokaglobal.org/resources/daily-encouragement/",
+    });
   }
-};
+}

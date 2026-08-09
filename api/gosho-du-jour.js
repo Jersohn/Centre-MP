@@ -3,6 +3,10 @@
  * Source officielle SGI-USA Daily Wisdom, renvoyée en français.
  */
 
+export const config = {
+  runtime: "edge",
+};
+
 const OFFICIAL_DAILY_WISDOM_URL = "https://cms.sgi-usa.org/dw/";
 
 const MONTHS = {
@@ -19,6 +23,17 @@ const MONTHS = {
   november: "novembre",
   december: "décembre",
 };
+
+function json(status, payload) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Access-Control-Allow-Origin": "*",
+    },
+  });
+}
 
 function decodeHtml(value) {
   return value
@@ -177,29 +192,19 @@ async function fetchOfficialDailyWisdomFrench() {
   };
 }
 
-module.exports = async function handler(req, res) {
-  if (req.method !== "GET") {
-    res.statusCode = 405;
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.end(JSON.stringify({ error: "Method not allowed" }));
-    return;
+export default async function handler(request) {
+  if (request.method !== "GET") {
+    return json(405, { error: "Method not allowed" });
   }
 
   try {
     const payload = await fetchOfficialDailyWisdomFrench();
-    res.statusCode = 200;
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.setHeader("Cache-Control", "no-store");
-    res.end(JSON.stringify(payload));
+    return json(200, payload);
   } catch (error) {
-    res.statusCode = 502;
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.end(
-      JSON.stringify({
-        error: "Impossible de récupérer/traduire le Gosho officiel",
-        details: String(error),
-        sourceUrl: OFFICIAL_DAILY_WISDOM_URL,
-      }),
-    );
+    return json(502, {
+      error: "Impossible de récupérer/traduire le Gosho officiel",
+      details: String(error),
+      sourceUrl: OFFICIAL_DAILY_WISDOM_URL,
+    });
   }
-};
+}
