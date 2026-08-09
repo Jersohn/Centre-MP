@@ -33,7 +33,10 @@ export function Footer() {
   };
 
   return (
-    <footer id="contact" className="border-t border-white/10 bg-[var(--sgi-blue-deep)] px-4 py-12 text-slate-200 sm:px-6 sm:py-16 lg:px-8">
+    <footer
+      id="contact"
+      className="border-t border-white/10 bg-[var(--sgi-blue-deep)] px-4 pt-12 text-slate-200 pb-[calc(6.75rem+env(safe-area-inset-bottom,0px))] sm:px-6 sm:pt-16 lg:px-8 lg:pb-16"
+    >
       <div className="mx-auto max-w-7xl space-y-10">
         <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
           <Reveal className="space-y-4" y={16}>
@@ -92,9 +95,9 @@ export function Footer() {
           </div>
         </div>
         <Reveal delay={0.1} y={10}>
-          <div className="border-t border-white/10 pt-6 text-xs text-slate-500 sm:flex sm:items-center sm:justify-between sm:text-sm">
+          <div className="space-y-2 border-t border-white/10 pt-6 text-xs text-slate-400 sm:flex sm:items-center sm:justify-between sm:space-y-0 sm:text-sm">
             <p>© 2026 Soka Gakkai International — Centre Miroir Parfait, Côte d’Ivoire.</p>
-            <DeveloperCredit variant="dark" className="mt-3 sm:mt-0" />
+            <DeveloperCredit variant="dark" />
           </div>
         </Reveal>
       </div>
