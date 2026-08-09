@@ -947,6 +947,8 @@ function Membres({ role }: { role: PlatformRole }) {
   const [formValues, setFormValues] = useState(emptyForm);
   const [members, setMembers] = useState(membres);
   const [formError, setFormError] = useState("");
+  const [page, setPage] = useState(1);
+  const MEMBERS_PAGE_SIZE = 10;
   const scopedMembers = useMemo(() => filterMembersByScope(members, orgScope), [members, orgScope]);
   const districtFilterOptions = useMemo(() => {
     if (chapitreFilter === "Tous") return DISTRICTS;
@@ -990,6 +992,21 @@ function Membres({ role }: { role: PlatformRole }) {
     if (search && !`${m.prenom} ${m.nom}`.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   }), [chapitreFilter, districtFilter, statutFilter, responsabiliteFilter, search, scopedMembers]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / MEMBERS_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedMembers = useMemo(() => {
+    const start = (currentPage - 1) * MEMBERS_PAGE_SIZE;
+    return filtered.slice(start, start + MEMBERS_PAGE_SIZE);
+  }, [filtered, currentPage]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [chapitreFilter, districtFilter, statutFilter, responsabiliteFilter, search, orgScope.label]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -1296,7 +1313,15 @@ function Membres({ role }: { role: PlatformRole }) {
 
       <div className="bg-card rounded-xl border border-border overflow-hidden">
         <div className="px-5 py-3 border-b border-border flex items-center justify-between gap-3">
-          <span className="text-sm font-medium text-foreground">{filtered.length} membre{filtered.length !== 1 ? "s" : ""}</span>
+          <span className="text-sm font-medium text-foreground">
+            {filtered.length} membre{filtered.length !== 1 ? "s" : ""}
+            {filtered.length > 0 && (
+              <span className="ml-2 font-normal text-muted-foreground">
+                · {Math.min((currentPage - 1) * MEMBERS_PAGE_SIZE + 1, filtered.length)}–
+                {Math.min(currentPage * MEMBERS_PAGE_SIZE, filtered.length)} sur {filtered.length}
+              </span>
+            )}
+          </span>
           <button
             type="button"
             onClick={() => setActiveTab("import-export")}
@@ -1315,13 +1340,20 @@ function Membres({ role }: { role: PlatformRole }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((m, i) => {
+              {paginatedMembers.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    Aucun membre ne correspond aux filtres.
+                  </td>
+                </tr>
+              ) : (
+                paginatedMembers.map((m, i) => {
                 const zoPaye = getMemberZaimuPaid(COLLECTES_SEED, m, "zaimu-ordinaire");
                 const zsPaye = getMemberZaimuPaid(COLLECTES_SEED, m, "zaimu-special");
                 const zsAssigne = getMemberSpecialAssignment(ZAIMU_SPECIAL_CAMPAIGN, m);
                 const zsReste = Math.max(0, zsAssigne - zsPaye);
                 return (
-                <tr key={m.id} className={`border-b border-border hover:bg-muted/30 transition-colors ${i === filtered.length - 1 ? "border-b-0" : ""}`}>
+                <tr key={m.id} className={`border-b border-border hover:bg-muted/30 transition-colors ${i === paginatedMembers.length - 1 ? "border-b-0" : ""}`}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
                       <MemberAvatar photo={m.photo} prenom={m.prenom} nom={m.nom} size="sm" />
@@ -1342,7 +1374,7 @@ function Membres({ role }: { role: PlatformRole }) {
                       {m.responsabilite === "Membre" ? "Membre simple" : m.responsabilite}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{m.chapitre.split("–")[1]?.trim()}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{m.chapitre.includes("–") ? m.chapitre.split("–")[1]?.trim() : m.chapitre}</td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">{m.district}</td>
                   <td className="px-4 py-3"><StatutBadge statut={m.statut} /></td>
                   <td className="px-4 py-3 font-mono text-xs text-foreground">{formatCdf(zoPaye)}</td>
@@ -1387,10 +1419,50 @@ function Membres({ role }: { role: PlatformRole }) {
                   </td>
                 </tr>
                 );
-              })}
+              })
+              )}
             </tbody>
           </table>
         </div>
+        {filtered.length > MEMBERS_PAGE_SIZE && (
+          <div className="flex flex-col gap-3 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted-foreground">
+              Page {currentPage} sur {totalPages}
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft size={14} /> Précédent
+              </button>
+              {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
+                <button
+                  key={pageNumber}
+                  type="button"
+                  onClick={() => setPage(pageNumber)}
+                  className={`inline-flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-semibold transition-colors ${
+                    pageNumber === currentPage
+                      ? "bg-[var(--sgi-blue)] text-white"
+                      : "border border-border text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {pageNumber}
+                </button>
+              ))}
+              <button
+                type="button"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Suivant <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       </>
       )}

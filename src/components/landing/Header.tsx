@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import sgiLogo from "../../../image/logo-sgi.jpg";
 import { landingHashPath, scrollToLandingHash } from "../../utils/landingNav";
+import {
+  canShowIosInstallHint,
+  isAppInstalled,
+  type BeforeInstallPromptEvent,
+} from "../../utils/pwaInstall";
+import { IosInstallGuide } from "./IosInstallGuide";
 
 const links = [
   { label: "Accueil", href: "#hero", type: "hash" as const },
@@ -15,11 +21,6 @@ const links = [
   { label: "Contact", href: "#contact", type: "hash" as const },
 ];
 
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-};
-
 export function Header() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -27,7 +28,10 @@ export function Header() {
   const [scrolled, setScrolled] = useState(!onLanding);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [iosInstall, setIosInstall] = useState(false);
+  const [showIosGuide, setShowIosGuide] = useState(false);
   const solid = !onLanding || scrolled || mobileOpen;
+  const showInstallButton = Boolean(installPrompt) || iosInstall;
 
   useEffect(() => {
     if (!onLanding) {
@@ -41,6 +45,13 @@ export function Header() {
   }, [onLanding]);
 
   useEffect(() => {
+    if (isAppInstalled()) return;
+
+    if (canShowIosInstallHint()) {
+      setIosInstall(true);
+      return;
+    }
+
     const handler = (event: Event) => {
       event.preventDefault();
       setInstallPrompt(event as BeforeInstallPromptEvent);
@@ -59,6 +70,11 @@ export function Header() {
   }, [mobileOpen]);
 
   const handleInstall = async () => {
+    if (iosInstall) {
+      setShowIosGuide(true);
+      setMobileOpen(false);
+      return;
+    }
     if (!installPrompt) return;
     await installPrompt.prompt();
     await installPrompt.userChoice;
@@ -145,8 +161,9 @@ export function Header() {
               ),
             )}
           </nav>
-          {installPrompt && (
+          {showInstallButton && (
             <button
+              type="button"
               onClick={handleInstall}
               className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20"
               style={
@@ -168,8 +185,9 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-2 xl:hidden">
-          {installPrompt && (
+          {showInstallButton && (
             <button
+              type="button"
               onClick={handleInstall}
               aria-label="Installer l’application"
               className={`inline-flex h-10 w-10 items-center justify-center rounded-full ${
@@ -233,10 +251,21 @@ export function Header() {
                   </a>
                 ),
               )}
+              {showInstallButton && (
+                <button
+                  type="button"
+                  onClick={handleInstall}
+                  className="mt-1 inline-flex items-center gap-2 rounded-xl bg-[var(--sgi-blue)] px-4 py-3.5 text-left text-sm font-semibold text-white"
+                >
+                  <Download size={16} />
+                  Installer l’application
+                </button>
+              )}
             </nav>
           </motion.div>
         )}
       </AnimatePresence>
+      <IosInstallGuide open={showIosGuide} onClose={() => setShowIosGuide(false)} />
     </motion.header>
   );
 }
