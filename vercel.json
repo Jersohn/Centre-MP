@@ -1,41 +1,8 @@
 {
-  "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
-    },
-    {
-      "src": "api/**/*.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/ai-chat",
-      "dest": "/api/ai-chat.js"
-    },
-    {
-      "src": "/api/gosho-du-jour",
-      "dest": "/api/gosho-du-jour.js"
-    },
-    {
-      "src": "/api/encouragement-du-jour",
-      "dest": "/api/encouragement-du-jour.js"
-    },
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
-    },
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ]
 }

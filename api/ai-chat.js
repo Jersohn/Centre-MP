@@ -41,9 +41,13 @@ function asErrorMessage(value) {
   return "";
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method === "OPTIONS") {
-    sendJson(res, 204, {});
+    res.statusCode = 204;
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.end();
     return;
   }
 
@@ -52,7 +56,9 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const apiKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY;
+  const apiKey = String(process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || "")
+    .trim()
+    .replace(/^["']|["']$/g, "");
   if (!apiKey) {
     // Message neutre côté client ; le détail reste dans les logs Vercel
     console.error("[ai-chat] GROQ_API_KEY manquante dans les variables d’environnement.");
