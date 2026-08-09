@@ -50,9 +50,9 @@ export const chapterLeaders = [
     responsibleRole: "Responsable chapitre",
     responsibleImage: landingImages.leaders.chapitre1,
     stats: [
-      { label: "Districts", value: 4, suffix: "" },
-      { label: "Groupes", value: 16, suffix: "" },
-      { label: "Membres", value: 620, suffix: "+" },
+      { label: "Districts", value: 3, suffix: "" },
+      { label: "Groupes", value: 11, suffix: "" }, // 4 + 4 + 3
+      { label: "Membres", value: 60, suffix: "" },
     ],
   },
   {
@@ -63,9 +63,9 @@ export const chapterLeaders = [
     responsibleRole: "Responsable chapitre",
     responsibleImage: landingImages.leaders.chapitre2,
     stats: [
-      { label: "Districts", value: 4, suffix: "" },
-      { label: "Groupes", value: 18, suffix: "" },
-      { label: "Membres", value: 680, suffix: "+" },
+      { label: "Districts", value: 3, suffix: "" },
+      { label: "Groupes", value: 10, suffix: "" }, // 3 + 3 + 4
+      { label: "Membres", value: 55, suffix: "" },
     ],
   },
   {
@@ -76,9 +76,9 @@ export const chapterLeaders = [
     responsibleRole: "Responsable chapitre",
     responsibleImage: landingImages.leaders.chapitre3,
     stats: [
-      { label: "Districts", value: 4, suffix: "" },
-      { label: "Groupes", value: 14, suffix: "" },
-      { label: "Membres", value: 550, suffix: "+" },
+      { label: "Districts", value: 3, suffix: "" },
+      { label: "Groupes", value: 12, suffix: "" }, // 4 + 4 + 4
+      { label: "Membres", value: 58, suffix: "" },
     ],
   },
 ];

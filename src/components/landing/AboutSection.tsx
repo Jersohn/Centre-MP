@@ -214,22 +214,34 @@ export function AboutSection() {
           </p>
           <ul className="mt-5 space-y-3">
             {content.chapterLeaders.map((chapter, index) => {
-              const badges = [
-                "bg-[var(--sgi-blue)] text-white",
-                "bg-[var(--sgi-gold)] text-[var(--sgi-ink)]",
-                "bg-[var(--sgi-red)] text-white",
+              const rings = [
+                "ring-[var(--sgi-blue)]/40",
+                "ring-[var(--sgi-gold)]/50",
+                "ring-[var(--sgi-red)]/40",
               ];
               return (
-                <li key={chapter.id} className="rounded-2xl border border-border bg-white px-4 py-4">
-                  <div className="flex items-start gap-3">
-                    <div
-                      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold ${badges[index % 3]}`}
-                    >
-                      {index + 1}
-                    </div>
-                    <div>
-                      <p className="font-display text-lg font-semibold text-[var(--sgi-ink)]">{chapter.name}</p>
-                      <p className="mt-1 text-sm leading-6 text-muted-foreground">{chapter.description}</p>
+                <li key={chapter.id} className="rounded-2xl border border-border bg-white p-3 sm:p-4">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={chapter.responsibleImage}
+                      alt={`${chapter.responsibleName} — ${chapter.name}`}
+                      className={`h-14 w-14 shrink-0 rounded-2xl object-cover object-top ring-2 ${rings[index % 3]}`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-secondary px-2 text-[0.7rem] font-bold text-[var(--sgi-ink)]">
+                          {index + 1}
+                        </span>
+                        <p className="truncate font-display text-lg font-semibold text-[var(--sgi-ink)]">
+                          {chapter.name}
+                        </p>
+                      </div>
+                      <p className="mt-1 text-sm font-medium text-[var(--sgi-ink)]/80">
+                        {chapter.responsibleName}
+                      </p>
+                      <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground sm:text-sm sm:leading-6">
+                        {chapter.description}
+                      </p>
                     </div>
                   </div>
                 </li>
@@ -294,46 +306,66 @@ export function AboutSection() {
           title="Responsables de chaque chapitre"
           action={
             <p className="max-w-sm text-sm leading-6 text-muted-foreground sm:text-right">
-              Portrait et chiffres clés pour chaque chapitre du centre.
+              Des responsables qui accompagnent les districts et groupes de leur chapitre.
             </p>
           }
         />
 
-        <Stagger className="mt-6 grid gap-4 lg:grid-cols-3" delay={0.08} stagger={0.08}>
+        <Stagger className="mt-6 grid gap-5 lg:grid-cols-3" delay={0.08} stagger={0.08}>
           {content.chapterLeaders.map((chapter, index) => {
-            const borders = ["border-t-[var(--sgi-blue)]", "border-t-[var(--sgi-gold)]", "border-t-[var(--sgi-red)]"];
+            const accents = [
+              "from-[var(--sgi-blue)] to-[var(--sgi-blue-deep)]",
+              "from-[var(--sgi-gold)] to-[#b8860b]",
+              "from-[var(--sgi-red)] to-[var(--sgi-red-deep)]",
+            ];
+            const badges = [
+              "bg-[var(--sgi-blue)] text-white",
+              "bg-[var(--sgi-gold)] text-[var(--sgi-ink)]",
+              "bg-[var(--sgi-red)] text-white",
+            ];
             const numbers = ["text-[var(--sgi-blue)]", "text-[var(--sgi-gold)]", "text-[var(--sgi-red)]"];
             return (
               <motion.article
                 key={chapter.id}
                 variants={animate ? staggerItem : undefined}
-                whileHover={animate ? { y: -3 } : undefined}
-                className={`dash-panel overflow-hidden border-t-4 ${borders[index % 3]}`}
+                whileHover={animate ? { y: -4 } : undefined}
+                className="dash-panel group overflow-hidden"
               >
-                <div className="p-5 sm:p-6">
-                  <p className="dash-eyebrow">Chapitre</p>
-                  <h3 className="mt-1 font-display text-xl font-semibold text-[var(--sgi-ink)]">{chapter.name}</h3>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{chapter.description}</p>
-
-                  <div className="mt-5 flex items-center gap-3 rounded-2xl border border-border bg-secondary/50 p-3">
-                    <img
-                      src={chapter.responsibleImage}
-                      alt={chapter.responsibleName}
-                      className="h-16 w-16 rounded-2xl object-cover object-top"
-                    />
-                    <div className="min-w-0">
-                      <p className="text-[0.65rem] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                        {chapter.responsibleRole}
-                      </p>
-                      <p className="mt-1 font-display text-lg font-semibold text-[var(--sgi-ink)]">
-                        {chapter.responsibleName}
-                      </p>
-                    </div>
+                <div className="relative aspect-[4/5] overflow-hidden bg-secondary">
+                  <img
+                    src={chapter.responsibleImage}
+                    alt={`${chapter.responsibleName} — ${chapter.responsibleRole}, ${chapter.name}`}
+                    className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-[1.04]"
+                  />
+                  <div
+                    className={`absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t ${accents[index % 3]} opacity-95`}
+                  />
+                  <div className="absolute left-3 top-3">
+                    <span
+                      className={`inline-flex rounded-full px-3 py-1 text-[0.65rem] font-bold uppercase tracking-[0.14em] shadow-sm ${badges[index % 3]}`}
+                    >
+                      Chapitre {index + 1}
+                    </span>
                   </div>
+                  <div className="absolute inset-x-0 bottom-0 p-4 text-white sm:p-5">
+                    <p className="text-[0.65rem] font-bold uppercase tracking-[0.16em] text-white/85">
+                      {chapter.responsibleRole}
+                    </p>
+                    <h3 className="mt-1 font-display text-2xl font-semibold leading-tight">
+                      {chapter.responsibleName}
+                    </h3>
+                    <p className="mt-1 text-sm font-medium text-white/90">{chapter.name}</p>
+                  </div>
+                </div>
 
-                  <div className="mt-5 grid grid-cols-3 gap-2">
+                <div className="p-4 sm:p-5">
+                  <p className="text-sm leading-6 text-muted-foreground">{chapter.description}</p>
+                  <div className="mt-4 grid grid-cols-3 gap-2">
                     {chapter.stats.map((stat) => (
-                      <div key={`${chapter.id}-${stat.label}`} className="rounded-2xl bg-white px-3 py-3 text-center shadow-sm ring-1 ring-border">
+                      <div
+                        key={`${chapter.id}-${stat.label}`}
+                        className="rounded-2xl bg-secondary/60 px-2 py-3 text-center ring-1 ring-border/80"
+                      >
                         <p className={`font-display text-xl font-semibold ${numbers[index % 3]}`}>
                           <CountUp end={stat.value} duration={1.6} separator=" " enableScrollSpy scrollSpyOnce />
                           {stat.suffix}

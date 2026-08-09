@@ -12,7 +12,7 @@ import {
 } from "./mockData";
 import { fetchLandingContentFromSupabase, saveLandingContentToSupabase } from "./supabaseService";
 
-const STORAGE_KEY = "cmf_landing_content_v14";
+const STORAGE_KEY = "cmf_landing_content_v16";
 
 export type GalleryItem = {
   id: string;
@@ -329,26 +329,45 @@ function normalizeLeaderItem(item: Partial<LeaderItem>, index: number, fallback:
   };
 }
 
+function resolveManagedImage(stored: string | undefined, fallback: string): string {
+  if (!stored) return fallback;
+  // Keep admin uploads / remote URLs; refresh bundled asset hashes after redeploy.
+  if (stored.startsWith("data:") || /^https?:\/\//i.test(stored)) return stored;
+  return fallback;
+}
+
+function normalizeChapterStats(stats: StatItem[] | undefined, fallback: StatItem[]): StatItem[] {
+  const source = Array.isArray(stats) && stats.length > 0 ? stats : fallback;
+  const cleaned = source
+    .filter((stat) => !/sous[-\s]?groupe/i.test(stat.label || ""))
+    .map((stat) => ({
+      label: stat.label || "",
+      value: Number(stat.value) || 0,
+      suffix: stat.suffix ?? "",
+    }));
+
+  // Remplace les anciens chiffres démo trop élevés (ex. 620 / 680 / 550).
+  const storedMembers = cleaned.find((stat) => /membres/i.test(stat.label))?.value ?? 0;
+  if (storedMembers >= 200) {
+    return fallback.map((stat) => ({ ...stat }));
+  }
+
+  return cleaned;
+}
+
 function normalizeChapterLeaderItem(
   item: Partial<ChapterLeaderItem>,
   index: number,
   fallback: ChapterLeaderItem,
 ): ChapterLeaderItem {
-  const statsSource = Array.isArray(item.stats) && item.stats.length > 0 ? item.stats : fallback.stats;
   return {
     id: item.id || fallback.id || `chapitre-${index + 1}`,
     name: item.name?.trim() || fallback.name,
     description: item.description?.trim() || fallback.description,
     responsibleName: item.responsibleName?.trim() || fallback.responsibleName,
     responsibleRole: item.responsibleRole?.trim() || fallback.responsibleRole,
-    responsibleImage: item.responsibleImage || fallback.responsibleImage,
-    stats: statsSource
-      .filter((stat) => !/sous[-\s]?groupe/i.test(stat.label || ""))
-      .map((stat) => ({
-        label: stat.label || "",
-        value: Number(stat.value) || 0,
-        suffix: stat.suffix ?? "",
-      })),
+    responsibleImage: resolveManagedImage(item.responsibleImage, fallback.responsibleImage),
+    stats: normalizeChapterStats(item.stats, fallback.stats),
   };
 }
 
@@ -410,6 +429,8 @@ export function getContent(): LandingContent {
   try {
     const raw =
       localStorage.getItem(STORAGE_KEY) ||
+      localStorage.getItem("cmf_landing_content_v15") ||
+      localStorage.getItem("cmf_landing_content_v14") ||
       localStorage.getItem("cmf_landing_content_v13") ||
       localStorage.getItem("cmf_landing_content_v12") ||
       localStorage.getItem("cmf_landing_content_v11") ||
