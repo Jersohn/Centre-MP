@@ -31,6 +31,8 @@ RÈGLES DE RÉPONSE
 6. Ton chaleureux, professionnel, phrases complètes. Longueur adaptée : 3–8 phrases, ou puces si la question demande une liste.
 7. Ne divulgue jamais de données internes (cotas, finances détaillées, listes membres du dashboard).
 8. Pour l’espace responsables, indique /login.
+9. « Responsable du centre » / « responsable principal » = fiche Comité (ex. M. Konan). Ne confonds JAMAIS avec un responsable de chapitre (Kouassi, Amani, Diallo, etc.).
+10. N’affirme jamais « je n’ai pas l’information » si la fiche « Responsable principal du centre » ou « Comité » est présente dans le dossier.
 
 STYLE
 - Français correct, fluide, sans jargon technique.
@@ -72,21 +74,53 @@ function tokenize(text: string): string[] {
     .filter((t) => t.length >= 3);
 }
 
-function scoreChunk(chunk: KnowledgeChunk, queryTokens: string[]): number {
+function normalizeQuery(text: string) {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+/** Détecte les questions du type « qui est le responsable du centre ? » */
+function isCentreLeadershipQuestion(qNorm: string) {
+  if (
+    /responsable\s+(du\s+|de\s+la\s+|de\s+)?centre|responsable\s+principal|dirige\s+le\s+centre|qui\s+.*responsable.*centre|comite\s+du\s+centre|comité\s+du\s+centre/i.test(
+      qNorm
+    )
+  ) {
+    return true;
+  }
+  const hasLeadWord = /(responsable|dirige|directeur|presidente?|chef|comite|comité)/i.test(qNorm);
+  const hasCentre = /centre|miroirs?|parfait/i.test(qNorm);
+  const hasChapterOnly = /chapitre|district|groupe/i.test(qNorm) && !hasCentre;
+  return hasLeadWord && hasCentre && !hasChapterOnly;
+}
+
+function scoreChunk(chunk: KnowledgeChunk, queryTokens: string[], questionRaw = ""): number {
   if (!queryTokens.length) return 0;
   const hay = `${chunk.page} ${chunk.title} ${chunk.body} ${chunk.path}`.toLowerCase();
-  const hayNorm = hay
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+  const hayNorm = normalizeQuery(hay);
+  const qNorm = normalizeQuery(questionRaw);
+
   let score = 0;
   for (const token of queryTokens) {
     if (hayNorm.includes(token)) score += 2;
     if (chunk.title.toLowerCase().includes(token)) score += 3;
     if (chunk.page.toLowerCase().includes(token)) score += 2;
   }
-  // Boost exact-ish phrase fragments
   const q = queryTokens.join(" ");
   if (q && hayNorm.includes(q)) score += 8;
+
+  // Questions sur le leadership du centre → prioriser comité / responsable principal
+  const asksCentreLead = isCentreLeadershipQuestion(qNorm);
+  if (asksCentreLead && (chunk.id === "responsable-centre" || chunk.id === "comite")) {
+    score += 40;
+  }
+  // Éviter que les chapitres écrasent la réponse « responsable du centre »
+  if (asksCentreLead && chunk.page === "Chapitres") {
+    score = Math.max(0, score - 8);
+  }
+
   return score;
 }
 
@@ -118,14 +152,29 @@ function buildSiteChunks(content: LandingContent): KnowledgeChunk[] {
   });
 
   if (content.centreCommittee?.length) {
+    const principal =
+      content.centreCommittee.find((m) =>
+        /responsable\s+centre/i.test(m.role || "")
+      ) || content.centreCommittee[0];
+
+    chunks.push({
+      id: "responsable-centre",
+      page: "Comité du centre",
+      path: "/#centre",
+      title: "Responsable principal du centre",
+      body: `Le responsable du centre (responsable principal) est ${principal.name} (${principal.role}).
+Ne pas confondre avec les responsables de chapitre.
+Question typique: « Qui est le responsable du centre ? » → répondre ${principal.name}.`,
+    });
+
     chunks.push({
       id: "comite",
       page: "Comité du centre",
       path: "/#centre",
-      title: "Responsables du centre",
-      body: content.centreCommittee
-        .map((m) => `${m.name} — ${m.role}`)
-        .join("\n"),
+      title: "Comité / équipe de direction du centre",
+      body: `Composition du comité du Centre Miroir Parfait:\n${content.centreCommittee
+        .map((m) => `- ${m.name} — ${m.role}`)
+        .join("\n")}\nResponsable principal du centre: ${principal.name}.`,
     });
   }
 
@@ -238,24 +287,36 @@ function retrieveChunks(chunks: KnowledgeChunk[], question: string, limit = 10):
   }
 
   const scored = chunks
-    .map((chunk) => ({ chunk, score: scoreChunk(chunk, tokens) }))
+    .map((chunk) => ({ chunk, score: scoreChunk(chunk, tokens, question) }))
     .sort((a, b) => b.score - a.score);
 
   const relevant = scored.filter((s) => s.score > 0).slice(0, limit).map((s) => s.chunk);
 
-  // Toujours garder contact + plan du site pour l’orientation
-  const always = chunks.filter((c) => c.id === "contact" || c.id === "pages" || c.id === "accueil");
-  const merged = [...relevant];
-  for (const item of always) {
+  // Toujours garder identité / comité / contact pour les questions de base
+  const alwaysIds = ["responsable-centre", "comite", "contact", "pages", "accueil", "a-propos"];
+  const always = alwaysIds
+    .map((id) => chunks.find((c) => c.id === id))
+    .filter(Boolean) as KnowledgeChunk[];
+
+  const merged: KnowledgeChunk[] = [];
+  const asksCentreLead = isCentreLeadershipQuestion(normalizeQuery(question));
+
+  if (asksCentreLead) {
+    for (const id of ["responsable-centre", "comite"]) {
+      const hit = chunks.find((c) => c.id === id);
+      if (hit) merged.push(hit);
+    }
+  }
+
+  for (const item of [...relevant, ...always]) {
     if (!merged.find((m) => m.id === item.id)) merged.push(item);
   }
 
-  // Si rien ne matche, fournir un large extrait pour éviter le vide
-  if (!relevant.length) {
+  if (!relevant.length && !asksCentreLead) {
     return chunks.slice(0, Math.min(14, chunks.length));
   }
 
-  return merged.slice(0, Math.max(limit, 8));
+  return merged.slice(0, Math.max(limit, 10));
 }
 
 function formatChunks(chunks: KnowledgeChunk[]): string {
