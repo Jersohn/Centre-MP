@@ -1,23 +1,24 @@
 /**
- * GET /api/encouragement-du-jour
- * Daily Encouragement officiel depuis https://www.sokaglobal.org/
- * Affiché en français (traduction automatique).
+ * GET /api/gosho-du-jour
+ * Source officielle SGI-USA Daily Wisdom, renvoyée en français.
  */
 
-const MONTH_SLUGS = [
-  "january",
-  "february",
-  "march",
-  "april",
-  "may",
-  "june",
-  "july",
-  "august",
-  "september",
-  "october",
-  "november",
-  "december",
-];
+const OFFICIAL_DAILY_WISDOM_URL = "https://cms.sgi-usa.org/dw/";
+
+const MONTHS = {
+  january: "janvier",
+  february: "février",
+  march: "mars",
+  april: "avril",
+  may: "mai",
+  june: "juin",
+  july: "juillet",
+  august: "août",
+  september: "septembre",
+  october: "octobre",
+  november: "novembre",
+  december: "décembre",
+};
 
 function decodeHtml(value) {
   return value
@@ -27,14 +28,13 @@ function decodeHtml(value) {
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
-    .replace(/&#039;/g, "'")
     .replace(/&#8217;/g, "’")
     .replace(/&#8220;/g, "“")
     .replace(/&#8221;/g, "”")
     .replace(/&#8211;/g, "–")
     .replace(/&#8212;/g, "—")
     .replace(/\u00a0/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -43,10 +43,16 @@ function firstMatch(html, pattern) {
   return match?.[1] ? decodeHtml(match[1]) : "";
 }
 
-function buildDailyEncouragementUrl(date = new Date()) {
-  const month = MONTH_SLUGS[date.getMonth()];
-  const day = date.getDate();
-  return `https://www.sokaglobal.org/resources/daily-encouragement/${month}-${day}.html`;
+function allMatches(html, pattern) {
+  return [...html.matchAll(pattern)].map((match) => decodeHtml(match[1] || "")).filter(Boolean);
+}
+
+function formatEnglishDateToFrench(dateLabel) {
+  const match = dateLabel.match(/([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(\d{4})/i);
+  if (!match) return dateLabel;
+  const month = MONTHS[match[1].toLowerCase()];
+  if (!month) return dateLabel;
+  return `${Number(match[2])} ${month} ${match[3]}`;
 }
 
 function splitText(text, maxLen = 900) {
@@ -125,9 +131,12 @@ async function translateToFrench(text) {
   }
 }
 
-async function fetchOfficialDailyEncouragement(date = new Date()) {
-  const sourceUrl = buildDailyEncouragementUrl(date);
-  const response = await fetch(sourceUrl, {
+function makeExcerpt(text) {
+  return text.length > 220 ? `${text.slice(0, 217).trim()}…` : text;
+}
+
+async function fetchOfficialDailyWisdomFrench() {
+  const response = await fetch(OFFICIAL_DAILY_WISDOM_URL, {
     headers: {
       Accept: "text/html,application/xhtml+xml",
       "User-Agent": "Centre-Miroir-Parfait/1.0 (SGI Cote d'Ivoire study app)",
@@ -135,46 +144,40 @@ async function fetchOfficialDailyEncouragement(date = new Date()) {
   });
 
   if (!response.ok) {
-    throw new Error(`Erreur source officielle sokaglobal.org (${response.status})`);
+    throw new Error(`Erreur source officielle SGI-USA (${response.status})`);
   }
 
   const html = await response.text();
-  const text = firstMatch(html, /<div class="text">([\s\S]*?)<\/div>/i);
-  const referenceRaw = firstMatch(html, /<div class="name">([\s\S]*?)<\/div>/i);
-  const reference = referenceRaw.replace(/^From\s+/i, "").trim();
+  const content = firstMatch(html, /<div class="post-content2">([\s\S]*?)<\/div>/i);
+  const dates = allMatches(html, /<div class="post-date">([\s\S]*?)<\/div>/gi);
+  const author = dates[0] || "Nichiren Daishonin";
+  const date = dates[1] || "";
 
-  if (!text) {
-    throw new Error("Encouragement officiel introuvable sur sokaglobal.org");
+  if (!content) {
+    throw new Error("Contenu officiel introuvable sur la page Daily Wisdom.");
   }
 
-  const frenchText = await translateToFrench(text);
-  const frenchReference = reference
-    ? await translateToFrench(reference).catch(() => reference)
-    : "Daisaku Ikeda";
-
-  const dateLabel = new Intl.DateTimeFormat("fr-FR", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(date);
+  const frenchText = await translateToFrench(content);
 
   return {
-    title: "Encouragement du jour",
-    text: frenchText,
+    title: "Passage du Gosho",
+    goshoTitle: "Sagesse quotidienne — Écrits de Nichiren Daishonin",
+    excerpt: makeExcerpt(frenchText),
+    context: "",
+    reference: "Écrits de Nichiren Daishonin — Source officielle SGI-USA",
     fullText: frenchText,
-    author: "Daisaku Ikeda",
-    reference: frenchReference,
-    date: dateLabel,
-    source: "Source officielle : Soka Gakkai Global — Daily Encouragement (traduction française)",
-    sourceUrl,
     reflection:
-      "Comment puis-je appliquer cet encouragement officiel dans ma vie et mon groupe aujourd’hui ?",
+      "Comment ce passage officiel du Gosho m’éclaire-t-il dans ma pratique et ma vie aujourd’hui ?",
+    source: "Source officielle : SGI-USA — Daily Wisdom (traduction française automatique)",
+    sourceUrl: OFFICIAL_DAILY_WISDOM_URL,
+    date: formatEnglishDateToFrench(date),
+    author,
     language: "fr",
     originalLanguage: "en",
   };
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== "GET") {
     res.statusCode = 405;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -183,7 +186,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const payload = await fetchOfficialDailyEncouragement(new Date());
+    const payload = await fetchOfficialDailyWisdomFrench();
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Cache-Control", "no-store");
@@ -193,9 +196,9 @@ export default async function handler(req, res) {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.end(
       JSON.stringify({
-        error: "Impossible de récupérer l’encouragement officiel",
+        error: "Impossible de récupérer/traduire le Gosho officiel",
         details: String(error),
-        sourceUrl: "https://www.sokaglobal.org/resources/daily-encouragement/",
+        sourceUrl: OFFICIAL_DAILY_WISDOM_URL,
       }),
     );
   }
