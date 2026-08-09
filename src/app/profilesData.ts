@@ -1,4 +1,5 @@
 import type { PlatformRole } from "./roles";
+import { CHAPITRE_NAMES, defaultChapitre } from "./orgHierarchy";
 
 export type ProfileStatus = "Actif" | "En attente" | "Suspendu";
 
@@ -22,7 +23,7 @@ export const INITIAL_PROFILES: UserProfile[] = [
     email: "amina.kasongo@sgi.org",
     role: "admin",
     status: "Actif",
-    chapitre: "Siège international",
+    chapitre: "Centre Miroir Parfait",
     department: "Direction générale",
     telephone: "+225 07 11 22 33 44",
     quartier: "Plateau",
@@ -34,7 +35,7 @@ export const INITIAL_PROFILES: UserProfile[] = [
     email: "jm.luyeye@sgi.org",
     role: "centre",
     status: "Actif",
-    chapitre: "Centre principal",
+    chapitre: "Centre Miroir Parfait",
     department: "Administration",
     telephone: "+225 05 22 33 44 55",
     quartier: "Cocody",
@@ -46,11 +47,11 @@ export const INITIAL_PROFILES: UserProfile[] = [
     email: "eric.mbenza@sgi.org",
     role: "chapitre",
     status: "Actif",
-    chapitre: "Chapitre 2 – Brazzaville",
+    chapitre: CHAPITRE_NAMES[0],
     department: "Coordination",
-    telephone: "+242 06 55 66 77 88",
-    quartier: "Poto-Poto",
-    bio: "Animation du chapitre et consolidation des districts.",
+    telephone: "+225 07 55 66 77 88",
+    quartier: "Cocody",
+    bio: "Animation du chapitre Rissho Ankoku Ron et consolidation des districts.",
   },
   {
     id: 4,
@@ -58,11 +59,11 @@ export const INITIAL_PROFILES: UserProfile[] = [
     email: "clara.ndaye@sgi.org",
     role: "district",
     status: "Actif",
-    chapitre: "Chapitre 3 – Paris",
-    department: "District",
-    telephone: "+33 6 12 34 56 78",
-    quartier: "Montreuil",
-    bio: "Suivi des groupes du district et accompagnement des responsables.",
+    chapitre: CHAPITRE_NAMES[0],
+    department: "District Bodhisattva",
+    telephone: "+225 05 12 34 56 78",
+    quartier: "Marcory",
+    bio: "Suivi des groupes BODDHISATTVA, BONTEN et PREUVE ACTUELLE (RISHO ANKOKURON).",
   },
   {
     id: 5,
@@ -70,11 +71,11 @@ export const INITIAL_PROFILES: UserProfile[] = [
     email: "josephine.mbala@sgi.org",
     role: "groupe",
     status: "En attente",
-    chapitre: "Chapitre 4 – Abidjan",
-    department: "Groupe",
+    chapitre: CHAPITRE_NAMES[0],
+    department: "Groupe BODDHISATTVA",
     telephone: "+225 01 98 76 54 32",
     quartier: "Yopougon",
-    bio: "Accompagnement des membres du groupe au quotidien.",
+    bio: "Accompagnement des membres du groupe BODDHISATTVA au quotidien.",
   },
 ];
 
@@ -98,3 +99,5 @@ export function profileInitials(name: string) {
     .map((part) => part[0]?.toUpperCase() || "")
     .join("");
 }
+
+export { defaultChapitre };

@@ -24,6 +24,15 @@ import { findMemberPhotoByName, memberFullName, MEMBERS_SEED } from "./membersDa
 import CollectesImportExportBar from "./CollectesImportExportBar";
 import ZaimuQuotaPanel from "./ZaimuQuotaPanel";
 import type { PlatformRole } from "./roles";
+import {
+  CHAPITRE_NAMES,
+  coerceOrgSelection,
+  defaultChapitre,
+  defaultDistrict,
+  defaultGroupe,
+  districtsForChapitre,
+  groupesForDistrict,
+} from "./orgHierarchy";
 
 export type CollecteTab = "vague-paix" | "zaimu-ordinaire" | "zaimu-special";
 export type CollecteStatut = "En attente" | "Validé" | "Annulé";
@@ -47,15 +56,7 @@ export interface CollecteRecord {
 
 const MEMBER_OPTIONS = MEMBERS_SEED.map((member) => memberFullName(member));
 
-const CHAPITRE_OPTIONS = [
-  "Chapitre 1 – Kinshasa",
-  "Chapitre 2 – Brazzaville",
-  "Chapitre 3 – Paris",
-  "Chapitre 4 – Abidjan",
-];
-
-const DISTRICT_OPTIONS = ["District Nord", "District Sud", "District Est", "District Ouest"];
-const GROUPE_OPTIONS = ["Groupe A", "Groupe B", "Groupe C", "Groupe D"];
+const CHAPITRE_OPTIONS = CHAPITRE_NAMES;
 const STATUT_OPTIONS: CollecteStatut[] = ["En attente", "Validé", "Annulé"];
 
 const TAB_META: Record<
@@ -87,142 +88,138 @@ const TAB_META: Record<
 
 type PageView = "liste" | "cota" | "import-export";
 
+function seedCollecte(
+  partial: Omit<CollecteRecord, "chapitre" | "district" | "groupe" | "membre"> & {
+    memberId: number;
+  },
+): CollecteRecord {
+  const member = MEMBERS_SEED.find((item) => item.id === partial.memberId) || MEMBERS_SEED[0];
+  return {
+    id: partial.id,
+    type: partial.type,
+    membre: memberFullName(member),
+    montant: partial.montant,
+    date: partial.date,
+    statut: partial.statut,
+    chapitre: member.chapitre,
+    district: member.district,
+    groupe: member.groupe,
+    periode: partial.periode,
+    motif: partial.motif,
+    referenceRecu: partial.referenceRecu,
+    note: partial.note,
+  };
+}
+
 export const COLLECTES_SEED: CollecteRecord[] = [
-  {
+  seedCollecte({
     id: "VP-2026-001",
+    memberId: 1,
     type: "vague-paix",
-    membre: "Jean-Pierre Kabongo Mwamba",
     montant: 15000,
     date: "2026-08-01",
     statut: "Validé",
-    chapitre: "Chapitre 1 – Kinshasa",
-    district: "District Nord",
-    groupe: "Groupe A",
     periode: "Août 2026",
     motif: "",
     referenceRecu: "RC-VP-260801",
     note: "Abonnement annuel en cours",
-  },
-  {
+  }),
+  seedCollecte({
     id: "VP-2026-002",
+    memberId: 8,
     type: "vague-paix",
-    membre: "Amara Mbeki Nkosi",
     montant: 15000,
     date: "2026-08-03",
     statut: "En attente",
-    chapitre: "Chapitre 2 – Brazzaville",
-    district: "District Sud",
-    groupe: "Groupe B",
     periode: "Août 2026",
     motif: "",
     referenceRecu: "",
     note: "",
-  },
-  {
+  }),
+  seedCollecte({
     id: "VP-2026-003",
+    memberId: 15,
     type: "vague-paix",
-    membre: "Sophie Lemaire",
     montant: 15000,
     date: "2026-07-28",
     statut: "Validé",
-    chapitre: "Chapitre 3 – Paris",
-    district: "District Ouest",
-    groupe: "Groupe C",
     periode: "Juillet 2026",
     motif: "",
     referenceRecu: "RC-VP-260728",
     note: "",
-  },
-  {
+  }),
+  seedCollecte({
     id: "ZO-2026-001",
+    memberId: 2,
     type: "zaimu-ordinaire",
-    membre: "Marie-Claire Tshisekedi Wa",
     montant: 25000,
     date: "2026-08-02",
     statut: "Validé",
-    chapitre: "Chapitre 1 – Kinshasa",
-    district: "District Nord",
-    groupe: "Groupe A",
     periode: "Août 2026",
     motif: "",
     referenceRecu: "RC-ZO-260802",
     note: "Don mensuel",
-  },
-  {
+  }),
+  seedCollecte({
     id: "ZO-2026-002",
+    memberId: 4,
     type: "zaimu-ordinaire",
-    membre: "Patrick Ngandu",
     montant: 10000,
     date: "2026-08-04",
     statut: "Validé",
-    chapitre: "Chapitre 1 – Kinshasa",
-    district: "District Sud",
-    groupe: "Groupe D",
     periode: "Août 2026",
     motif: "",
     referenceRecu: "RC-ZO-260804",
     note: "",
-  },
-  {
+  }),
+  seedCollecte({
     id: "ZO-2026-003",
+    memberId: 12,
     type: "zaimu-ordinaire",
-    membre: "Ousmane Diallo",
     montant: 5000,
     date: "2026-07-30",
     statut: "Annulé",
-    chapitre: "Chapitre 4 – Abidjan",
-    district: "District Nord",
-    groupe: "Groupe B",
     periode: "Juillet 2026",
     motif: "",
     referenceRecu: "",
     note: "Paiement non abouti",
-  },
-  {
+  }),
+  seedCollecte({
     id: "ZS-2026-001",
+    memberId: 9,
     type: "zaimu-special",
-    membre: "Moussa Bakary",
     montant: 100000,
     date: "2026-08-05",
     statut: "Validé",
-    chapitre: "Chapitre 2 – Brazzaville",
-    district: "District Est",
-    groupe: "Groupe C",
     periode: "Campagne 2026",
     motif: "Construction du centre",
     referenceRecu: "RC-ZS-260805",
     note: "Don exceptionnel",
-  },
-  {
+  }),
+  seedCollecte({
     id: "ZS-2026-002",
+    memberId: 16,
     type: "zaimu-special",
-    membre: "Cécile Fontaine",
     montant: 50000,
     date: "2026-08-06",
     statut: "En attente",
-    chapitre: "Chapitre 3 – Paris",
-    district: "District Ouest",
-    groupe: "Groupe A",
     periode: "Campagne 2026",
     motif: "Solidarité jeunesse",
     referenceRecu: "",
     note: "",
-  },
-  {
+  }),
+  seedCollecte({
     id: "ZS-2026-003",
+    memberId: 20,
     type: "zaimu-special",
-    membre: "Ibrahim Konaté",
     montant: 75000,
     date: "2026-07-20",
     statut: "Validé",
-    chapitre: "Chapitre 4 – Abidjan",
-    district: "District Est",
-    groupe: "Groupe D",
     periode: "Campagne 2026",
     motif: "Équipement butsudan",
     referenceRecu: "RC-ZS-260720",
     note: "",
-  },
+  }),
 ];
 
 const emptyForm = (type: CollecteTab): Omit<CollecteRecord, "id"> => ({
@@ -231,9 +228,9 @@ const emptyForm = (type: CollecteTab): Omit<CollecteRecord, "id"> => ({
   montant: type === "vague-paix" ? 15000 : 0,
   date: new Date().toISOString().slice(0, 10),
   statut: "En attente",
-  chapitre: CHAPITRE_OPTIONS[0],
-  district: DISTRICT_OPTIONS[0],
-  groupe: GROUPE_OPTIONS[0],
+  chapitre: defaultChapitre(),
+  district: defaultDistrict(),
+  groupe: defaultGroupe(),
   periode: type === "zaimu-special" ? "Campagne 2026" : "Août 2026",
   motif: "",
   referenceRecu: "",
@@ -468,8 +465,23 @@ function CollecteFormModal({
     });
   };
 
+  const districtOptions = districtsForChapitre(values.chapitre);
+  const groupeOptions = groupesForDistrict(values.chapitre, values.district);
+
   const set = <K extends keyof typeof values>(key: K, value: (typeof values)[K]) => {
-    setValues((prev) => ({ ...prev, [key]: value }));
+    setValues((prev) => {
+      if (key === "chapitre" || key === "district" || key === "groupe") {
+        return {
+          ...prev,
+          ...coerceOrgSelection({
+            chapitre: key === "chapitre" ? String(value) : prev.chapitre,
+            district: key === "district" ? String(value) : prev.district,
+            groupe: key === "groupe" ? String(value) : prev.groupe,
+          }),
+        };
+      }
+      return { ...prev, [key]: value };
+    });
   };
 
   return (
@@ -570,7 +582,7 @@ function CollecteFormModal({
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">District</label>
               <select className="dash-field" value={values.district} onChange={(e) => set("district", e.target.value)}>
-                {DISTRICT_OPTIONS.map((item) => (
+                {districtOptions.map((item) => (
                   <option key={item}>{item}</option>
                 ))}
               </select>
@@ -578,7 +590,7 @@ function CollecteFormModal({
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Groupe</label>
               <select className="dash-field" value={values.groupe} onChange={(e) => set("groupe", e.target.value)}>
-                {GROUPE_OPTIONS.map((item) => (
+                {groupeOptions.map((item) => (
                   <option key={item}>{item}</option>
                 ))}
               </select>

@@ -3,6 +3,7 @@ import type { MemberRecord } from "./memberFormUtils";
 import type { PlatformRole } from "./roles";
 import type { OrgScope } from "./memberListStats";
 import { DEMO_ORG_SCOPE } from "./memberListStats";
+import { ORG_HIERARCHY } from "./orgHierarchy";
 
 export type CollectePayment = {
   type: string;
@@ -55,140 +56,60 @@ export type QuotaBalance = {
   progress: number;
 };
 
-function byName(id: number) {
-  const m = MEMBERS_SEED.find((x) => x.id === id);
-  return m ? memberFullName(m) : `Membre #${id}`;
+function buildZaimuSpecialCampaign(): ZaimuSpecialCampaign {
+  const montantCentre = 10_000_000;
+  const chapterShare = Math.floor(montantCentre / ORG_HIERARCHY.length);
+
+  const chapitres = ORG_HIERARCHY.map((chapter, chapterIndex) => {
+    const chapitreAssigne =
+      chapterIndex === ORG_HIERARCHY.length - 1
+        ? montantCentre - chapterShare * (ORG_HIERARCHY.length - 1)
+        : chapterShare;
+    const districtShare = Math.floor(chapitreAssigne / chapter.districts.length);
+
+    const districts = chapter.districts.map((district, districtIndex) => {
+      const districtAssigne =
+        districtIndex === chapter.districts.length - 1
+          ? chapitreAssigne - districtShare * (chapter.districts.length - 1)
+          : districtShare;
+      const groupeShare = Math.floor(districtAssigne / district.groupes.length);
+
+      const groupes = district.groupes.map((groupe, groupeIndex) => {
+        const groupeAssigne =
+          groupeIndex === district.groupes.length - 1
+            ? districtAssigne - groupeShare * (district.groupes.length - 1)
+            : groupeShare;
+        const membres = MEMBERS_SEED.filter(
+          (member) =>
+            member.chapitre === chapter.name &&
+            member.district === district.name &&
+            member.groupe === groupe,
+        ).map((member) => ({
+          memberId: member.id,
+          membre: memberFullName(member),
+          assigne: groupeAssigne,
+        }));
+
+        return { groupe, assigne: groupeAssigne, membres };
+      });
+
+      return { district: district.name, assigne: districtAssigne, groupes };
+    });
+
+    return { chapitre: chapter.name, assigne: chapitreAssigne, districts };
+  });
+
+  return {
+    id: "ZS-CAMP-2026",
+    label: "Campagne Zaimu spécial 2026",
+    annee: 2026,
+    montantCentre,
+    chapitres,
+  };
 }
 
 /** Campagne démo : cota centre → chapitres → districts → groupes → membres */
-export const ZAIMU_SPECIAL_CAMPAIGN: ZaimuSpecialCampaign = {
-  id: "ZS-CAMP-2026",
-  label: "Campagne Zaimu spécial 2026",
-  annee: 2026,
-  montantCentre: 10_000_000,
-  chapitres: [
-    {
-      chapitre: "Chapitre 1 – Kinshasa",
-      assigne: 4_000_000,
-      districts: [
-        {
-          district: "District Nord",
-          assigne: 2_200_000,
-          groupes: [
-            {
-              groupe: "Groupe A",
-              assigne: 2_200_000,
-              membres: [
-                { memberId: 1, membre: byName(1), assigne: 1_200_000 },
-                { memberId: 5, membre: byName(5), assigne: 1_000_000 },
-              ],
-            },
-          ],
-        },
-        {
-          district: "District Sud",
-          assigne: 1_800_000,
-          groupes: [
-            {
-              groupe: "Groupe C",
-              assigne: 1_800_000,
-              membres: [{ memberId: 7, membre: byName(7), assigne: 1_800_000 }],
-            },
-          ],
-        },
-      ],
-    },
-    {
-      chapitre: "Chapitre 2 – Brazzaville",
-      assigne: 2_500_000,
-      districts: [
-        {
-          district: "District Sud",
-          assigne: 1_200_000,
-          groupes: [
-            {
-              groupe: "Groupe B",
-              assigne: 1_200_000,
-              membres: [{ memberId: 2, membre: byName(2), assigne: 1_200_000 }],
-            },
-          ],
-        },
-        {
-          district: "District Est",
-          assigne: 1_300_000,
-          groupes: [
-            {
-              groupe: "Groupe A",
-              assigne: 1_300_000,
-              membres: [{ memberId: 9, membre: byName(9), assigne: 1_300_000 }],
-            },
-          ],
-        },
-      ],
-    },
-    {
-      chapitre: "Chapitre 3 – Paris",
-      assigne: 2_000_000,
-      districts: [
-        {
-          district: "District Ouest",
-          assigne: 1_200_000,
-          groupes: [
-            {
-              groupe: "Groupe C",
-              assigne: 600_000,
-              membres: [{ memberId: 3, membre: byName(3), assigne: 600_000 }],
-            },
-            {
-              groupe: "Groupe D",
-              assigne: 600_000,
-              membres: [{ memberId: 8, membre: byName(8), assigne: 600_000 }],
-            },
-          ],
-        },
-        {
-          district: "District Nord",
-          assigne: 800_000,
-          groupes: [
-            {
-              groupe: "Groupe B",
-              assigne: 800_000,
-              membres: [{ memberId: 10, membre: byName(10), assigne: 800_000 }],
-            },
-          ],
-        },
-      ],
-    },
-    {
-      chapitre: "Chapitre 4 – Abidjan",
-      assigne: 1_500_000,
-      districts: [
-        {
-          district: "District Nord",
-          assigne: 700_000,
-          groupes: [
-            {
-              groupe: "Groupe B",
-              assigne: 700_000,
-              membres: [{ memberId: 6, membre: byName(6), assigne: 700_000 }],
-            },
-          ],
-        },
-        {
-          district: "District Est",
-          assigne: 800_000,
-          groupes: [
-            {
-              groupe: "Groupe D",
-              assigne: 800_000,
-              membres: [{ memberId: 4, membre: byName(4), assigne: 800_000 }],
-            },
-          ],
-        },
-      ],
-    },
-  ],
-};
+export const ZAIMU_SPECIAL_CAMPAIGN: ZaimuSpecialCampaign = buildZaimuSpecialCampaign();
 
 export function formatCdf(n: number) {
   return new Intl.NumberFormat("fr-FR").format(n);

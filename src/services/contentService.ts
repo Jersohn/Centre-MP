@@ -12,7 +12,7 @@ import {
 } from "./mockData";
 import { fetchLandingContentFromSupabase, saveLandingContentToSupabase } from "./supabaseService";
 
-const STORAGE_KEY = "cmf_landing_content_v16";
+const STORAGE_KEY = "cmf_landing_content_v18";
 
 export type GalleryItem = {
   id: string;
@@ -325,7 +325,7 @@ function normalizeLeaderItem(item: Partial<LeaderItem>, index: number, fallback:
     id: item.id || fallback.id || `leader-${index + 1}`,
     name: item.name?.trim() || fallback.name,
     role: item.role?.trim() || fallback.role,
-    image: item.image || fallback.image,
+    image: resolveManagedImage(item.image, fallback.image),
   };
 }
 
@@ -346,9 +346,11 @@ function normalizeChapterStats(stats: StatItem[] | undefined, fallback: StatItem
       suffix: stat.suffix ?? "",
     }));
 
-  // Remplace les anciens chiffres démo trop élevés (ex. 620 / 680 / 550).
+  // Remplace les anciens chiffres démo (membres gonflés / anciennes répartitions groupes).
   const storedMembers = cleaned.find((stat) => /membres/i.test(stat.label))?.value ?? 0;
-  if (storedMembers >= 200) {
+  const storedGroups = cleaned.find((stat) => /groupes/i.test(stat.label))?.value ?? 0;
+  const obsoleteGroupCounts = new Set([10, 11, 12, 14, 16, 18]);
+  if (storedMembers >= 200 || obsoleteGroupCounts.has(storedGroups)) {
     return fallback.map((stat) => ({ ...stat }));
   }
 
@@ -429,6 +431,8 @@ export function getContent(): LandingContent {
   try {
     const raw =
       localStorage.getItem(STORAGE_KEY) ||
+      localStorage.getItem("cmf_landing_content_v17") ||
+      localStorage.getItem("cmf_landing_content_v16") ||
       localStorage.getItem("cmf_landing_content_v15") ||
       localStorage.getItem("cmf_landing_content_v14") ||
       localStorage.getItem("cmf_landing_content_v13") ||

@@ -1,5 +1,6 @@
 import type { MemberRecord } from "./memberFormUtils";
 import type { PlatformRole } from "./roles";
+import { defaultChapitre, defaultDistrict, defaultGroupe } from "./orgHierarchy";
 
 export type CollecteLike = {
   type: "vague-paix" | "zaimu-ordinaire" | "zaimu-special";
@@ -20,25 +21,29 @@ export type OrgScope = {
   groupe?: string;
 };
 
+const DEMO_CHAPITRE = defaultChapitre(); // Rissho Ankoku Ron
+const DEMO_DISTRICT = defaultDistrict(DEMO_CHAPITRE); // District Bodhisattva (3 groupes)
+const DEMO_GROUPE = defaultGroupe(DEMO_CHAPITRE, DEMO_DISTRICT); // BODDHISATTVA
+
 /** Périmètre démo par profil (en attendant le rattachement réel des comptes). */
 export const DEMO_ORG_SCOPE: Record<PlatformRole, OrgScope> = {
   groupe: {
-    label: "Groupe A — Chapitre 1 – Kinshasa",
-    chapitre: "Chapitre 1 – Kinshasa",
-    district: "District Nord",
-    groupe: "Groupe A",
+    label: `${DEMO_GROUPE} — ${DEMO_DISTRICT} · ${DEMO_CHAPITRE}`,
+    chapitre: DEMO_CHAPITRE,
+    district: DEMO_DISTRICT,
+    groupe: DEMO_GROUPE,
   },
   district: {
-    label: "District Nord — Chapitre 1 – Kinshasa",
-    chapitre: "Chapitre 1 – Kinshasa",
-    district: "District Nord",
+    label: `${DEMO_DISTRICT} — ${DEMO_CHAPITRE}`,
+    chapitre: DEMO_CHAPITRE,
+    district: DEMO_DISTRICT,
   },
   chapitre: {
-    label: "Chapitre 1 – Kinshasa (tous districts)",
-    chapitre: "Chapitre 1 – Kinshasa",
+    label: `${DEMO_CHAPITRE} (tous districts)`,
+    chapitre: DEMO_CHAPITRE,
   },
-  centre: { label: "Centre — bilan consolidé national" },
-  admin: { label: "Administration — bilan consolidé national" },
+  centre: { label: "Centre Miroir Parfait — bilan consolidé" },
+  admin: { label: "Administration — bilan consolidé du centre" },
 };
 
 export type MemberListKpis = {

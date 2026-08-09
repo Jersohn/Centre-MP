@@ -47,7 +47,7 @@ export function createMemberFromForm(values: MemberFormValues, existingMembers: 
     quartier: values.quartier,
     chapitre: values.chapitre,
     district: values.district,
-    groupe: values.groupe || "Groupe A",
+    groupe: values.groupe || "BODDHISATTVA",
     statut: values.statut,
     abonnement: values.abonnement,
     photo: values.photo || "",

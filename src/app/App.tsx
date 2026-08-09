@@ -41,11 +41,21 @@ import {
 import { RowActionsMenu } from "./RowActionsMenu";
 import { ALLOWED_ROLES, MODULE_ACCESS, ROLE_LABELS, type ModuleKey, type PlatformRole } from "./roles";
 import { INITIAL_PROFILES, type ProfileStatus, type UserProfile as Profile } from "./profilesData";
+import {
+  ALL_DISTRICT_NAMES,
+  CHAPITRE_NAMES,
+  coerceOrgSelection,
+  defaultChapitre,
+  defaultDistrict,
+  defaultGroupe,
+  districtsForChapitre,
+  groupesForDistrict,
+} from "./orgHierarchy";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
-const CHAPITRES = ["Tous", "Chapitre 1 – Kinshasa", "Chapitre 2 – Brazzaville", "Chapitre 3 – Paris", "Chapitre 4 – Abidjan"];
-const DISTRICTS = ["Tous", "District Nord", "District Sud", "District Est", "District Ouest"];
+const CHAPITRES = ["Tous", ...CHAPITRE_NAMES];
+const DISTRICTS = ["Tous", ...ALL_DISTRICT_NAMES];
 const STATUTS = ["Tous", "Actif", "En attente", "Suspendu"];
 const RESPONSABILITES = [
   "Membre simple",
@@ -75,10 +85,9 @@ const donsZaimu = [
 ];
 
 const membresByChap = [
-  { chapitre: "Ch. 1\nKinshasa", membres: 312, cotisations: 18600000, dons: 4200000 },
-  { chapitre: "Ch. 2\nBrazza.", membres: 198, cotisations: 11880000, dons: 2850000 },
-  { chapitre: "Ch. 3\nParis", membres: 145, cotisations: 8700000, dons: 1900000 },
-  { chapitre: "Ch. 4\nAbidjan", membres: 87, cotisations: 5220000, dons: 980000 },
+  { chapitre: "Rissho\nAnkoku Ron", membres: 60, cotisations: 3600000, dons: 900000 },
+  { chapitre: "Shin Gyo\nGaku", membres: 55, cotisations: 3300000, dons: 820000 },
+  { chapitre: "Trois\nTrésors", membres: 58, cotisations: 3480000, dons: 870000 },
 ];
 
 const transactions = [
@@ -928,9 +937,9 @@ function Membres({ role }: { role: PlatformRole }) {
     abonnementVaguePaix: true,
     sokahan: false,
     quartier: "",
-    chapitre: orgScope.chapitre || CHAPITRES[1],
-    district: orgScope.district || DISTRICTS[1],
-    groupe: orgScope.groupe || "Groupe A",
+    chapitre: orgScope.chapitre || defaultChapitre(),
+    district: orgScope.district || defaultDistrict(),
+    groupe: orgScope.groupe || defaultGroupe(),
     statut: "Actif",
     abonnement: true,
     photo: "",
@@ -939,6 +948,18 @@ function Membres({ role }: { role: PlatformRole }) {
   const [members, setMembers] = useState(membres);
   const [formError, setFormError] = useState("");
   const scopedMembers = useMemo(() => filterMembersByScope(members, orgScope), [members, orgScope]);
+  const districtFilterOptions = useMemo(() => {
+    if (chapitreFilter === "Tous") return DISTRICTS;
+    return ["Tous", ...districtsForChapitre(chapitreFilter)];
+  }, [chapitreFilter]);
+  const formDistrictOptions = useMemo(
+    () => districtsForChapitre(formValues.chapitre),
+    [formValues.chapitre],
+  );
+  const formGroupeOptions = useMemo(
+    () => groupesForDistrict(formValues.chapitre, formValues.district),
+    [formValues.chapitre, formValues.district],
+  );
 
   const handlePhotoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1058,9 +1079,40 @@ function Membres({ role }: { role: PlatformRole }) {
               placeholder="Nom du membre..." />
           </div>
         </div>
+        <div className="w-full min-w-0 sm:w-auto sm:min-w-[9rem]">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Chapitre</label>
+          <select
+            value={chapitreFilter}
+            disabled={Boolean(orgScope.chapitre)}
+            onChange={(e) => {
+              const nextChapitre = e.target.value;
+              setChapitreFilter(nextChapitre);
+              if (nextChapitre !== "Tous" && districtFilter !== "Tous") {
+                const allowed = districtsForChapitre(nextChapitre);
+                if (!allowed.includes(districtFilter)) setDistrictFilter("Tous");
+              }
+            }}
+            className="dash-field disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {CHAPITRES.map((option) => (
+              <option key={option}>{option}</option>
+            ))}
+          </select>
+        </div>
+        <div className="w-full min-w-0 sm:w-auto sm:min-w-[9rem]">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">District</label>
+          <select
+            value={districtFilter}
+            disabled={Boolean(orgScope.district)}
+            onChange={(e) => setDistrictFilter(e.target.value)}
+            className="dash-field disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {districtFilterOptions.map((option) => (
+              <option key={option}>{option}</option>
+            ))}
+          </select>
+        </div>
         {[
-          ["Chapitre", CHAPITRES, chapitreFilter, setChapitreFilter, Boolean(orgScope.chapitre)],
-          ["District", DISTRICTS, districtFilter, setDistrictFilter, Boolean(orgScope.district)],
           ["Statut", STATUTS, statutFilter, setStatutFilter, false],
           ["Responsabilité", RESPONSABILITE_FILTERS, responsabiliteFilter, setResponsabiliteFilter, false],
         ].map(([label, opts, val, set, locked]: any) => (
@@ -1173,20 +1225,46 @@ function Membres({ role }: { role: PlatformRole }) {
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Chapitre</label>
-            <select value={formValues.chapitre} onChange={(e) => setFormValues((prev) => ({ ...prev, chapitre: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm">
-              {CHAPITRES.filter((c) => c !== "Tous").map((c) => <option key={c}>{c}</option>)}
+            <select
+              value={formValues.chapitre}
+              onChange={(e) =>
+                setFormValues((prev) =>
+                  coerceOrgSelection({ ...prev, chapitre: e.target.value }),
+                )
+              }
+              className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm"
+            >
+              {CHAPITRE_NAMES.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
             </select>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">District</label>
-            <select value={formValues.district} onChange={(e) => setFormValues((prev) => ({ ...prev, district: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm">
-              {DISTRICTS.filter((d) => d !== "Tous").map((d) => <option key={d}>{d}</option>)}
+            <select
+              value={formValues.district}
+              onChange={(e) =>
+                setFormValues((prev) =>
+                  coerceOrgSelection({ ...prev, district: e.target.value }),
+                )
+              }
+              className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm"
+            >
+              {formDistrictOptions.map((d) => (
+                <option key={d}>{d}</option>
+              ))}
             </select>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Groupe</label>
-            <select value={formValues.groupe} onChange={(e) => setFormValues((prev) => ({ ...prev, groupe: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm">
-              {["Groupe A", "Groupe B", "Groupe C", "Groupe D"].map((g) => <option key={g}>{g}</option>)}
+            <select
+              value={formValues.groupe}
+              onChange={(e) => setFormValues((prev) => ({ ...prev, groupe: e.target.value }))}
+              className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm"
+            >
+              {formGroupeOptions.map((g) => (
+                <option key={g}>{g}</option>
+              ))}
             </select>
           </div>
           <div>
@@ -1517,7 +1595,9 @@ function Directives() {
               <label className="text-xs text-muted-foreground mb-1 block font-medium">Audience cible</label>
               <select value={audience} onChange={(e) => setAudience(e.target.value)}
                 className="w-full md:w-72 bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:ring-2 ring-ring/30">
-                {["Tous les chapitres", ...CHAPITRES.slice(1), "District Nord", "District Sud", "District Est", "District Ouest"].map((a) => <option key={a}>{a}</option>)}
+                {["Tous les chapitres", ...CHAPITRE_NAMES, ...ALL_DISTRICT_NAMES].map((a) => (
+                  <option key={a}>{a}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -1895,7 +1975,7 @@ function SettingsModule({ currentUserRole }: { currentUserRole: PlatformRole }) 
       email: "nouveau.utilisateur@sgi.org",
       role: "groupe",
       status: "En attente",
-      chapitre: "Chapitre 1 – Kinshasa",
+      chapitre: defaultChapitre(),
       department: "Administration",
       telephone: "",
       quartier: "",

@@ -1,241 +1,137 @@
 import { landingImages } from "../assets/landing/images";
 import type { MemberRecord } from "./memberFormUtils";
+import { ORG_HIERARCHY, flattenOrgPlacements } from "./orgHierarchy";
 
 const L = landingImages.leaders;
 const T = landingImages.testimonials;
+/** Portraits ouest-africains uniquement (pas de visages occidentaux). */
+const PHOTOS = [L.centre, L.homme, L.femme, L.jeunesse, L.jeuneHomme, L.jeuneFille, L.chapitre1, L.chapitre2, L.chapitre3, T.man, T.woman];
+const CHAPTER_PHOTOS = [L.chapitre1, L.chapitre2, L.chapitre3] as const;
 
-export const MEMBERS_SEED: MemberRecord[] = [
-  {
-    id: 1,
-    nom: "Kabongo Mwamba",
-    prenom: "Jean-Pierre",
-    email: "jp.kabongo@email.com",
-    telephone: "+243 81 234 5678",
-    dateNaissance: "1992-03-15",
-    departement: "Administration",
-    categorie: "Homme",
-    responsabilite: "Responsable centre",
-    dateDebutPratique: "2015-04-01",
-    abonnementVaguePaix: true,
-    sokahan: true,
-    quartier: "Gombe",
-    chapitre: "Chapitre 1 – Kinshasa",
-    district: "District Nord",
-    groupe: "Groupe A",
-    statut: "Actif",
-    adhesion: "2026-03-15",
-    abonnement: true,
-    photo: L.centre,
-    totalDons: 120000,
-  },
-  {
-    id: 2,
-    nom: "Mbeki Nkosi",
-    prenom: "Amara",
-    email: "amara.mbeki@email.com",
-    telephone: "+242 06 789 0123",
-    dateNaissance: "1997-07-22",
-    departement: "Culture",
-    categorie: "Femme",
-    responsabilite: "Responsable chapitre",
-    dateDebutPratique: "2018-08-10",
-    abonnementVaguePaix: true,
-    sokahan: true,
-    quartier: "Poto-Poto",
-    chapitre: "Chapitre 2 – Brazzaville",
-    district: "District Sud",
-    groupe: "Groupe B",
-    statut: "Actif",
-    adhesion: "2026-07-22",
-    abonnement: true,
-    photo: L.femme,
-    totalDons: 85000,
-  },
-  {
-    id: 3,
-    nom: "Fontaine",
-    prenom: "Cécile",
-    email: "c.fontaine@email.fr",
-    telephone: "+33 6 12 34 56 78",
-    dateNaissance: "2001-01-10",
-    departement: "Jeunesse",
-    categorie: "Jeune fille",
-    responsabilite: "Membre simple",
-    dateDebutPratique: "2021-02-01",
-    abonnementVaguePaix: false,
-    sokahan: false,
-    quartier: "Belleville",
-    chapitre: "Chapitre 3 – Paris",
-    district: "District Ouest",
-    groupe: "Groupe C",
-    statut: "Actif",
-    adhesion: "2025-01-10",
-    abonnement: false,
-    photo: L.jeuneFille,
-    totalDons: 45000,
-  },
-  {
-    id: 4,
-    nom: "Konaté",
-    prenom: "Ibrahim",
-    email: "i.konate@email.ci",
-    telephone: "+225 07 456 7890",
-    dateNaissance: "2004-11-03",
-    departement: "Avenir",
-    categorie: "Avenir",
-    responsabilite: "Membre simple",
-    dateDebutPratique: "2023-01-15",
-    abonnementVaguePaix: false,
-    sokahan: false,
-    quartier: "Plateau",
-    chapitre: "Chapitre 4 – Abidjan",
-    district: "District Est",
-    groupe: "Groupe D",
-    statut: "En attente",
-    adhesion: "2026-08-01",
-    abonnement: false,
-    photo: L.jeuneHomme,
-    totalDons: 10000,
-  },
-  {
-    id: 5,
-    nom: "Tshisekedi Wa",
-    prenom: "Marie-Claire",
-    email: "mc.tshisekedi@email.com",
-    telephone: "+243 99 876 5432",
-    dateNaissance: "1990-06-28",
-    departement: "Éducation",
-    categorie: "Femme",
-    responsabilite: "Responsable district",
-    dateDebutPratique: "2012-09-01",
-    abonnementVaguePaix: true,
-    sokahan: true,
-    quartier: "Kalamu",
-    chapitre: "Chapitre 1 – Kinshasa",
-    district: "District Nord",
-    groupe: "Groupe A",
-    statut: "Actif",
-    adhesion: "2025-06-28",
-    abonnement: true,
-    photo: T.woman,
-    totalDons: 200000,
-  },
-  {
-    id: 6,
-    nom: "Diallo",
-    prenom: "Ousmane",
-    email: "o.diallo@email.ci",
-    telephone: "+225 05 111 2233",
-    dateNaissance: "1988-02-14",
-    departement: "Santé",
-    categorie: "Homme",
-    responsabilite: "Responsable groupe",
-    dateDebutPratique: "2010-03-01",
-    abonnementVaguePaix: false,
-    sokahan: false,
-    quartier: "Yopougon",
-    chapitre: "Chapitre 4 – Abidjan",
-    district: "District Nord",
-    groupe: "Groupe B",
-    statut: "Suspendu",
-    adhesion: "2026-02-14",
-    abonnement: false,
-    photo: L.homme,
-    totalDons: 0,
-  },
-  {
-    id: 7,
-    nom: "Ngandu",
-    prenom: "Patrick",
-    email: "p.ngandu@email.com",
-    telephone: "+243 82 333 4444",
-    dateNaissance: "1995-09-05",
-    departement: "Logistique",
-    categorie: "Homme",
-    responsabilite: "Responsable groupe",
-    dateDebutPratique: "2017-10-01",
-    abonnementVaguePaix: true,
-    sokahan: true,
-    quartier: "Lingwala",
-    chapitre: "Chapitre 1 – Kinshasa",
-    district: "District Sud",
-    groupe: "Groupe C",
-    statut: "Actif",
-    adhesion: "2026-08-03",
-    abonnement: true,
-    photo: L.chapitre1,
-    totalDons: 75000,
-  },
-  {
-    id: 8,
-    nom: "Lemaire",
-    prenom: "Sophie",
-    email: "s.lemaire@email.fr",
-    telephone: "+33 7 88 99 00 11",
-    dateNaissance: "1994-04-19",
-    departement: "Communication",
-    categorie: "Femme",
-    responsabilite: "Responsable chapitre",
-    dateDebutPratique: "2016-05-01",
-    abonnementVaguePaix: true,
-    sokahan: true,
-    quartier: "Montreuil",
-    chapitre: "Chapitre 3 – Paris",
-    district: "District Ouest",
-    groupe: "Groupe D",
-    statut: "Actif",
-    adhesion: "2026-04-19",
-    abonnement: true,
-    photo: L.chapitre3,
-    totalDons: 95000,
-  },
-  {
-    id: 9,
-    nom: "Bakary",
-    prenom: "Moussa",
-    email: "m.bakary@email.cg",
-    telephone: "+242 05 678 9012",
-    dateNaissance: "1998-12-01",
-    departement: "Avenir",
-    categorie: "Jeune homme",
-    responsabilite: "Membre simple",
-    dateDebutPratique: "2022-01-01",
-    abonnementVaguePaix: false,
-    sokahan: false,
-    quartier: "Moungali",
-    chapitre: "Chapitre 2 – Brazzaville",
-    district: "District Est",
-    groupe: "Groupe A",
-    statut: "Actif",
-    adhesion: "2025-12-01",
-    abonnement: false,
-    photo: L.chapitre2,
-    totalDons: 110000,
-  },
-  {
-    id: 10,
-    nom: "Deschamps",
-    prenom: "Laurent",
-    email: "l.deschamps@email.fr",
-    telephone: "+33 6 55 44 33 22",
-    dateNaissance: "2002-01-15",
-    departement: "Jeunesse",
-    categorie: "Jeune homme",
-    responsabilite: "Membre simple",
-    dateDebutPratique: "2024-02-01",
-    abonnementVaguePaix: false,
-    sokahan: false,
-    quartier: "Nanterre",
-    chapitre: "Chapitre 3 – Paris",
-    district: "District Nord",
-    groupe: "Groupe B",
-    statut: "En attente",
-    adhesion: "2026-07-15",
-    abonnement: false,
-    photo: L.jeunesse,
-    totalDons: 5000,
-  },
+const FIRST_NAMES = [
+  "Kouassi",
+  "Amani",
+  "Diallo",
+  "Konan",
+  "Touré",
+  "Bamba",
+  "Coulibaly",
+  "Yao",
+  "N’Guessan",
+  "Koffi",
+  "Traoré",
+  "Ouattara",
+  "Soro",
+  "Adjoua",
+  "Akissi",
+  "Affoué",
+  "Jean",
+  "Marie",
+  "Ibrahim",
+  "Fatou",
+  "Serge",
+  "Awa",
+  "Pacôme",
+  "Estelle",
+  "Mariam",
+  "Bernard",
+  "Grace",
+  "Alain",
+  "Nadia",
+  "Hervé",
 ];
+
+const LAST_NAMES = [
+  "Kouamé",
+  "Brou",
+  "Koné",
+  "Doh",
+  "Aka",
+  "Gnahoré",
+  "Assi",
+  "Blé",
+  "Dago",
+  "Ehouman",
+  "Fofana",
+  "Guei",
+  "Hoba",
+  "Kassi",
+  "Loba",
+  "Meité",
+  "N'Da",
+  "Sako",
+  "Tano",
+  "Zadi",
+];
+
+function buildSeedMembers(): MemberRecord[] {
+  const placements = flattenOrgPlacements();
+  const members: MemberRecord[] = [];
+  let id = 1;
+
+  // Un membre (responsable de groupe) par groupe — le district responsable voit ainsi tous ses groupes.
+  for (const placement of placements) {
+    const chapter = ORG_HIERARCHY.find((item) => item.name === placement.chapitre)!;
+    const districtIndex = chapter.districts.findIndex((item) => item.name === placement.district);
+    const groupeIndex = chapter.districts[districtIndex].groupes.indexOf(placement.groupe);
+    const chapterIndex = ORG_HIERARCHY.findIndex((item) => item.name === placement.chapitre);
+
+    let responsabilite = "Responsable groupe";
+    if (chapterIndex === 0 && districtIndex === 0 && groupeIndex === 0) {
+      responsabilite = "Responsable centre";
+    } else if (districtIndex === 0 && groupeIndex === 0) {
+      responsabilite = "Responsable chapitre";
+    } else if (groupeIndex === 0) {
+      responsabilite = "Responsable district";
+    }
+
+    const categories = ["Homme", "Femme", "Jeune homme", "Jeune fille", "Avenir"] as const;
+    const categorie = categories[(id - 1) % categories.length];
+    const prenom = FIRST_NAMES[(id - 1) % FIRST_NAMES.length];
+    const nom = LAST_NAMES[(id - 1) % LAST_NAMES.length];
+    const photo =
+      responsabilite === "Responsable chapitre"
+        ? CHAPTER_PHOTOS[chapterIndex % CHAPTER_PHOTOS.length]
+        : responsabilite === "Responsable centre"
+          ? L.centre
+          : PHOTOS[(id - 1) % PHOTOS.length];
+
+    members.push({
+      id,
+      nom,
+      prenom,
+      email: `${prenom.toLowerCase().replace(/[^a-z]/g, "")}.${nom.toLowerCase().replace(/[^a-z]/g, "")}@centre-mp.ci`,
+      telephone: `+225 07 ${String(10 + id).padStart(2, "0")} ${String(20 + id).padStart(2, "0")} ${String(30 + id).padStart(2, "0")}`,
+      dateNaissance: `${1985 + (id % 20)}-${String((id % 12) + 1).padStart(2, "0")}-15`,
+      departement: responsabilite.includes("centre")
+        ? "Direction"
+        : responsabilite.includes("chapitre")
+          ? "Coordination"
+          : responsabilite.includes("district")
+            ? "District"
+            : "Groupe",
+      categorie,
+      responsabilite,
+      dateDebutPratique: `${2010 + (id % 12)}-03-01`,
+      abonnementVaguePaix: id % 3 !== 0,
+      sokahan: id % 2 === 0,
+      quartier: ["Cocody", "Yopougon", "Plateau", "Marcory", "Abobo", "Treichville"][(id - 1) % 6],
+      chapitre: placement.chapitre,
+      district: placement.district,
+      groupe: placement.groupe,
+      statut: id % 11 === 0 ? "En attente" : id % 13 === 0 ? "Suspendu" : "Actif",
+      adhesion: `2025-${String((id % 12) + 1).padStart(2, "0")}-10`,
+      abonnement: id % 4 !== 0,
+      photo,
+      totalDons: 10_000 * ((id % 8) + 1),
+    });
+    id += 1;
+  }
+
+  return members;
+}
+
+export const MEMBERS_SEED: MemberRecord[] = buildSeedMembers();
 
 export function memberFullName(member: Pick<MemberRecord, "prenom" | "nom">) {
   return `${member.prenom} ${member.nom}`;
