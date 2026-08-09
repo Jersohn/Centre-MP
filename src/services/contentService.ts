@@ -12,7 +12,18 @@ import {
 } from "./mockData";
 import { fetchLandingContentFromSupabase, saveLandingContentToSupabase } from "./supabaseService";
 
-const STORAGE_KEY = "cmf_landing_content_v18";
+const STORAGE_KEY = "cmf_landing_content_v21";
+
+/** Détecte un texte UTF-8 corrompu (mojibake / caractères de remplacement). */
+function isBrokenEncoding(value?: string) {
+  if (!value) return false;
+  return value.includes("\uFFFD") || /Ã.|Â.|�/.test(value);
+}
+
+function pickText(raw: string | undefined, fallback: string) {
+  if (typeof raw !== "string" || !raw.trim() || isBrokenEncoding(raw)) return fallback;
+  return raw.trim();
+}
 
 export type GalleryItem = {
   id: string;
@@ -160,7 +171,8 @@ function normalizeGalleryItem(item: Partial<GalleryItem>, index: number): Galler
       landingImages.gallery.meeting,
       landingImages.gallery.daimoku,
       landingImages.gallery.chapter,
-    ][index % 4] || landingImages.gallery.meeting;
+      landingImages.gallery.jeunesseRissho,
+    ][index % 5] || landingImages.gallery.meeting;
   return {
     id: item.id || slugify(title, `galerie-${index + 1}`),
     title,
@@ -180,9 +192,7 @@ function normalizeGalleryItems(raw: Partial<LandingContent>): GalleryItem[] {
   if (!Array.isArray(raw.galleryItems) || raw.galleryItems.length === 0) {
     return defaults;
   }
-  // Force la nouvelle série d’activités si l’ancien jeu est encore en cache.
-  const hasCurrentSet = raw.galleryItems.some((item) => item?.id === "activite-shakubuku");
-  if (!hasCurrentSet) return defaults;
+  // Contenu CMS prioritaire — ne plus forcer le jeu mock.
   return raw.galleryItems.map((item, index) => normalizeGalleryItem(item, index));
 }
 
@@ -298,25 +308,38 @@ const defaultContent: LandingContent = {
   contactAddress: "Abidjan, Côte d’Ivoire",
 };
 
-function isUserUploadedImage(src?: string) {
+function isManagedImage(src?: string) {
   if (!src) return false;
-  return src.startsWith("data:") || src.startsWith("blob:");
+  return (
+    src.startsWith("data:") ||
+    src.startsWith("blob:") ||
+    /^https?:\/\//i.test(src)
+  );
 }
 
 function normalizeHeroImages(raw: Partial<LandingContent>): HeroSlide[] {
-  const defaults = defaultContent.heroImages;
-  let slides = defaults.map((slide) => ({ ...slide }));
+  const defaults = defaultContent.heroImages.map((slide) => ({ ...slide }));
 
-  // Si l’admin a téléversé une bannière, elle remplace uniquement la 1ʳᵉ slide.
-  if (isUserUploadedImage(raw.heroImage) && slides[0]) {
-    slides = [{ ...slides[0], src: raw.heroImage as string }, ...slides.slice(1)];
+  if (Array.isArray(raw.heroImages) && raw.heroImages.length > 0) {
+    const slides = raw.heroImages
+      .map((slide, index) => ({
+        src: String(slide?.src || "").trim(),
+        alt: String(slide?.alt || `Bannière ${index + 1}`).trim() || `Bannière ${index + 1}`,
+      }))
+      .filter((slide) => Boolean(slide.src));
+    if (slides.length > 0) return slides;
   }
 
-  return slides;
+  // Compat : ancienne bannière unique → 1ʳᵉ slide
+  if (isManagedImage(raw.heroImage)) {
+    return [{ src: raw.heroImage as string, alt: "Bannière principale" }, ...defaults.slice(1)];
+  }
+
+  return defaults;
 }
 
 function normalizeAboutImage(raw: Partial<LandingContent>) {
-  if (isUserUploadedImage(raw.aboutImage)) return raw.aboutImage as string;
+  if (isManagedImage(raw.aboutImage)) return raw.aboutImage as string;
   return landingImages.about;
 }
 
@@ -398,10 +421,15 @@ function normalizeChapterLeaders(raw: Partial<LandingContent>): ChapterLeaderIte
 
 function normalizeContent(raw: Partial<LandingContent>): LandingContent {
   const chapterLeaders = normalizeChapterLeaders(raw);
+  const heroImages = normalizeHeroImages(raw);
   return {
     ...defaultContent,
     ...raw,
-    heroImages: normalizeHeroImages(raw),
+    heroTitle: pickText(raw.heroTitle, defaultContent.heroTitle),
+    heroParagraph: pickText(raw.heroParagraph, defaultContent.heroParagraph),
+    heroImages,
+    heroImage: heroImages[0]?.src || defaultContent.heroImage,
+    aboutText: pickText(raw.aboutText, defaultContent.aboutText),
     aboutImage: normalizeAboutImage(raw),
     centreCommittee: normalizeCentreCommittee(raw),
     chapterLeaders,
@@ -414,16 +442,22 @@ function normalizeContent(raw: Partial<LandingContent>): LandingContent {
       typeof raw.thoughtOfDay === "string" && raw.thoughtOfDay.trim()
         ? raw.thoughtOfDay.trim()
         : defaultContent.thoughtOfDay,
-    newsItems: Array.isArray(raw.newsItems)
-      ? raw.newsItems.map((item, index) => normalizeNewsItem(item, index))
-      : defaultContent.newsItems,
-    agendaItems: Array.isArray(raw.agendaItems)
-      ? raw.agendaItems.map((item, index) => normalizeAgendaItem(item, index))
-      : defaultContent.agendaItems,
+    newsItems:
+      Array.isArray(raw.newsItems) && raw.newsItems.length > 0
+        ? raw.newsItems.map((item, index) => normalizeNewsItem(item, index))
+        : defaultContent.newsItems,
+    agendaItems:
+      Array.isArray(raw.agendaItems) && raw.agendaItems.length > 0
+        ? raw.agendaItems.map((item, index) => normalizeAgendaItem(item, index))
+        : defaultContent.agendaItems,
     galleryItems: normalizeGalleryItems(raw),
-    testimonials: Array.isArray(raw.testimonials)
-      ? raw.testimonials.map((item, index) => normalizeTestimonialItem(item, index))
-      : defaultContent.testimonials,
+    testimonials:
+      Array.isArray(raw.testimonials) && raw.testimonials.length > 0
+        ? raw.testimonials.map((item, index) => normalizeTestimonialItem(item, index))
+        : defaultContent.testimonials,
+    contactEmail: pickText(raw.contactEmail, defaultContent.contactEmail),
+    contactPhone: pickText(raw.contactPhone, defaultContent.contactPhone),
+    contactAddress: pickText(raw.contactAddress, defaultContent.contactAddress),
   };
 }
 
@@ -431,6 +465,9 @@ export function getContent(): LandingContent {
   try {
     const raw =
       localStorage.getItem(STORAGE_KEY) ||
+      localStorage.getItem("cmf_landing_content_v20") ||
+      localStorage.getItem("cmf_landing_content_v19") ||
+      localStorage.getItem("cmf_landing_content_v18") ||
       localStorage.getItem("cmf_landing_content_v17") ||
       localStorage.getItem("cmf_landing_content_v16") ||
       localStorage.getItem("cmf_landing_content_v15") ||
@@ -497,7 +534,10 @@ export function setContent(partial: Partial<LandingContent>) {
 
 export async function saveContent(partial: Partial<LandingContent>) {
   const next = setContent(partial);
-  await saveLandingContentToSupabase(next);
+  const result = await saveLandingContentToSupabase(next);
+  if (result?.error) {
+    throw new Error(result.error.message || "Échec de la sauvegarde.");
+  }
   return next;
 }
 

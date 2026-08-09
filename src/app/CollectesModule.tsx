@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+﻿import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   BookOpen,
   Building2,
@@ -20,25 +20,31 @@ import {
 } from "lucide-react";
 import { RowActionsMenu } from "./RowActionsMenu";
 import { MemberAvatar } from "./MemberAvatar";
-import { findMemberPhotoByName, memberFullName, MEMBERS_SEED } from "./membersData";
+import { findMemberPhotoByName, memberFullName } from "./membersData";
 import CollectesImportExportBar from "./CollectesImportExportBar";
-import ZaimuQuotaPanel from "./ZaimuQuotaPanel";
+import ZaimuSpecialCampaignsPanel from "./ZaimuSpecialCampaignsPanel";
 import type { PlatformRole } from "./roles";
+import { useOrgTree, type OrgSelectionIds } from "./useOrgTree";
+import { useOpsData } from "./opsDataStore";
+import type { MemberRecord } from "./memberFormUtils";
 import {
-  CHAPITRE_NAMES,
-  coerceOrgSelection,
-  defaultChapitre,
-  defaultDistrict,
-  defaultGroupe,
-  districtsForChapitre,
-  groupesForDistrict,
-} from "./orgHierarchy";
+  createCollecteRemote,
+  deleteCollecteRemote,
+  hasRemoteCollectes,
+  updateCollecteRemote,
+} from "../services/collecteService";
+import {
+  listSpecialCampaigns,
+  type ZaimuCampaign,
+} from "../services/quotaService";
 
 export type CollecteTab = "vague-paix" | "zaimu-ordinaire" | "zaimu-special";
 export type CollecteStatut = "En attente" | "Validé" | "Annulé";
 
 export interface CollecteRecord {
   id: string;
+  /** Référence lisible (ex. ZO-2026-001), distincte de l’UUID. */
+  numero: string;
   type: CollecteTab;
   membre: string;
   montant: number;
@@ -54,10 +60,13 @@ export interface CollecteRecord {
   note: string;
 }
 
-const MEMBER_OPTIONS = MEMBERS_SEED.map((member) => memberFullName(member));
+function displayCollecteNumero(record: Pick<CollecteRecord, "id" | "numero">) {
+  return record.numero?.trim() || record.id;
+}
 
-const CHAPITRE_OPTIONS = CHAPITRE_NAMES;
 const STATUT_OPTIONS: CollecteStatut[] = ["En attente", "Validé", "Annulé"];
+/** Statuts proposés à la création d’un paiement (pas d’annulation à l’ajout). */
+const STATUT_OPTIONS_CREATE: CollecteStatut[] = ["En attente", "Validé"];
 
 const TAB_META: Record<
   CollecteTab,
@@ -73,7 +82,7 @@ const TAB_META: Record<
   "zaimu-ordinaire": {
     label: "Zaimu ordinaire",
     short: "Zaimu ordinaire",
-    description: "Collecte des dons zaimu réguliers.",
+    description: "Collecte des zaimu ordinaires des membres.",
     icon: Wallet,
     accent: "var(--sgi-gold)",
   },
@@ -88,149 +97,22 @@ const TAB_META: Record<
 
 type PageView = "liste" | "cota" | "import-export";
 
-function seedCollecte(
-  partial: Omit<CollecteRecord, "chapitre" | "district" | "groupe" | "membre"> & {
-    memberId: number;
-  },
-): CollecteRecord {
-  const member = MEMBERS_SEED.find((item) => item.id === partial.memberId) || MEMBERS_SEED[0];
-  return {
-    id: partial.id,
-    type: partial.type,
-    membre: memberFullName(member),
-    montant: partial.montant,
-    date: partial.date,
-    statut: partial.statut,
-    chapitre: member.chapitre,
-    district: member.district,
-    groupe: member.groupe,
-    periode: partial.periode,
-    motif: partial.motif,
-    referenceRecu: partial.referenceRecu,
-    note: partial.note,
-  };
-}
+/** Liste initiale vide — les collectes sont chargées depuis Supabase. */
+export const COLLECTES_SEED: CollecteRecord[] = [];
 
-export const COLLECTES_SEED: CollecteRecord[] = [
-  seedCollecte({
-    id: "VP-2026-001",
-    memberId: 1,
-    type: "vague-paix",
-    montant: 15000,
-    date: "2026-08-01",
-    statut: "Validé",
-    periode: "Août 2026",
-    motif: "",
-    referenceRecu: "RC-VP-260801",
-    note: "Abonnement annuel en cours",
-  }),
-  seedCollecte({
-    id: "VP-2026-002",
-    memberId: 8,
-    type: "vague-paix",
-    montant: 15000,
-    date: "2026-08-03",
-    statut: "En attente",
-    periode: "Août 2026",
-    motif: "",
-    referenceRecu: "",
-    note: "",
-  }),
-  seedCollecte({
-    id: "VP-2026-003",
-    memberId: 15,
-    type: "vague-paix",
-    montant: 15000,
-    date: "2026-07-28",
-    statut: "Validé",
-    periode: "Juillet 2026",
-    motif: "",
-    referenceRecu: "RC-VP-260728",
-    note: "",
-  }),
-  seedCollecte({
-    id: "ZO-2026-001",
-    memberId: 2,
-    type: "zaimu-ordinaire",
-    montant: 25000,
-    date: "2026-08-02",
-    statut: "Validé",
-    periode: "Août 2026",
-    motif: "",
-    referenceRecu: "RC-ZO-260802",
-    note: "Don mensuel",
-  }),
-  seedCollecte({
-    id: "ZO-2026-002",
-    memberId: 4,
-    type: "zaimu-ordinaire",
-    montant: 10000,
-    date: "2026-08-04",
-    statut: "Validé",
-    periode: "Août 2026",
-    motif: "",
-    referenceRecu: "RC-ZO-260804",
-    note: "",
-  }),
-  seedCollecte({
-    id: "ZO-2026-003",
-    memberId: 12,
-    type: "zaimu-ordinaire",
-    montant: 5000,
-    date: "2026-07-30",
-    statut: "Annulé",
-    periode: "Juillet 2026",
-    motif: "",
-    referenceRecu: "",
-    note: "Paiement non abouti",
-  }),
-  seedCollecte({
-    id: "ZS-2026-001",
-    memberId: 9,
-    type: "zaimu-special",
-    montant: 100000,
-    date: "2026-08-05",
-    statut: "Validé",
-    periode: "Campagne 2026",
-    motif: "Construction du centre",
-    referenceRecu: "RC-ZS-260805",
-    note: "Don exceptionnel",
-  }),
-  seedCollecte({
-    id: "ZS-2026-002",
-    memberId: 16,
-    type: "zaimu-special",
-    montant: 50000,
-    date: "2026-08-06",
-    statut: "En attente",
-    periode: "Campagne 2026",
-    motif: "Solidarité jeunesse",
-    referenceRecu: "",
-    note: "",
-  }),
-  seedCollecte({
-    id: "ZS-2026-003",
-    memberId: 20,
-    type: "zaimu-special",
-    montant: 75000,
-    date: "2026-07-20",
-    statut: "Validé",
-    periode: "Campagne 2026",
-    motif: "Équipement butsudan",
-    referenceRecu: "RC-ZS-260720",
-    note: "",
-  }),
-];
-
-const emptyForm = (type: CollecteTab): Omit<CollecteRecord, "id"> => ({
+const emptyForm = (
+  type: CollecteTab,
+  memberOptions: string[] = [],
+): Omit<CollecteRecord, "id"> => ({
+  numero: "",
   type,
-  membre: MEMBER_OPTIONS[0],
-  montant: type === "vague-paix" ? 15000 : 0,
+  membre: memberOptions[0] || "",
+  montant: type === "vague-paix" ? 5000 : 0,
   date: new Date().toISOString().slice(0, 10),
   statut: "En attente",
-  chapitre: defaultChapitre(),
-  district: defaultDistrict(),
-  groupe: defaultGroupe(),
+  chapitre: "",
+  district: "",
+  groupe: "",
   periode: type === "zaimu-special" ? "Campagne 2026" : "Août 2026",
   motif: "",
   referenceRecu: "",
@@ -276,18 +158,19 @@ function DetailField({
 
 function DetailModal({
   record,
+  photo,
   onClose,
   onEdit,
   onDelete,
 }: {
   record: CollecteRecord;
+  photo?: string;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   const meta = TAB_META[record.type];
   const Icon = meta.icon;
-  const photo = findMemberPhotoByName(record.membre);
 
   return (
     <div
@@ -331,7 +214,9 @@ function DetailModal({
               <h3 className="mt-2 font-display text-xl font-semibold leading-tight text-foreground sm:text-2xl">
                 {record.membre}
               </h3>
-              <p className="mt-1 font-mono text-xs text-muted-foreground">{record.id}</p>
+              <p className="mt-1 font-mono text-xs text-muted-foreground">
+                {displayCollecteNumero(record)}
+              </p>
             </div>
           </div>
 
@@ -341,7 +226,7 @@ function DetailModal({
               <p className="mt-1 font-display text-3xl font-bold tracking-tight text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
                 {fmt(record.montant)}
               </p>
-              <p className="mt-0.5 text-sm text-muted-foreground">CDF</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">FCFA</p>
             </div>
             <div className="flex flex-col justify-between rounded-2xl border border-border bg-card/90 p-4 shadow-sm backdrop-blur">
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Statut</p>
@@ -385,7 +270,7 @@ function DetailModal({
             <p className="mt-2 text-sm leading-relaxed text-foreground/85">
               {meta.label} pour <strong>{record.membre}</strong>
               {record.motif ? ` — ${record.motif}` : ""}. Montant de{" "}
-              <strong>{fmt(record.montant)} CDF</strong>, statut <strong>{record.statut}</strong>
+              <strong>{fmt(record.montant)} FCFA</strong>, statut <strong>{record.statut}</strong>
               {record.referenceRecu?.trim() ? (
                 <>
                   {" "}
@@ -421,21 +306,93 @@ function DetailModal({
 function CollecteFormModal({
   title,
   initial,
+  memberOptions,
+  members,
   onClose,
   onSubmit,
 }: {
   title: string;
   initial: Omit<CollecteRecord, "id"> & { id?: string };
+  memberOptions: string[];
+  members: MemberRecord[];
   onClose: () => void;
-  onSubmit: (values: Omit<CollecteRecord, "id">) => void;
+  onSubmit: (values: Omit<CollecteRecord, "id">) => void | Promise<void>;
 }) {
+  const orgTree = useOrgTree();
+  const [orgIds, setOrgIds] = useState<OrgSelectionIds>({
+    chapitreId: "",
+    districtId: "",
+    groupeId: "",
+  });
   const [values, setValues] = useState(initial);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [campaigns, setCampaigns] = useState<ZaimuCampaign[]>([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [selectedCampaignId, setSelectedCampaignId] = useState("");
+  const isEdit = Boolean(initial.id);
+  const statutOptions = isEdit ? STATUT_OPTIONS : STATUT_OPTIONS_CREATE;
   const meta = TAB_META[values.type];
   const Icon = meta.icon;
   const showMotif = values.type === "zaimu-special";
+  const showCampaignSelect = values.type === "zaimu-special";
 
-  const handleSubmit = (event: FormEvent) => {
+  useEffect(() => {
+    if (orgTree.loading || orgTree.chapitres.length === 0) return;
+    const next = orgTree.coerceSelection(
+      orgTree.findByNames({
+        chapitre: initial.chapitre,
+        district: initial.district,
+        groupe: initial.groupe,
+      }),
+    );
+    setOrgIds(next);
+    setValues((prev) => ({ ...prev, ...orgTree.nameOf(next) }));
+  }, [
+    orgTree.loading,
+    orgTree.chapitres,
+    orgTree.coerceSelection,
+    orgTree.findByNames,
+    orgTree.nameOf,
+    initial.chapitre,
+    initial.district,
+    initial.groupe,
+  ]);
+
+  useEffect(() => {
+    if (!showCampaignSelect) return;
+    let cancelled = false;
+    setCampaignsLoading(true);
+    void listSpecialCampaigns().then((res) => {
+      if (cancelled) return;
+      setCampaignsLoading(false);
+      if (res.error) {
+        setCampaigns([]);
+        return;
+      }
+      const list = res.data.filter((c) => c.is_active);
+      setCampaigns(list);
+      const byLabel = list.find(
+        (c) => c.label.trim().toLowerCase() === (initial.periode || "").trim().toLowerCase(),
+      );
+      const fallback = byLabel || list[0] || null;
+      if (fallback) {
+        setSelectedCampaignId(fallback.id);
+        setValues((prev) => ({
+          ...prev,
+          periode: fallback.label,
+          motif: prev.motif?.trim() ? prev.motif : fallback.label,
+        }));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showCampaignSelect, initial.periode]);
+
+  const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId) || null;
+
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!values.membre.trim()) {
       setError("Le membre est obligatoire.");
@@ -445,43 +402,79 @@ function CollecteFormModal({
       setError("Le montant doit être supérieur à 0.");
       return;
     }
+    if (showCampaignSelect && !selectedCampaignId) {
+      setError("Choisissez une campagne zaimu spécial.");
+      return;
+    }
     if (showMotif && !values.motif.trim()) {
       setError("Le motif est obligatoire pour un zaimu spécial.");
       return;
     }
-    onSubmit({
-      type: values.type,
-      membre: values.membre,
-      montant: Number(values.montant),
-      date: values.date,
-      statut: values.statut,
-      chapitre: values.chapitre,
-      district: values.district,
-      groupe: values.groupe,
-      periode: values.periode,
-      motif: values.motif,
-      referenceRecu: (values.referenceRecu || "").trim(),
-      note: values.note,
-    });
+    if (!orgIds.chapitreId || !orgIds.districtId || !orgIds.groupeId) {
+      setError("Chapitre, district et groupe sont obligatoires.");
+      return;
+    }
+    const names = orgTree.nameOf(orgIds);
+    // À l’ajout, on refuse « Annulé » — uniquement en modification.
+    const statut: CollecteStatut =
+      !isEdit && values.statut === "Annulé" ? "En attente" : values.statut;
+    setSaving(true);
+    setError("");
+    try {
+      await onSubmit({
+        numero: values.numero || "",
+        type: values.type,
+        membre: values.membre,
+        montant: Number(values.montant),
+        date: values.date,
+        statut,
+        chapitre: names.chapitre,
+        district: names.district,
+        groupe: names.groupe,
+        periode: selectedCampaign?.label || values.periode,
+        motif: values.motif,
+        referenceRecu: (values.referenceRecu || "").trim(),
+        note: values.note,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Enregistrement impossible.");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const districtOptions = districtsForChapitre(values.chapitre);
-  const groupeOptions = groupesForDistrict(values.chapitre, values.district);
+  const selectMember = (fullName: string) => {
+    const member = members.find((item) => memberFullName(item) === fullName);
+    if (!member) {
+      setValues((prev) => ({ ...prev, membre: fullName }));
+      return;
+    }
+    const next = orgTree.coerceSelection(
+      orgTree.findByNames({
+        chapitre: member.chapitre,
+        district: member.district,
+        groupe: member.groupe,
+      }),
+    );
+    setOrgIds(next);
+    setValues((prev) => ({
+      ...prev,
+      membre: fullName,
+      ...orgTree.nameOf(next),
+    }));
+  };
+
+  const districtOptions = orgTree.districtsForChapitreId(orgIds.chapitreId);
+  const groupeOptions = orgTree.groupesForDistrictId(orgIds.districtId);
 
   const set = <K extends keyof typeof values>(key: K, value: (typeof values)[K]) => {
-    setValues((prev) => {
-      if (key === "chapitre" || key === "district" || key === "groupe") {
-        return {
-          ...prev,
-          ...coerceOrgSelection({
-            chapitre: key === "chapitre" ? String(value) : prev.chapitre,
-            district: key === "district" ? String(value) : prev.district,
-            groupe: key === "groupe" ? String(value) : prev.groupe,
-          }),
-        };
-      }
-      return { ...prev, [key]: value };
-    });
+    setValues((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const applyOrg = (next: OrgSelectionIds) => {
+    const coerced = orgTree.coerceSelection(next);
+    setOrgIds(coerced);
+    setValues((prev) => ({ ...prev, ...orgTree.nameOf(coerced) }));
   };
 
   return (
@@ -537,14 +530,19 @@ function CollecteFormModal({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Membre</label>
-              <select className="dash-field" value={values.membre} onChange={(e) => set("membre", e.target.value)}>
-                {MEMBER_OPTIONS.map((name) => (
+              <select
+                className="dash-field"
+                value={values.membre}
+                onChange={(e) => selectMember(e.target.value)}
+              >
+                {memberOptions.length === 0 && <option value="">Aucun membre</option>}
+                {memberOptions.map((name) => (
                   <option key={name}>{name}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Montant (CDF)</label>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Montant (FCFA)</label>
               <input
                 type="number"
                 min={1}
@@ -559,39 +557,126 @@ function CollecteFormModal({
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Statut</label>
-              <select className="dash-field" value={values.statut} onChange={(e) => set("statut", e.target.value as CollecteStatut)}>
-                {STATUT_OPTIONS.map((statut) => (
-                  <option key={statut}>{statut}</option>
+              <select
+                className="dash-field"
+                value={
+                  !isEdit && values.statut === "Annulé" ? "En attente" : values.statut
+                }
+                onChange={(e) => set("statut", e.target.value as CollecteStatut)}
+              >
+                {statutOptions.map((statut) => (
+                  <option key={statut} value={statut}>
+                    {statut}
+                  </option>
                 ))}
               </select>
+              {!isEdit && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  L’annulation d’un paiement se fait uniquement en modification.
+                </p>
+              )}
             </div>
-            <div>
+            <div className={showCampaignSelect ? "sm:col-span-2" : undefined}>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                {values.type === "zaimu-special" ? "Campagne / période" : "Période"}
+                {showCampaignSelect ? "Campagne zaimu spécial" : "Période"}
               </label>
-              <input className="dash-field" value={values.periode} onChange={(e) => set("periode", e.target.value)} />
+              {showCampaignSelect ? (
+                <>
+                  <select
+                    className="dash-field"
+                    value={selectedCampaignId}
+                    disabled={campaignsLoading || campaigns.length === 0}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setSelectedCampaignId(id);
+                      const campaign = campaigns.find((item) => item.id === id);
+                      if (!campaign) return;
+                      setValues((prev) => ({
+                        ...prev,
+                        periode: campaign.label,
+                        motif: prev.motif?.trim() ? prev.motif : campaign.label,
+                      }));
+                    }}
+                  >
+                    {campaignsLoading && <option value="">Chargement des campagnes…</option>}
+                    {!campaignsLoading && campaigns.length === 0 && (
+                      <option value="">Aucune campagne — créez-en une dans Campagnes & cotas</option>
+                    )}
+                    {campaigns.map((campaign) => (
+                      <option key={campaign.id} value={campaign.id}>
+                        {campaign.label}
+                        {campaign.date_echeance
+                          ? ` · échéance ${new Date(campaign.date_echeance).toLocaleDateString("fr-FR")}`
+                          : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedCampaign && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Objectif {new Intl.NumberFormat("fr-FR").format(selectedCampaign.montant_centre)} FCFA
+                      {selectedCampaign.published_at ? " · publiée" : " · brouillon"}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <input
+                  className="dash-field"
+                  value={values.periode}
+                  onChange={(e) => set("periode", e.target.value)}
+                />
+              )}
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Chapitre</label>
-              <select className="dash-field" value={values.chapitre} onChange={(e) => set("chapitre", e.target.value)}>
-                {CHAPITRE_OPTIONS.map((item) => (
-                  <option key={item}>{item}</option>
+              <select
+                className="dash-field"
+                value={orgIds.chapitreId}
+                disabled={orgTree.loading || orgTree.chapitres.length === 0}
+                onChange={(e) =>
+                  applyOrg({ chapitreId: e.target.value, districtId: "", groupeId: "" })
+                }
+              >
+                {orgTree.loading && <option value="">Chargement…</option>}
+                {orgTree.chapitres.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name}</option>
                 ))}
               </select>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">District</label>
-              <select className="dash-field" value={values.district} onChange={(e) => set("district", e.target.value)}>
+              <select
+                className="dash-field"
+                value={orgIds.districtId}
+                disabled={orgTree.loading || !orgIds.chapitreId}
+                onChange={(e) =>
+                  applyOrg({
+                    chapitreId: orgIds.chapitreId,
+                    districtId: e.target.value,
+                    groupeId: "",
+                  })
+                }
+              >
                 {districtOptions.map((item) => (
-                  <option key={item}>{item}</option>
+                  <option key={item.id} value={item.id}>{item.name}</option>
                 ))}
               </select>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Groupe</label>
-              <select className="dash-field" value={values.groupe} onChange={(e) => set("groupe", e.target.value)}>
+              <select
+                className="dash-field"
+                value={orgIds.groupeId}
+                disabled={orgTree.loading || !orgIds.districtId}
+                onChange={(e) =>
+                  applyOrg({
+                    chapitreId: orgIds.chapitreId,
+                    districtId: orgIds.districtId,
+                    groupeId: e.target.value,
+                  })
+                }
+              >
                 {groupeOptions.map((item) => (
-                  <option key={item}>{item}</option>
+                  <option key={item.id} value={item.id}>{item.name}</option>
                 ))}
               </select>
             </div>
@@ -629,8 +714,12 @@ function CollecteFormModal({
           <button type="button" onClick={onClose} className="rounded-xl border border-border px-4 py-3 text-sm font-medium hover:bg-muted">
             Annuler
           </button>
-          <button type="submit" className="rounded-xl bg-[var(--sgi-blue)] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90">
-            Enregistrer
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-xl bg-[var(--sgi-blue)] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
+          >
+            {saving ? "Enregistrement…" : "Enregistrer"}
           </button>
         </div>
       </form>
@@ -639,20 +728,33 @@ function CollecteFormModal({
 }
 
 export default function CollectesModule({ role }: { role: PlatformRole }) {
+  const { members, collectes: records, setCollectes: setRecords, reloadCollectes, loading } = useOpsData();
   const [tab, setTab] = useState<CollecteTab>("vague-paix");
   const [pageView, setPageView] = useState<PageView>("liste");
-  const [records, setRecords] = useState<CollecteRecord[]>(COLLECTES_SEED);
   const [search, setSearch] = useState("");
   const [statutFilter, setStatutFilter] = useState<"Tous" | CollecteStatut>("Tous");
   const [detailId, setDetailId] = useState<string | null>(null);
   const [editing, setEditing] = useState<CollecteRecord | null>(null);
   const [creating, setCreating] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const memberOptions = useMemo(
+    () => members.map((member) => memberFullName(member)).filter(Boolean),
+    [members],
+  );
 
   const meta = TAB_META[tab];
   const Icon = meta.icon;
   const showListPage = pageView === "liste";
-  const showCotaPage = tab === "zaimu-special" && pageView === "cota";
+  const showCotaSpecialPage = tab === "zaimu-special" && pageView === "cota";
   const showImportExportPage = pageView === "import-export";
+
+  const resolveMemberId = (fullName: string) => {
+    const match = members.find((item) => memberFullName(item) === fullName);
+    // Les profils responsables n’ont pas d’ID dans public.members → FK collectes_member_id_fkey.
+    if (!match || match.source === "profile") return null;
+    return match.remoteId || null;
+  };
 
   const filtered = useMemo(() => {
     return records
@@ -664,6 +766,7 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
         return (
           item.membre.toLowerCase().includes(q) ||
           item.id.toLowerCase().includes(q) ||
+          (item.numero || "").toLowerCase().includes(q) ||
           item.groupe.toLowerCase().includes(q) ||
           item.motif.toLowerCase().includes(q) ||
           (item.referenceRecu || "").toLowerCase().includes(q)
@@ -687,36 +790,79 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
 
   const detail = detailId ? records.find((item) => item.id === detailId) ?? null : null;
 
-  const nextId = (type: CollecteTab) => {
+  const nextLocalId = (type: CollecteTab) => {
     const prefix = type === "vague-paix" ? "VP" : type === "zaimu-ordinaire" ? "ZO" : "ZS";
     const year = new Date().getFullYear();
     const sequence = records.filter((item) => item.type === type).length + 1;
     return `${prefix}-${year}-${String(sequence).padStart(3, "0")}`;
   };
 
-  const handleCreate = (values: Omit<CollecteRecord, "id">) => {
-    setRecords((prev) => [{ id: nextId(values.type), ...values }, ...prev]);
+  const handleCreate = async (values: Omit<CollecteRecord, "id">) => {
+    setActionError(null);
+    if (hasRemoteCollectes()) {
+      const { data, error } = await createCollecteRemote(values, resolveMemberId(values.membre));
+      if (error || !data) throw error || new Error("Création impossible.");
+      setRecords((prev) => [data, ...prev]);
+      setCreating(false);
+      void reloadCollectes();
+      return;
+    }
+    const localNumero = nextLocalId(values.type);
+    setRecords((prev) => [
+      { id: localNumero, numero: values.numero || localNumero, ...values },
+      ...prev,
+    ]);
     setCreating(false);
   };
 
-  const handleUpdate = (values: Omit<CollecteRecord, "id">) => {
+  const handleUpdate = async (values: Omit<CollecteRecord, "id">) => {
     if (!editing) return;
+    setActionError(null);
+    if (hasRemoteCollectes()) {
+      const { data, error } = await updateCollecteRemote(
+        editing.id,
+        values,
+        resolveMemberId(values.membre),
+      );
+      if (error || !data) throw error || new Error("Mise à jour impossible.");
+      setRecords((prev) => prev.map((item) => (item.id === editing.id ? data : item)));
+      setEditing(null);
+      setDetailId(null);
+      void reloadCollectes();
+      return;
+    }
     setRecords((prev) => prev.map((item) => (item.id === editing.id ? { ...item, ...values } : item)));
     setEditing(null);
     setDetailId(null);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     const target = records.find((item) => item.id === id);
     if (!target) return;
-    const ok = window.confirm(`Supprimer l’enregistrement ${target.id} de ${target.membre} ?`);
+    const ok = window.confirm(`Supprimer l’enregistrement de ${target.membre} ?`);
     if (!ok) return;
+    setActionError(null);
+    if (hasRemoteCollectes()) {
+      const { error } = await deleteCollecteRemote(id);
+      if (error) {
+        setActionError(error.message);
+        return;
+      }
+    }
     setRecords((prev) => prev.filter((item) => item.id !== id));
     setDetailId(null);
     setEditing(null);
   };
 
-  const handleImportRecords = (imported: CollecteRecord[]) => {
+  const handleImportRecords = async (imported: CollecteRecord[]) => {
+    if (hasRemoteCollectes()) {
+      for (const item of imported) {
+        const { id: _id, ...values } = item;
+        await createCollecteRemote(values, resolveMemberId(values.membre));
+      }
+      await reloadCollectes();
+      return;
+    }
     setRecords((prev) => [...imported, ...prev]);
   };
 
@@ -724,7 +870,7 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
     tab === "zaimu-special"
       ? ([
           { key: "liste" as const, label: "Liste des paiements" },
-          { key: "cota" as const, label: "Cota & restes" },
+          { key: "cota" as const, label: "Campagnes & cotas" },
           { key: "import-export" as const, label: "Import / Export" },
         ] as const)
       : ([
@@ -812,7 +958,20 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
         </div>
       </div>
 
-      {showCotaPage && <ZaimuQuotaPanel role={role} collectes={records} />}
+      {actionError && (
+        <div className="rounded-xl border border-[var(--sgi-red)]/25 bg-[var(--sgi-red)]/5 px-4 py-3 text-sm text-[var(--sgi-red)]">
+          {actionError}
+        </div>
+      )}
+      {loading && (
+        <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+          Synchronisation membres / collectes…
+        </div>
+      )}
+
+      {showCotaSpecialPage && (
+        <ZaimuSpecialCampaignsPanel role={role} collectes={records} />
+      )}
 
       {showImportExportPage && (
         <CollectesImportExportBar
@@ -830,7 +989,7 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
           { label: "Enregistrements", value: String(kpis.count), tone: "text-[var(--sgi-blue)]", bg: "bg-[var(--sgi-blue)]/10" },
           { label: "Validés", value: String(kpis.validated), tone: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-500/12" },
           { label: "En attente", value: String(kpis.pending), tone: "text-[var(--sgi-gold)]", bg: "bg-[var(--sgi-gold)]/15" },
-          { label: "Montant validé", value: `${fmt(kpis.total)}`, tone: "text-[var(--sgi-red)]", bg: "bg-[var(--sgi-red)]/10", suffix: "CDF" },
+          { label: "Montant validé", value: `${fmt(kpis.total)}`, tone: "text-[var(--sgi-red)]", bg: "bg-[var(--sgi-red)]/10", suffix: "FCFA" },
         ].map((kpi) => (
           <div key={kpi.label} className="rounded-xl border border-border bg-card p-3 sm:p-4">
             <div className={`mb-2 inline-flex rounded-lg p-2 ${kpi.bg} ${kpi.tone}`}>
@@ -893,10 +1052,12 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
             <article key={item.id} className="rounded-xl border border-border bg-background/40 p-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2.5">
-                  <MemberAvatar photo={findMemberPhotoByName(item.membre)} name={item.membre} size="sm" />
+                  <MemberAvatar photo={findMemberPhotoByName(item.membre, members)} name={item.membre} size="sm" />
                   <div className="min-w-0">
                     <p className="truncate font-semibold text-foreground">{item.membre}</p>
-                    <p className="font-mono text-[11px] text-muted-foreground">{item.id}</p>
+                    <p className="font-mono text-[11px] text-muted-foreground">
+                      {displayCollecteNumero(item)}
+                    </p>
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -926,7 +1087,7 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 <span>{item.date}</span>
                 <span className="font-medium text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
-                  {fmt(item.montant)} CDF
+                  {fmt(item.montant)} FCFA
                 </span>
                 <span>{item.groupe}</span>
                 {item.referenceRecu?.trim() && (
@@ -949,7 +1110,7 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
                   "Date",
                   "Membre",
                   "Montant",
-                  tab === "zaimu-special" ? "Motif" : "Période",
+                  tab === "zaimu-special" ? "Campagne" : "Période",
                   "Groupe",
                   "Statut",
                   "Actions",
@@ -973,14 +1134,16 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
               )}
               {filtered.map((item) => (
                 <tr key={item.id} className="border-b border-border last:border-b-0 hover:bg-muted/20">
-                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{item.id}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                    {displayCollecteNumero(item)}
+                  </td>
                   <td className="px-4 py-3 font-mono text-xs text-foreground">
                     {item.referenceRecu?.trim() ? item.referenceRecu : "—"}
                   </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">{item.date}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
-                      <MemberAvatar photo={findMemberPhotoByName(item.membre)} name={item.membre} size="sm" />
+                      <MemberAvatar photo={findMemberPhotoByName(item.membre, members)} name={item.membre} size="sm" />
                       <span className="font-medium text-foreground">{item.membre}</span>
                     </div>
                   </td>
@@ -988,7 +1151,9 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
                     {fmt(item.montant)}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
-                    {tab === "zaimu-special" ? item.motif || "—" : item.periode || "—"}
+                    {tab === "zaimu-special"
+                      ? item.periode || item.motif || "—"
+                      : item.periode || "—"}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{item.groupe}</td>
                   <td className="px-4 py-3">
@@ -1028,19 +1193,22 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
       {detail && (
         <DetailModal
           record={detail}
+          photo={findMemberPhotoByName(detail.membre, members)}
           onClose={() => setDetailId(null)}
           onEdit={() => {
             setEditing(detail);
             setDetailId(null);
           }}
-          onDelete={() => handleDelete(detail.id)}
+          onDelete={() => void handleDelete(detail.id)}
         />
       )}
 
       {creating && showListPage && (
         <CollecteFormModal
           title={`Ajouter — ${meta.short}`}
-          initial={emptyForm(tab)}
+          initial={emptyForm(tab, memberOptions)}
+          memberOptions={memberOptions}
+          members={members}
           onClose={() => setCreating(false)}
           onSubmit={handleCreate}
         />
@@ -1048,8 +1216,10 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
 
       {editing && (
         <CollecteFormModal
-          title={`Modifier — ${editing.id}`}
+          title="Modifier la collecte"
           initial={editing}
+          memberOptions={memberOptions}
+          members={members}
           onClose={() => setEditing(null)}
           onSubmit={handleUpdate}
         />

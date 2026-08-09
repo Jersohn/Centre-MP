@@ -140,6 +140,18 @@ export function Hero() {
             Centre Miroir Parfait
           </motion.h1>
 
+          {content.heroTitle ? (
+            <motion.p
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                show: { opacity: 1, y: 0, transition: { duration: 0.55, ease: easeOutSoft } },
+              }}
+              className="mt-4 max-w-2xl font-display text-xl font-medium leading-snug text-[var(--sgi-gold-soft)] sm:text-2xl"
+            >
+              {content.heroTitle}
+            </motion.p>
+          ) : null}
+
           <motion.p
             variants={{
               hidden: { opacity: 0, y: 20 },

@@ -11,7 +11,7 @@ export async function fetchLandingContentFromSupabase(): Promise<LandingContent 
     .from(TABLE_NAME)
     .select("content")
     .eq("id", SINGLETON_ID)
-    .single();
+    .maybeSingle();
 
   if (error || !data?.content) {
     return null;
@@ -20,16 +20,23 @@ export async function fetchLandingContentFromSupabase(): Promise<LandingContent 
   return data.content as LandingContent;
 }
 
-export async function saveLandingContentToSupabase(content: Partial<LandingContent>) {
-  if (!isSupabaseEnabled() || !supabase) return null;
+export async function saveLandingContentToSupabase(content: LandingContent) {
+  if (!isSupabaseEnabled() || !supabase) {
+    return { data: null, error: new Error("Service indisponible.") };
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const { data, error } = await supabase.from(TABLE_NAME).upsert(
     {
       id: SINGLETON_ID,
       content,
       updated_at: new Date().toISOString(),
+      updated_by: user?.id ?? null,
     },
-    { returning: "representation" }
+    { onConflict: "id" },
   );
 
   return { data, error };

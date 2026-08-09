@@ -1,4 +1,5 @@
 import heroCommunaute from "./hero-communaute-ci.jpg";
+import heroCommunauteUnite from "./hero-communaute-unite-ci.png";
 import heroCulture from "./hero-culture-joie-ci.jpg";
 import heroJeunesse from "./hero-jeunesse-espoir-ci.jpg";
 import heroPriere from "./hero-priere-butsudan-ci.png";
@@ -7,6 +8,7 @@ import galerieShakubuku from "./galerie-shakubuku-ci.png";
 import galerieReunionGroupe from "./galerie-reunion-groupe-ci.png";
 import galerieDaimoku from "./galerie-daimoku-butsudan-ci.png";
 import galerieActiviteChapitre from "./galerie-activite-chapitre-ci.png";
+import galerieJeunesseRissho from "./galerie-jeunesse-rissho-ci.png";
 import newsFormation from "./news-formation-ci.jpg";
 import newsCommunaute from "./news-communaute-ci.jpg";
 import temoinHomme from "./temoin-homme-ci.jpg";
@@ -28,6 +30,10 @@ export const landingImages = {
     {
       src: heroCommunaute,
       alt: "Famille et communauté du Centre Miroir Parfait en Côte d’Ivoire",
+    },
+    {
+      src: heroCommunauteUnite,
+      alt: "Membres du Centre Miroir Parfait unis, poings levés dans la solidarité",
     },
     {
       src: heroPriere,
@@ -59,6 +65,7 @@ export const landingImages = {
     meeting: galerieReunionGroupe,
     daimoku: galerieDaimoku,
     chapter: galerieActiviteChapitre,
+    jeunesseRissho: galerieJeunesseRissho,
   },
   news: {
     training: newsFormation,

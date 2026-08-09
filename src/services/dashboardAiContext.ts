@@ -1,4 +1,4 @@
-import { COLLECTES_SEED } from "../app/CollectesModule";
+﻿import { COLLECTES_SEED } from "../app/CollectesModule";
 import { buildDashboardScope } from "../app/dashboardStats";
 import { MEMBERS_SEED, memberFullName } from "../app/membersData";
 import {
@@ -84,7 +84,7 @@ export function buildDashboardContext(role: PlatformRole, question = ""): string
     .slice(0, 40)
     .map((m) => {
       const name = memberFullName(m);
-      return `- ${name} | ${m.statut} | ${m.categorie} | ${m.groupe} | ${m.district} | VP:${m.abonnementVaguePaix ? "oui" : "non"} | Sokahan:${m.sokahan ? "oui" : "non"} | Zaimu cumul ${m.totalDons} CDF`;
+      return `- ${name} | ${m.statut} | ${m.categorie} | ${m.groupe} | ${m.district} | VP:${m.abonnementVaguePaix ? "oui" : "non"} | Sokahan:${m.sokahan ? "oui" : "non"} | Zaimu cumul ${m.totalDons} FCFA`;
     })
     .join("\n");
 
@@ -94,7 +94,7 @@ export function buildDashboardContext(role: PlatformRole, question = ""): string
     .slice(0, 40)
     .map((c) => {
       const ref = c.referenceRecu?.trim() ? ` | reçu ${c.referenceRecu}` : "";
-      return `- [${c.id}] ${c.type} | ${c.date} | ${c.membre} | ${c.montant} CDF | ${c.statut} | ${c.groupe}${c.motif ? ` | ${c.motif}` : ""}${ref}`;
+      return `- [${c.id}] ${c.type} | ${c.date} | ${c.membre} | ${c.montant} FCFA | ${c.statut} | ${c.groupe}${c.motif ? ` | ${c.motif}` : ""}${ref}`;
     })
     .join("\n");
 
@@ -103,7 +103,7 @@ export function buildDashboardContext(role: PlatformRole, question = ""): string
     pending.length
       ? `${pending.length} collecte(s) en attente (${pending
           .slice(0, 5)
-          .map((c) => `${c.membre} ${c.montant} CDF`)
+          .map((c) => `${c.membre} ${c.montant} FCFA`)
           .join("; ")})`
       : "Aucune collecte en attente",
     `${members.filter((m) => m.statut !== "Actif").length} membre(s) non actifs`,
@@ -119,7 +119,7 @@ export function buildDashboardContext(role: PlatformRole, question = ""): string
     {
       id: "kpis",
       title: "Indicateurs consolidés",
-      body: `Membres: ${members.length} (actifs ${actifs})\nVague de Paix abonnés: ${vaguePaix}\nSokahan: ${sokahan}\nVP collectes: ${vp.length} · validé ${sum(vp, "Validé")} CDF · attente ${sum(vp, "En attente")} CDF\nZaimu ordinaire: ${zo.length} · validé ${sum(zo, "Validé")} CDF · attente ${sum(zo, "En attente")} CDF\nZaimu spécial: ${zs.length} · validé ${sum(zs, "Validé")} CDF · attente ${sum(zs, "En attente")} CDF\nKPIs dashboard:\n${dash.kpis.map((k) => `- ${k.label}: ${k.value} (${k.hint})`).join("\n")}`,
+      body: `Membres: ${members.length} (actifs ${actifs})\nVague de Paix abonnés: ${vaguePaix}\nSokahan: ${sokahan}\nVP collectes: ${vp.length} · validé ${sum(vp, "Validé")} FCFA · attente ${sum(vp, "En attente")} FCFA\nZaimu ordinaire: ${zo.length} · validé ${sum(zo, "Validé")} FCFA · attente ${sum(zo, "En attente")} FCFA\nZaimu spécial: ${zs.length} · validé ${sum(zs, "Validé")} FCFA · attente ${sum(zs, "En attente")} FCFA\nKPIs dashboard:\n${dash.kpis.map((k) => `- ${k.label}: ${k.value} (${k.hint})`).join("\n")}`,
     },
     {
       id: "repartition",
@@ -129,7 +129,7 @@ export function buildDashboardContext(role: PlatformRole, question = ""): string
           .slice(0, 12)
           .map(
             (r) =>
-              `${r.label}: ${r.membres} membres (${r.actifs} actifs), VP ${r.vaguePaix}, Zaimu ${r.zaimu} CDF`
+              `${r.label}: ${r.membres} membres (${r.actifs} actifs), VP ${r.vaguePaix}, Zaimu ${r.zaimu} FCFA`
           )
           .join("\n") || "—",
     },

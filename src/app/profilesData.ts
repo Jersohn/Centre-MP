@@ -1,95 +1,35 @@
 import type { PlatformRole } from "./roles";
-import { CHAPITRE_NAMES, defaultChapitre } from "./orgHierarchy";
+
+/** Émis quand le profil connecté change (photo / nom) pour rafraîchir le shell dashboard. */
+export const PROFILE_UPDATED_EVENT = "sgi-profile-updated";
 
 export type ProfileStatus = "Actif" | "En attente" | "Suspendu";
 
 export interface UserProfile {
   id: number;
   name: string;
+  prenom?: string;
+  nom?: string;
   email: string;
   role: PlatformRole;
   status: ProfileStatus;
   chapitre: string;
+  district?: string;
+  groupe?: string;
   department: string;
   telephone: string;
   quartier: string;
   bio: string;
+  photo?: string;
+  dateNaissance?: string;
+  dateDebutPratique?: string;
+  sokahan?: boolean;
+  abonnementVaguePaix?: boolean;
+  abonnement?: boolean;
 }
 
-export const INITIAL_PROFILES: UserProfile[] = [
-  {
-    id: 1,
-    name: "Amina Kasongo",
-    email: "amina.kasongo@sgi.org",
-    role: "admin",
-    status: "Actif",
-    chapitre: "Centre Miroir Parfait",
-    department: "Direction générale",
-    telephone: "+225 07 11 22 33 44",
-    quartier: "Plateau",
-    bio: "Pilotage stratégique du Centre Miroir Parfait et coordination nationale.",
-  },
-  {
-    id: 2,
-    name: "Jean-Michel Luyeye",
-    email: "jm.luyeye@sgi.org",
-    role: "centre",
-    status: "Actif",
-    chapitre: "Centre Miroir Parfait",
-    department: "Administration",
-    telephone: "+225 05 22 33 44 55",
-    quartier: "Cocody",
-    bio: "Responsable centre — suivi opérationnel, finances et contenu.",
-  },
-  {
-    id: 3,
-    name: "Eric Mbenza",
-    email: "eric.mbenza@sgi.org",
-    role: "chapitre",
-    status: "Actif",
-    chapitre: CHAPITRE_NAMES[0],
-    department: "Coordination",
-    telephone: "+225 07 55 66 77 88",
-    quartier: "Cocody",
-    bio: "Animation du chapitre Rissho Ankoku Ron et consolidation des districts.",
-  },
-  {
-    id: 4,
-    name: "Clara Ndaye",
-    email: "clara.ndaye@sgi.org",
-    role: "district",
-    status: "Actif",
-    chapitre: CHAPITRE_NAMES[0],
-    department: "District Bodhisattva",
-    telephone: "+225 05 12 34 56 78",
-    quartier: "Marcory",
-    bio: "Suivi des groupes BODDHISATTVA, BONTEN et PREUVE ACTUELLE (RISHO ANKOKURON).",
-  },
-  {
-    id: 5,
-    name: "Josephine Mbala",
-    email: "josephine.mbala@sgi.org",
-    role: "groupe",
-    status: "En attente",
-    chapitre: CHAPITRE_NAMES[0],
-    department: "Groupe BODDHISATTVA",
-    telephone: "+225 01 98 76 54 32",
-    quartier: "Yopougon",
-    bio: "Accompagnement des membres du groupe BODDHISATTVA au quotidien.",
-  },
-];
-
-const PASSWORD_PREFIX = "sgi-user-password:";
-
-export function getStoredPassword(role: PlatformRole) {
-  if (typeof window === "undefined") return "sgi2026";
-  return window.localStorage.getItem(`${PASSWORD_PREFIX}${role}`) || "sgi2026";
-}
-
-export function setStoredPassword(role: PlatformRole, password: string) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(`${PASSWORD_PREFIX}${role}`, password);
-}
+/** Plus de comptes de démonstration — la source de vérité est Supabase `profiles`. */
+export const INITIAL_PROFILES: UserProfile[] = [];
 
 export function profileInitials(name: string) {
   return name
@@ -100,4 +40,47 @@ export function profileInitials(name: string) {
     .join("");
 }
 
-export { defaultChapitre };
+/** Purge les faux comptes / profils locaux hérités des seeds. */
+export function purgeMockAccountStorage() {
+  if (typeof window === "undefined") return;
+
+  const mockEmails = new Set([
+    "amina.kasongo@sgi.org",
+    "jm.luyeye@sgi.org",
+    "eric.mbenza@sgi.org",
+    "clara.ndaye@sgi.org",
+    "josephine.mbala@sgi.org",
+  ]);
+
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    if (!key) continue;
+    if (
+      key.startsWith("sgi-profile:") ||
+      key.startsWith("sgi-user-password:") ||
+      key === "sgi-managed-users" ||
+      key === "sgi-user-invites" ||
+      key === "sgi-user-credentials"
+    ) {
+      keysToRemove.push(key);
+    }
+  }
+  for (const key of keysToRemove) {
+    window.localStorage.removeItem(key);
+  }
+
+  // Sécurité : si une ancienne liste a été rechargée ailleurs, filtrer les e-mails mock
+  try {
+    const raw = window.localStorage.getItem("sgi-managed-users");
+    if (!raw) return;
+    const users = JSON.parse(raw) as Array<{ email?: string }>;
+    if (!Array.isArray(users)) return;
+    const cleaned = users.filter((user) => !mockEmails.has((user.email || "").toLowerCase()));
+    if (cleaned.length !== users.length) {
+      window.localStorage.setItem("sgi-managed-users", JSON.stringify(cleaned));
+    }
+  } catch {
+    /* ignore */
+  }
+}

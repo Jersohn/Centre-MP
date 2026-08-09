@@ -21,11 +21,42 @@ export interface MemberFormValues {
 
 export interface MemberRecord extends MemberFormValues {
   id: number;
+  remoteId?: string;
+  /** Fiche `members` réelle vs profil responsable fusionné dans la liste. */
+  source?: "member" | "profile";
   adhesion: string;
   totalDons: number;
 }
 
-export function createMemberFromForm(values: MemberFormValues, existingMembers: MemberRecord[]) {
+export function emptyMemberFormValues(seed?: Partial<MemberFormValues>): MemberFormValues {
+  return {
+    prenom: "",
+    nom: "",
+    email: "",
+    telephone: "",
+    dateNaissance: "",
+    departement: "Homme",
+    categorie: "Homme",
+    responsabilite: "Membre simple",
+    dateDebutPratique: "",
+    abonnementVaguePaix: true,
+    sokahan: false,
+    quartier: "",
+    chapitre: seed?.chapitre || "",
+    district: seed?.district || "",
+    groupe: seed?.groupe || "",
+    statut: "Actif",
+    abonnement: true,
+    photo: "",
+    ...seed,
+  };
+}
+
+export function createMemberFromForm(
+  values: MemberFormValues,
+  existingMembers: MemberRecord[],
+  remoteId?: string,
+) {
   const prenom = values.prenom.trim();
   const nom = values.nom.trim();
   const email = values.email.trim().toLowerCase();
@@ -33,13 +64,15 @@ export function createMemberFromForm(values: MemberFormValues, existingMembers: 
 
   return {
     id: nextId,
+    remoteId,
+    source: remoteId ? ("member" as const) : undefined,
     prenom,
     nom,
     email,
     telephone: values.telephone.trim(),
     dateNaissance: values.dateNaissance,
-    departement: values.departement,
-    categorie: values.categorie,
+    departement: values.departement || values.categorie || "Homme",
+    categorie: values.departement || values.categorie || "Homme",
     responsabilite: values.responsabilite,
     dateDebutPratique: values.dateDebutPratique,
     abonnementVaguePaix: values.abonnementVaguePaix,

@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent } from "react";
+﻿import { useRef, useState, type ChangeEvent } from "react";
 import {
   Download,
   FileUp,
@@ -28,7 +28,6 @@ type Props = {
   filteredMembers: MemberRecord[];
   collectes: ZaimuSpecialPaymentRow[];
   onImport: (members: MemberRecord[]) => void;
-  scopeLabel?: string;
 };
 
 type ExportKind = "membres" | "zaimu" | null;
@@ -38,7 +37,6 @@ export default function MembersImportExportBar({
   filteredMembers,
   collectes,
   onImport,
-  scopeLabel,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -199,7 +197,6 @@ export default function MembersImportExportBar({
         onExport={({ fields, format }) => {
           if (format === "pdf") {
             exportMembersPdf(filteredMembers, {
-              title: scopeLabel || "Liste filtrée",
               filename: `membres_${stamp}.pdf`,
               fields,
             });
@@ -209,7 +206,7 @@ export default function MembersImportExportBar({
           setExportKind(null);
           setMessage({
             type: "ok",
-            text: `Export ${format.toUpperCase()} membres lancé (${fields.length} champ(s)).`,
+            text: `Export ${format.toUpperCase()} des membres lancé.`,
           });
         }}
       />
@@ -220,13 +217,12 @@ export default function MembersImportExportBar({
         subtitle="Sélectionnez les champs du bilan cota et/ou du détail des paiements."
         fields={ZAIMU_EXPORT_FIELDS}
         defaultSelected={ZAIMU_EXPORT_DEFAULT_FIELDS}
-        lockedFields={["Membre", "Reste (CDF)"]}
+        lockedFields={["Membre", "Reste (FCFA)"]}
         accent="red"
         onClose={() => setExportKind(null)}
         onExport={({ fields, format }) => {
           if (format === "pdf") {
             exportZaimuSpecialPdf(filteredMembers, collectes, {
-              title: scopeLabel || "Zaimu spécial",
               filename: `zaimu_special_${stamp}.pdf`,
               fields,
             });
@@ -236,7 +232,7 @@ export default function MembersImportExportBar({
           setExportKind(null);
           setMessage({
             type: "ok",
-            text: `Export ${format.toUpperCase()} Zaimu spécial lancé (${fields.length} champ(s)).`,
+            text: `Export ${format.toUpperCase()} Zaimu spécial lancé.`,
           });
         }}
       />

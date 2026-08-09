@@ -1,66 +1,71 @@
-# Supabase Setup for Centre-MP
+# Supabase Setup — Centre Miroir Parfait
 
-## 1. Create a Supabase project
+## 1. Projet
 
-1. Go to https://app.supabase.com and create a new project.
-2. In the project settings, copy the `API URL` and `anon public` key.
-3. Add these values to your Vercel environment variables as described below.
+1. Créez un projet sur https://supabase.com (ou réutilisez un projet existant).
+2. Notez **Project URL** et **anon public key**.
+3. Variables locales / Vercel :
 
-## 2. Create the `landing_content` table
-
-Use the SQL editor in Supabase and run the following:
-
-```sql
-create table public.landing_content (
-  id text primary key,
-  content jsonb not null,
-  updated_at timestamptz default now()
-);
-
-insert into public.landing_content (id, content) values (
-  'landing-singleton',
-  '{
-    "heroTitle": "Développer une vie de valeur, bâtir une société de paix.",
-    "heroParagraph": "Grâce à la philosophie humaniste du bouddhisme de Nichiren, le Centre Miroir Parfait accompagne les individus et les communautés vers l’harmonie, la sagesse et l’unité.",
-    "heroImage": "https://source.unsplash.com/1800x1200/?african,community",
-    "aboutText": "Le centre accompagne les individus et les communautés dans leur cheminement vers la sagesse, la responsabilité et la construction d’un monde plus juste.",
-    "aboutImage": "https://source.unsplash.com/1200x800/?african,people",
-    "galleryItems": [],
-    "stats": [],
-    "newsItems": [],
-    "agendaItems": [],
-    "testimonials": [],
-    "dailyDirective": { "title": "Directive du jour", "date": "", "text": "", "author": "" },
-    "goshoPassage": { "title": "", "excerpt": "", "context": "", "reference": "" },
-    "contactEmail": "contact@centremiroirparfait.org",
-    "contactPhone": "+221 77 000 00 00",
-    "contactAddress": "Dakar, Sénégal"
-  }'
-);
+```env
+VITE_SUPABASE_URL=https://xxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOi...
 ```
 
-> Note: If you enable Row Level Security (RLS), you must also add policies for public select and upsert access.
+> Ne jamais exposer `service_role` dans Vite / le navigateur.
 
-## 3. Set environment variables in Vercel
+## 2. Appliquer les migrations
 
-In your Vercel project Settings > Environment Variables, add:
+Avec la CLI :
 
-- `VITE_SUPABASE_URL`: your Supabase project URL
-- `VITE_SUPABASE_ANON_KEY`: your Supabase anon public key
+```bash
+npm i -g supabase
+# ou : npx supabase
+supabase login
+supabase link --project-ref <VOTRE_REF>
+supabase db push
+```
 
-Also keep a local copy in `.env` for development, but do not commit it.
+Fichiers dans `supabase/migrations/` (fondation sécurisée + seed org + RLS + storage).
 
-## 4. Vercel deployment
+Détails architecture : [`docs/BACKEND-SUPABASE.md`](docs/BACKEND-SUPABASE.md).
 
-The app already includes `vercel.json` for static deployment.
+## 3. Auth
 
-- Build command: `npm run build`
-- Output directory: `dist`
+- Désactivez l’inscription publique si seuls les responsables ont un compte (`config.toml` : `enable_signup = false`).
+- Créez les utilisateurs dans le Dashboard, puis rattachez rôle / chapitre / district / groupe dans `public.profiles`.
+- Un trigger crée un profil `en_attente` à chaque nouvel utilisateur Auth.
 
-If you connect the repo to Vercel, deploy as a Static Site. The `routes` section in `vercel.json` rewrites all requests to `/index.html`, which supports client-side routing.
+Premier admin (SQL Editor) :
 
-## 5. Notes for this project
+```sql
+update public.profiles
+set role = 'admin', status = 'actif', full_name = 'Administrateur'
+where email = 'votre@email.com';
+```
 
-- The current login page uses Supabase email/password auth when Supabase is configured.
-- The landing page syncs content from Supabase into `localStorage` on load.
-- The admin editor can save the landing page content back to Supabase when environment variables are provided.
+## 4. Edge Functions
+
+```bash
+supabase secrets set GROQ_API_KEY=...
+supabase secrets set GOSHO_UPSTREAM_URL=https://centre-mp-eta.vercel.app/api/gosho-du-jour
+supabase secrets set ENCOURAGEMENT_UPSTREAM_URL=https://centre-mp-eta.vercel.app/api/encouragement-du-jour
+
+supabase functions deploy ai-chat
+supabase functions deploy admin-upsert-profile
+supabase functions deploy gosho-du-jour
+supabase functions deploy encouragement-du-jour
+```
+
+Les routes Vercel `/api/*` restent valides en parallèle.
+
+## 5. Landing content
+
+La table `landing_content` (id = `landing-singleton`) est lisible publiquement ; écriture réservée `admin` / `centre`.
+
+## 6. Checklist sécurité
+
+- [ ] RLS activé (migrations)
+- [ ] Aucune clé `service_role` dans le frontend
+- [ ] Rôles uniquement via `profiles` / `app_metadata`
+- [ ] Signup public désactivé (ou fortement contrôlé)
+- [ ] Secrets Groq uniquement serveur (Edge / Vercel)

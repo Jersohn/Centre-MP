@@ -1,4 +1,4 @@
-import { memberFullName, MEMBERS_SEED } from "./membersData";
+﻿import { memberFullName, MEMBERS_SEED } from "./membersData";
 import type { MemberRecord } from "./memberFormUtils";
 import type { PlatformRole } from "./roles";
 import type { OrgScope } from "./memberListStats";
@@ -56,7 +56,9 @@ export type QuotaBalance = {
   progress: number;
 };
 
-function buildZaimuSpecialCampaign(): ZaimuSpecialCampaign {
+export function buildZaimuSpecialCampaign(
+  members: MemberRecord[] = MEMBERS_SEED,
+): ZaimuSpecialCampaign {
   const montantCentre = 10_000_000;
   const chapterShare = Math.floor(montantCentre / ORG_HIERARCHY.length);
 
@@ -79,16 +81,18 @@ function buildZaimuSpecialCampaign(): ZaimuSpecialCampaign {
           groupeIndex === district.groupes.length - 1
             ? districtAssigne - groupeShare * (district.groupes.length - 1)
             : groupeShare;
-        const membres = MEMBERS_SEED.filter(
-          (member) =>
-            member.chapitre === chapter.name &&
-            member.district === district.name &&
-            member.groupe === groupe,
-        ).map((member) => ({
-          memberId: member.id,
-          membre: memberFullName(member),
-          assigne: groupeAssigne,
-        }));
+        const membres = members
+          .filter(
+            (member) =>
+              member.chapitre === chapter.name &&
+              member.district === district.name &&
+              member.groupe === groupe,
+          )
+          .map((member) => ({
+            memberId: member.id,
+            membre: memberFullName(member),
+            assigne: groupeAssigne,
+          }));
 
         return { groupe, assigne: groupeAssigne, membres };
       });
@@ -108,10 +112,10 @@ function buildZaimuSpecialCampaign(): ZaimuSpecialCampaign {
   };
 }
 
-/** Campagne démo : cota centre → chapitres → districts → groupes → membres */
+/** Campagne : cota centre → chapitres → districts → groupes → membres */
 export const ZAIMU_SPECIAL_CAMPAIGN: ZaimuSpecialCampaign = buildZaimuSpecialCampaign();
 
-export function formatCdf(n: number) {
+export function formatFcfa(n: number) {
   return new Intl.NumberFormat("fr-FR").format(n);
 }
 

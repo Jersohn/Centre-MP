@@ -13,10 +13,12 @@ export const ROLE_LABELS: Record<PlatformRole, string> = {
 export type ModuleKey =
   | "dashboard"
   | "membres"
-  | "finances"
   | "collectes"
   | "directives"
   | "statistiques"
+  | "chapitres"
+  | "districts"
+  | "groupes"
   | "settings"
   | "contenu"
   | "profil";
@@ -25,15 +27,27 @@ export type ModuleKey =
 const ADMIN_MODULES: ModuleKey[] = [
   "dashboard",
   "membres",
-  "finances",
   "collectes",
   "statistiques",
+  "chapitres",
+  "districts",
+  "groupes",
   "profil",
   "settings",
   "contenu",
 ];
 
-/** Chapitre / district : pilotage opérationnel + collectes (VP & zaimu). */
+/** Chapitre : opérationnel + gestion des responsables (district / groupe). */
+const CHAPITRE_MODULES: ModuleKey[] = [
+  "dashboard",
+  "membres",
+  "collectes",
+  "statistiques",
+  "profil",
+  "settings",
+];
+
+/** District : pilotage opérationnel + collectes (VP & zaimu). */
 const LOCAL_MODULES: ModuleKey[] = [
   "dashboard",
   "membres",
@@ -42,18 +56,19 @@ const LOCAL_MODULES: ModuleKey[] = [
   "profil",
 ];
 
-/** Groupe : suivi opérationnel sans module statistiques. */
+/** Groupe : suivi opérationnel + statistiques du périmètre. */
 const GROUPE_MODULES: ModuleKey[] = [
   "dashboard",
   "membres",
   "collectes",
+  "statistiques",
   "profil",
 ];
 
 export const MODULE_ACCESS: Record<PlatformRole, ModuleKey[]> = {
   admin: [...ADMIN_MODULES],
   centre: [...ADMIN_MODULES],
-  chapitre: [...LOCAL_MODULES],
+  chapitre: [...CHAPITRE_MODULES],
   district: [...LOCAL_MODULES],
   groupe: [...GROUPE_MODULES],
 };

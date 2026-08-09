@@ -4,29 +4,24 @@ import { motion, useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
   ArrowRight,
-  Building2,
   Eye,
   EyeOff,
-  Layers3,
   LoaderCircle,
   LockKeyhole,
-  MapPinned,
-  ShieldCheck,
-  Users,
 } from "lucide-react";
 import sgiLogo from "../../image/logo-sgi.jpg";
 import { landingImages } from "../assets/landing/images";
 import { hasSupabaseAuth, signInWithEmail } from "../services/authService";
+import { fetchMyProfile } from "../services/profileService";
+import {
+  findUserByEmail,
+  loadCredentials,
+  verifyCredential,
+} from "../app/settings/usersStore";
+import { ALLOWED_ROLES, type PlatformRole } from "../app/roles";
+import { purgeMockAccountStorage } from "../app/profilesData";
 import { DeveloperCredit } from "../components/DeveloperCredit";
 import { easeOutSoft } from "../components/landing/motion";
-
-const profiles = [
-  { label: "Administrateur", short: "Admin", role: "admin", path: "/dashboard/admin", icon: ShieldCheck },
-  { label: "Responsable centre", short: "Centre", role: "centre", path: "/dashboard/centre", icon: Building2 },
-  { label: "Responsable chapitre", short: "Chapitre", role: "chapitre", path: "/dashboard/chapitre", icon: Layers3 },
-  { label: "Responsable district", short: "District", role: "district", path: "/dashboard/district", icon: MapPinned },
-  { label: "Responsable groupe", short: "Groupe", role: "groupe", path: "/dashboard/groupe", icon: Users },
-] as const;
 
 const trustPoints = [
   { label: "Accès sécurisé", detail: "Espace réservé aux responsables" },
@@ -34,15 +29,15 @@ const trustPoints = [
   { label: "Côte d’Ivoire", detail: "Centre Miroir Parfait — SGI" },
 ];
 
-function getInitialRole() {
-  if (typeof window === "undefined") return profiles[0].role;
-  const remembered = window.localStorage.getItem("sgi-remember-role");
-  if (remembered && profiles.some((profile) => profile.role === remembered)) return remembered;
-  return profiles[0].role;
-}
+const ROLE_PATH: Record<PlatformRole, string> = {
+  admin: "/dashboard/admin",
+  centre: "/dashboard/centre",
+  chapitre: "/dashboard/chapitre",
+  district: "/dashboard/district",
+  groupe: "/dashboard/groupe",
+};
 
 export function LoginPage() {
-  const [selectedRole, setSelectedRole] = useState<string>(getInitialRole);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -54,27 +49,20 @@ export function LoginPage() {
   const reduceMotion = useReducedMotion();
 
   useEffect(() => {
-    const remembered = window.localStorage.getItem("sgi-remember-role");
+    purgeMockAccountStorage();
+    const remembered = window.localStorage.getItem("sgi-remember-email");
     setRememberMe(Boolean(remembered));
+    if (remembered) setEmail(remembered);
   }, []);
 
-  const enterWithRole = (role: string) => {
-    const profile = profiles.find((item) => item.role === role);
-    if (!profile) return;
-
+  const enterWithRole = (role: PlatformRole) => {
     localStorage.setItem("sgi-current-role", role);
-    if (rememberMe) localStorage.setItem("sgi-remember-role", role);
-    else localStorage.removeItem("sgi-remember-role");
-    navigate(profile.path, { replace: true });
-  };
-
-  const handleSelectProfile = (role: string) => {
-    setSelectedRole(role);
-    setError(null);
-    // Mode démo : un clic sur le profil ouvre directement le dashboard
-    if (!hasAuth) {
-      enterWithRole(role);
+    if (rememberMe && email.trim()) localStorage.setItem("sgi-remember-email", email.trim().toLowerCase());
+    else {
+      localStorage.removeItem("sgi-remember-email");
+      localStorage.removeItem("sgi-remember-role");
     }
+    navigate(ROLE_PATH[role], { replace: true });
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -83,8 +71,26 @@ export function LoginPage() {
     setLoading(true);
 
     try {
+      if (!email.trim() || !password) {
+        setError("E-mail et mot de passe requis.");
+        return;
+      }
+
       if (!hasAuth) {
-        enterWithRole(selectedRole);
+        const localUser = findUserByEmail(email);
+        if (!localUser || !verifyCredential(email, password)) {
+          setError("Identifiants incorrects.");
+          return;
+        }
+        if (localUser.status === "Suspendu") {
+          setError("Ce compte est suspendu. Contactez l’administrateur.");
+          return;
+        }
+        if (localUser.status === "En attente") {
+          setError("Compte en attente. Ouvrez votre lien d’invitation pour définir le mot de passe.");
+          return;
+        }
+        enterWithRole(localUser.role);
         return;
       }
 
@@ -93,8 +99,34 @@ export function LoginPage() {
         setError(response.error.message || "Identifiants incorrects. Réessayez.");
         return;
       }
+      if (!response.data?.session) {
+        setError("Session non établie. Réessayez ou contactez l’administrateur.");
+        return;
+      }
 
-      enterWithRole(selectedRole);
+      const { data: profile, error: profileError } = await fetchMyProfile();
+      if (profileError || !profile) {
+        setError(
+          profileError?.message
+            ? `Profil introuvable : ${profileError.message}`
+            : "Profil introuvable. Contactez l’administrateur du centre.",
+        );
+        return;
+      }
+      if (profile.status === "suspendu") {
+        setError("Ce compte est suspendu. Contactez l’administrateur.");
+        return;
+      }
+      if (profile.status === "en_attente") {
+        setError("Compte en attente d’activation. Contactez l’administrateur.");
+        return;
+      }
+      if (!ALLOWED_ROLES.includes(profile.role as PlatformRole)) {
+        setError("Rôle non autorisé pour cette plateforme.");
+        return;
+      }
+
+      enterWithRole(profile.role as PlatformRole);
     } finally {
       setLoading(false);
     }
@@ -103,7 +135,6 @@ export function LoginPage() {
   return (
     <div className="relative min-h-[100svh] overflow-hidden bg-[var(--sgi-blue-deep)] text-foreground">
       <div className="grid min-h-[100svh] lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-        {/* Panneau marque */}
         <motion.aside
           initial={reduceMotion ? false : { opacity: 0, x: -18 }}
           animate={{ opacity: 1, x: 0 }}
@@ -149,7 +180,7 @@ export function LoginPage() {
               Accès réservé aux responsables
             </h1>
             <p className="mt-3 max-w-md text-sm leading-7 text-white/80 sm:text-base sm:leading-8">
-              Connectez-vous pour piloter les activités, accompagner les membres et suivre la vie du centre.
+              Connectez-vous avec le compte fourni par l’administrateur.
             </p>
           </div>
 
@@ -168,7 +199,6 @@ export function LoginPage() {
           <div className="sgi-tricolor absolute bottom-0 left-0 right-0 h-1.5" aria-hidden />
         </motion.aside>
 
-        {/* Formulaire */}
         <motion.main
           initial={reduceMotion ? false : { opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
@@ -184,147 +214,52 @@ export function LoginPage() {
                 Espace responsables
               </h2>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                {hasAuth
-                  ? "Saisissez vos identifiants officiels pour accéder à votre tableau de bord."
-                  : "Sélectionnez votre profil pour accéder à l’espace de démonstration."}
+                Connectez-vous avec l’e-mail et le mot de passe fournis par le centre.
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
-              {hasAuth ? (
-                <>
-                  <div>
-                    <label htmlFor="login-email" className="block text-sm font-semibold text-[var(--sgi-ink)]">
-                      Email
-                    </label>
-                    <input
-                      id="login-email"
-                      value={email}
-                      onChange={(event) => setEmail(event.target.value)}
-                      type="email"
-                      autoComplete="email"
-                      required
-                      className="mt-2 w-full rounded-2xl border border-border bg-white px-4 py-3 text-sm text-[var(--sgi-ink)] outline-none transition focus:border-[var(--sgi-blue)] focus:ring-2 focus:ring-[var(--sgi-blue)]/15"
-                      placeholder="votre.email@exemple.com"
-                    />
-                  </div>
+              <div>
+                <label htmlFor="login-email" className="block text-sm font-semibold text-[var(--sgi-ink)]">
+                  Email
+                </label>
+                <input
+                  id="login-email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  type="email"
+                  autoComplete="email"
+                  required
+                  className="mt-2 w-full rounded-2xl border border-border bg-white px-4 py-3 text-sm text-[var(--sgi-ink)] outline-none transition focus:border-[var(--sgi-blue)] focus:ring-2 focus:ring-[var(--sgi-blue)]/15"
+                  placeholder="votre.email@exemple.com"
+                />
+              </div>
 
-                  <div>
-                    <label htmlFor="login-password" className="block text-sm font-semibold text-[var(--sgi-ink)]">
-                      Mot de passe
-                    </label>
-                    <div className="relative mt-2">
-                      <input
-                        id="login-password"
-                        value={password}
-                        onChange={(event) => setPassword(event.target.value)}
-                        type={showPassword ? "text" : "password"}
-                        autoComplete="current-password"
-                        required
-                        className="w-full rounded-2xl border border-border bg-white px-4 py-3 pr-12 text-sm text-[var(--sgi-ink)] outline-none transition focus:border-[var(--sgi-blue)] focus:ring-2 focus:ring-[var(--sgi-blue)]/15"
-                        placeholder="••••••••"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((value) => !value)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-muted-foreground transition hover:bg-secondary hover:text-[var(--sgi-ink)]"
-                        aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
-                      >
-                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="mb-2 text-sm font-semibold text-[var(--sgi-ink)]">Votre rôle</p>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Rôle">
-                      {profiles.map((profile) => {
-                        const Icon = profile.icon;
-                        const active = selectedRole === profile.role;
-                        return (
-                          <button
-                            key={profile.role}
-                            type="button"
-                            role="radio"
-                            aria-checked={active}
-                            onClick={() => handleSelectProfile(profile.role)}
-                            className={`flex flex-col items-start gap-2 rounded-2xl border px-3 py-3 text-left transition ${
-                              active
-                                ? "border-[var(--sgi-blue)] bg-[var(--sgi-blue)]/8 shadow-sm"
-                                : "border-border bg-white hover:border-[var(--sgi-blue)]/35"
-                            }`}
-                          >
-                            <Icon
-                              size={16}
-                              className={active ? "text-[var(--sgi-blue)]" : "text-muted-foreground"}
-                            />
-                            <span
-                              className={`text-xs font-semibold leading-tight ${
-                                active ? "text-[var(--sgi-blue)]" : "text-[var(--sgi-ink)]"
-                              }`}
-                            >
-                              {profile.short}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div>
-                  <p className="mb-2 text-sm font-semibold text-[var(--sgi-ink)]">Choisir un profil</p>
-                  <p className="mb-3 text-xs text-muted-foreground">
-                    Cliquez un profil pour ouvrir son tableau de bord.
-                  </p>
-                  <div className="grid gap-2" role="radiogroup" aria-label="Profil de connexion">
-                    {profiles.map((profile) => {
-                      const Icon = profile.icon;
-                      const active = selectedRole === profile.role;
-                      return (
-                        <button
-                          key={profile.role}
-                          type="button"
-                          role="radio"
-                          aria-checked={active}
-                          onClick={() => handleSelectProfile(profile.role)}
-                          className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-left transition ${
-                            active
-                              ? "border-[var(--sgi-blue)] bg-[var(--sgi-blue)]/8 shadow-sm"
-                              : "border-border bg-white hover:border-[var(--sgi-blue)]/35"
-                          }`}
-                        >
-                          <span
-                            className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                              active
-                                ? "bg-[var(--sgi-blue)] text-white"
-                                : "bg-secondary text-[var(--sgi-blue)]"
-                            }`}
-                          >
-                            <Icon size={18} />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-sm font-semibold text-[var(--sgi-ink)]">{profile.label}</span>
-                            <span className="mt-0.5 block text-xs text-muted-foreground">
-                              {profile.role === "admin" || profile.role === "centre"
-                                ? "Accès administrateur complet"
-                                : `Accès au tableau de bord ${profile.short.toLowerCase()}`}
-                            </span>
-                          </span>
-                          <span
-                            className={`h-4 w-4 shrink-0 rounded-full border-2 ${
-                              active
-                                ? "border-[var(--sgi-blue)] bg-[var(--sgi-blue)] shadow-[inset_0_0_0_2px_white]"
-                                : "border-border"
-                            }`}
-                            aria-hidden
-                          />
-                        </button>
-                      );
-                    })}
-                  </div>
+              <div>
+                <label htmlFor="login-password" className="block text-sm font-semibold text-[var(--sgi-ink)]">
+                  Mot de passe
+                </label>
+                <div className="relative mt-2">
+                  <input
+                    id="login-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    required
+                    className="w-full rounded-2xl border border-border bg-white px-4 py-3 pr-12 text-sm text-[var(--sgi-ink)] outline-none transition focus:border-[var(--sgi-blue)] focus:ring-2 focus:ring-[var(--sgi-blue)]/15"
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((value) => !value)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-muted-foreground transition hover:bg-secondary hover:text-[var(--sgi-ink)]"
+                    aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
                 </div>
-              )}
+              </div>
 
               <div className="flex items-center justify-between gap-3">
                 <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
@@ -371,7 +306,7 @@ export function LoginPage() {
             </form>
 
             <p className="mt-6 text-center text-xs leading-5 text-muted-foreground">
-              Besoin d’aide ? Contactez l’administrateur du Centre Miroir Parfait.
+              Besoin d’un compte ? Demandez à l’administrateur du Centre Miroir Parfait.
             </p>
 
             <div className="mt-4 flex justify-center lg:hidden">

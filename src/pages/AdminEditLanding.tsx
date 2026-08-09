@@ -1,9 +1,12 @@
 import { ChangeEvent, useEffect, useState } from "react";
+import { CheckCircle2, Info, LoaderCircle, X, XCircle } from "lucide-react";
 import contentService, {
   ChapterLeaderItem,
   DirectiveItem,
   GalleryItem,
   GoshoPassage,
+  HeroSlide,
+  LandingContent,
   LeaderItem,
   buildCentreStatsFromChapters,
   loadContent,
@@ -11,13 +14,21 @@ import contentService, {
 } from "../services/contentService";
 import { isSupabaseEnabled } from "../services/supabaseClient";
 import { fetchLandingContentFromSupabase } from "../services/supabaseService";
+import { uploadLandingMedia } from "../services/mediaUpload";
 import { landingImages } from "../assets/landing/images";
+
+type NoticeTone = "success" | "error" | "info" | "loading";
+
+type Notice = {
+  tone: NoticeTone;
+  message: string;
+};
 
 export default function AdminEditLanding() {
   const initial = contentService.getContent();
   const [heroTitle, setHeroTitle] = useState(initial.heroTitle);
   const [heroParagraph, setHeroParagraph] = useState(initial.heroParagraph);
-  const [heroImage, setHeroImage] = useState(initial.heroImage);
+  const [heroImages, setHeroImages] = useState<HeroSlide[]>(initial.heroImages);
   const [aboutText, setAboutText] = useState(initial.aboutText);
   const [aboutImage, setAboutImage] = useState(initial.aboutImage);
   const [centreCommittee, setCentreCommittee] = useState<LeaderItem[]>(initial.centreCommittee);
@@ -35,52 +46,171 @@ export default function AdminEditLanding() {
   const [contactEmail, setContactEmail] = useState(initial.contactEmail);
   const [contactAddress, setContactAddress] = useState(initial.contactAddress);
   const [remoteSyncEnabled, setRemoteSyncEnabled] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  function showNotice(tone: NoticeTone, message: string) {
+    setNotice({ tone, message });
+  }
+
+  function applyContent(current: LandingContent) {
+    setHeroTitle(current.heroTitle);
+    setHeroParagraph(current.heroParagraph);
+    setHeroImages(current.heroImages?.length ? current.heroImages : [{ src: current.heroImage, alt: "Bannière" }]);
+    setAboutText(current.aboutText);
+    setAboutImage(current.aboutImage);
+    setCentreCommittee(current.centreCommittee);
+    setChapterLeaders(current.chapterLeaders);
+    setDailyDirective(current.dailyDirective);
+    setGoshoPassage(current.goshoPassage);
+    setUseManualEncouragement(current.useManualEncouragement);
+    setUseManualGosho(current.useManualGosho);
+    setThoughtOfDay(current.thoughtOfDay);
+    setGalleryItems(current.galleryItems);
+    setNewsItems(current.newsItems);
+    setAgendaItems(current.agendaItems);
+    setTestimonials(current.testimonials);
+    setContactPhone(current.contactPhone);
+    setContactEmail(current.contactEmail);
+    setContactAddress(current.contactAddress);
+  }
 
   useEffect(() => {
     setRemoteSyncEnabled(isSupabaseEnabled());
+    let cancelled = false;
+    (async () => {
+      showNotice("loading", "Chargement du contenu…");
+      try {
+        const remote = await loadContent();
+        if (!cancelled) {
+          applyContent(remote);
+          showNotice("success", "Contenu chargé.");
+        }
+      } catch {
+        if (!cancelled) showNotice("error", "Impossible de charger le contenu.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  function dataUrlFromFile(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+  useEffect(() => {
+    if (!notice || notice.tone === "loading") return;
+    const timer = window.setTimeout(() => setNotice(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  async function uploadImage(file: File, folder: string) {
+    setUploading(true);
+    try {
+      return await uploadLandingMedia(file, folder);
+    } finally {
+      setUploading(false);
+    }
   }
 
-  async function handleImageUpload(field: "hero" | "about", e: ChangeEvent<HTMLInputElement>) {
+  async function handleAboutUpload(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = await dataUrlFromFile(file);
-    if (field === "hero") setHeroImage(url);
-    else setAboutImage(url);
+    try {
+      setAboutImage(await uploadImage(file, "about"));
+      showNotice("success", "Image À propos téléversée.");
+    } catch (err) {
+      showNotice("error", err instanceof Error ? err.message : "Échec upload.");
+    }
+  }
+
+  async function handleHeroSlideUpload(index: number, e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const url = await uploadImage(file, "hero");
+      setHeroImages((current) =>
+        current.map((slide, i) => (i === index ? { ...slide, src: url } : slide)),
+      );
+      showNotice("success", `Image slider ${index + 1} téléversée.`);
+    } catch (err) {
+      showNotice("error", err instanceof Error ? err.message : "Échec upload.");
+    }
+  }
+
+  async function handleAddHeroSlides(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    try {
+      setUploading(true);
+      showNotice("loading", "Téléversement des images…");
+      const uploaded: HeroSlide[] = [];
+      for (const file of files) {
+        const src = await uploadLandingMedia(file, "hero");
+        uploaded.push({ src, alt: `Bannière ${heroImages.length + uploaded.length + 1}` });
+      }
+      setHeroImages((current) => [...current, ...uploaded]);
+      showNotice("success", `${uploaded.length} image(s) ajoutée(s) au slider.`);
+    } catch (err) {
+      showNotice("error", err instanceof Error ? err.message : "Échec upload.");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  function removeHeroSlide(index: number) {
+    setHeroImages((current) => (current.length <= 1 ? current : current.filter((_, i) => i !== index)));
+  }
+
+  function moveHeroSlide(index: number, direction: -1 | 1) {
+    setHeroImages((current) => {
+      const next = [...current];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return current;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
   }
 
   async function handleCommitteeImageUpload(index: number, e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = await dataUrlFromFile(file);
-    setCentreCommittee((current) =>
-      current.map((item, itemIndex) => (itemIndex === index ? { ...item, image: url } : item)),
-    );
+    try {
+      const url = await uploadImage(file, "committee");
+      setCentreCommittee((current) =>
+        current.map((item, itemIndex) => (itemIndex === index ? { ...item, image: url } : item)),
+      );
+      showNotice("success", "Photo du comité mise à jour.");
+    } catch (err) {
+      showNotice("error", err instanceof Error ? err.message : "Échec upload.");
+    }
   }
 
   async function handleChapterImageUpload(index: number, e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = await dataUrlFromFile(file);
-    setChapterLeaders((current) =>
-      current.map((item, itemIndex) => (itemIndex === index ? { ...item, responsibleImage: url } : item)),
-    );
+    try {
+      const url = await uploadImage(file, "chapters");
+      setChapterLeaders((current) =>
+        current.map((item, itemIndex) => (itemIndex === index ? { ...item, responsibleImage: url } : item)),
+      );
+      showNotice("success", "Photo du chapitre mise à jour.");
+    } catch (err) {
+      showNotice("error", err instanceof Error ? err.message : "Échec upload.");
+    }
   }
 
   async function handleGalleryUpload(index: number, e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = await dataUrlFromFile(file);
-    setGalleryItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, image: url } : item));
+    try {
+      const url = await uploadImage(file, "gallery");
+      setGalleryItems((current) =>
+        current.map((item, itemIndex) => (itemIndex === index ? { ...item, image: url } : item)),
+      );
+      showNotice("success", "Image de galerie téléversée.");
+    } catch (err) {
+      showNotice("error", err instanceof Error ? err.message : "Échec upload.");
+    }
   }
 
   function updateGalleryField(index: number, field: keyof GalleryItem, value: string) {
@@ -94,8 +224,12 @@ export default function AdminEditLanding() {
         id: `galerie-${Date.now()}`,
         title: "Nouvel élément de galerie",
         description: "Description courte du moment.",
-        image: "https://images.unsplash.com/photo-1511632765486-a01980e01a18?auto=format&fit=crop&w=1400&q=80",
+        image: landingImages.gallery.meeting,
         content: "Description détaillée du moment.",
+        date: "",
+        location: "",
+        chapter: "",
+        category: "Activité",
       },
     ]);
   }
@@ -105,10 +239,17 @@ export default function AdminEditLanding() {
   }
 
   async function save() {
+    const slides = heroImages.filter((slide) => slide.src.trim());
+    if (slides.length === 0) {
+      showNotice("error", "Ajoutez au moins une image au slider.");
+      return;
+    }
+
     const payload = {
       heroTitle,
       heroParagraph,
-      heroImage,
+      heroImages: slides,
+      heroImage: slides[0].src,
       aboutText,
       aboutImage,
       centreCommittee,
@@ -127,79 +268,76 @@ export default function AdminEditLanding() {
       contactAddress,
     };
 
-    if (remoteSyncEnabled) {
-      setSyncStatus("Sauvegarde en cours vers Supabase...");
-      await saveContent(payload);
-      setSyncStatus("Contenu synchronisé avec Supabase.");
-    } else {
-      contentService.setContent(payload);
-      setSyncStatus("Contenu sauvegardé localement.");
+    setSaving(true);
+    try {
+      if (remoteSyncEnabled) {
+        showNotice("loading", "Enregistrement en cours…");
+        await saveContent(payload);
+        showNotice("success", "Contenu publié — visible sur le site.");
+      } else {
+        contentService.setContent(payload);
+        showNotice("info", "Contenu enregistré.");
+      }
+    } catch (err) {
+      showNotice("error", err instanceof Error ? err.message : "Échec de la sauvegarde.");
+    } finally {
+      setSaving(false);
     }
-
-    alert("Contenu enregistré.");
   }
 
   async function syncRemote() {
     if (!remoteSyncEnabled) return;
-
-    setSyncStatus("Récupération du contenu Supabase...");
+    showNotice("loading", "Synchronisation en cours…");
     const remoteContent = await fetchLandingContentFromSupabase();
     if (remoteContent) {
-      const current = { ...remoteContent };
-      contentService.setContent(current);
-      setHeroTitle(current.heroTitle);
-      setHeroParagraph(current.heroParagraph);
-      setHeroImage(current.heroImage);
-      setAboutText(current.aboutText);
-      setAboutImage(current.aboutImage);
-      setCentreCommittee(current.centreCommittee);
-      setChapterLeaders(current.chapterLeaders);
-      setDailyDirective(current.dailyDirective);
-      setGoshoPassage(current.goshoPassage);
-      setUseManualEncouragement(current.useManualEncouragement);
-      setUseManualGosho(current.useManualGosho);
-      setThoughtOfDay(current.thoughtOfDay);
-      setGalleryItems(current.galleryItems);
-      setNewsItems(current.newsItems);
-      setAgendaItems(current.agendaItems);
-      setTestimonials(current.testimonials);
-      setContactPhone(current.contactPhone);
-      setContactEmail(current.contactEmail);
-      setContactAddress(current.contactAddress);
-      setSyncStatus("Contenu Supabase chargé avec succès.");
+      const current = contentService.setContent(remoteContent);
+      applyContent(current);
+      showNotice("success", "Contenu synchronisé.");
     } else {
-      setSyncStatus("Aucun contenu Supabase trouvé ou erreur de connexion.");
+      showNotice("error", "Impossible de synchroniser le contenu. Réessayez.");
     }
   }
 
   function reset() {
     contentService.resetContent();
-    const current = contentService.getContent();
-    setHeroTitle(current.heroTitle);
-    setHeroParagraph(current.heroParagraph);
-    setHeroImage(current.heroImage);
-    setAboutText(current.aboutText);
-    setAboutImage(current.aboutImage);
-    setCentreCommittee(current.centreCommittee);
-    setChapterLeaders(current.chapterLeaders);
-    setDailyDirective(current.dailyDirective);
-    setGoshoPassage(current.goshoPassage);
-    setUseManualEncouragement(current.useManualEncouragement);
-    setUseManualGosho(current.useManualGosho);
-    setThoughtOfDay(current.thoughtOfDay);
-    setGalleryItems(current.galleryItems);
-    setNewsItems(current.newsItems);
-    setAgendaItems(current.agendaItems);
-    setTestimonials(current.testimonials);
-    setContactPhone(current.contactPhone);
-    setContactEmail(current.contactEmail);
-    setContactAddress(current.contactAddress);
-    setSyncStatus("Contenu réinitialisé localement.");
-    alert("Contenu réinitialisé.");
+    applyContent(contentService.getContent());
+    showNotice("info", "Contenu réinitialisé aux valeurs par défaut.");
   }
+
+  const noticeStyles: Record<NoticeTone, string> = {
+    success: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    error: "border-red-200 bg-red-50 text-red-700",
+    info: "border-[var(--sgi-blue)]/20 bg-[var(--sgi-blue)]/8 text-[var(--sgi-blue-deep)]",
+    loading: "border-border bg-card text-foreground",
+  };
 
   return (
     <div className="relative space-y-5 p-4 pb-28 sm:space-y-6 sm:p-6 sm:pb-28">
+      {notice && (
+        <div
+          role="status"
+          className={`sticky top-2 z-40 flex items-start gap-3 rounded-2xl border px-4 py-3 shadow-sm ${noticeStyles[notice.tone]}`}
+        >
+          <span className="mt-0.5 shrink-0">
+            {notice.tone === "success" && <CheckCircle2 size={18} />}
+            {notice.tone === "error" && <XCircle size={18} />}
+            {notice.tone === "info" && <Info size={18} />}
+            {notice.tone === "loading" && <LoaderCircle size={18} className="animate-spin" />}
+          </span>
+          <p className="min-w-0 flex-1 text-sm font-medium leading-6">{notice.message}</p>
+          {notice.tone !== "loading" && (
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              className="rounded-lg p-1 opacity-70 transition hover:bg-black/5 hover:opacity-100"
+              aria-label="Fermer la notification"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="sgi-tricolor h-1.5 w-full" aria-hidden />
         <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
@@ -213,11 +351,16 @@ export default function AdminEditLanding() {
             <button type="button" onClick={reset} className="rounded-xl border border-border px-4 py-2 text-sm text-foreground/80 transition hover:bg-muted">
               Réinitialiser
             </button>
-            <button type="button" onClick={save} className="rounded-xl bg-[var(--sgi-blue)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--sgi-blue-mid)]">
-              Enregistrer
+            <button
+              type="button"
+              disabled={saving || uploading}
+              onClick={() => void save()}
+              className="rounded-xl bg-[var(--sgi-blue)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--sgi-blue-mid)] disabled:opacity-60"
+            >
+              {saving ? "Publication…" : "Enregistrer"}
             </button>
             {remoteSyncEnabled && (
-              <button type="button" onClick={syncRemote} className="rounded-xl border border-[var(--sgi-gold)] px-4 py-2 text-sm font-semibold text-[var(--sgi-gold)] transition hover:bg-[var(--sgi-gold)]/10">
+              <button type="button" onClick={() => void syncRemote()} className="rounded-xl border border-[var(--sgi-gold)] px-4 py-2 text-sm font-semibold text-[var(--sgi-gold)] transition hover:bg-[var(--sgi-gold)]/10">
                 Synchroniser
               </button>
             )}
@@ -228,44 +371,103 @@ export default function AdminEditLanding() {
       <section className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:rounded-3xl sm:p-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-foreground">Bannière principale</h3>
-            <p className="mt-2 text-sm text-muted-foreground">Contrôlez le message d’accueil et l’image de couverture.</p>
+            <h3 className="text-lg font-semibold text-foreground">Bannière / slider d’accueil</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Texte d’accueil et plusieurs images en rotation sur le hero du site.
+            </p>
           </div>
-          {syncStatus && <p className="text-sm text-muted-foreground">{syncStatus}</p>}
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-[1.4fr_0.6fr]">
-          <div className="space-y-4">
+        <div className="mt-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-foreground/80">Titre principal</label>
+            <input
+              value={heroTitle}
+              onChange={(e) => setHeroTitle(e.target.value)}
+              className="mt-2 w-full rounded-3xl border border-border bg-muted/60 px-4 py-3 text-sm text-foreground outline-none transition focus:border-[var(--sgi-blue)] focus:ring-2 focus:ring-[var(--sgi-blue)]/10"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground/80">Paragraphe</label>
+            <textarea
+              value={heroParagraph}
+              onChange={(e) => setHeroParagraph(e.target.value)}
+              rows={4}
+              className="mt-2 w-full rounded-3xl border border-border bg-muted/60 p-4 text-sm text-foreground outline-none transition focus:border-[var(--sgi-blue)] focus:ring-2 focus:ring-[var(--sgi-blue)]/10"
+            />
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <label className="block text-sm font-medium text-foreground/80">Titre principal</label>
-              <input
-                value={heroTitle}
-                onChange={(e) => setHeroTitle(e.target.value)}
-                className="mt-2 w-full rounded-3xl border border-border bg-muted/60 px-4 py-3 text-sm text-foreground outline-none transition focus:border-[var(--sgi-blue)] focus:ring-2 focus:ring-[var(--sgi-blue)]/10"
-              />
+              <h4 className="text-sm font-semibold text-foreground">Images du slider ({heroImages.length})</h4>
+              <p className="text-xs text-muted-foreground">Ajoutez, réordonnez ou retirez les visuels plein écran.</p>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground/80">Paragraphe</label>
-              <textarea
-                value={heroParagraph}
-                onChange={(e) => setHeroParagraph(e.target.value)}
-                rows={5}
-                className="mt-2 w-full rounded-3xl border border-border bg-muted/60 p-4 text-sm text-foreground outline-none transition focus:border-[var(--sgi-blue)] focus:ring-2 focus:ring-[var(--sgi-blue)]/10"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground/80">Image de la bannière</label>
+            <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-[var(--sgi-blue)] px-3 py-2 text-xs font-semibold text-white">
+              {uploading ? "Téléversement…" : "Ajouter des images"}
               <input
                 type="file"
                 accept="image/*"
-                onChange={(e) => handleImageUpload("hero", e)}
-                className="mt-2 text-sm text-foreground/80"
+                multiple
+                disabled={uploading}
+                onChange={(e) => void handleAddHeroSlides(e)}
+                className="hidden"
               />
-            </div>
+            </label>
           </div>
-          <div className="rounded-3xl border border-border bg-muted/60 p-4">
-            <div className="text-sm font-semibold text-foreground">Aperçu bannière</div>
-            <img src={heroImage} alt="Aperçu image bannière" className="mt-4 h-40 w-full rounded-2xl object-cover sm:h-64 sm:rounded-3xl" />
+
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {heroImages.map((slide, index) => (
+              <div key={`${slide.src}-${index}`} className="rounded-3xl border border-border bg-muted/60 p-3">
+                <img
+                  src={slide.src}
+                  alt={slide.alt || `Slide ${index + 1}`}
+                  className="h-36 w-full rounded-2xl object-cover"
+                />
+                <div className="mt-3 space-y-2">
+                  <input
+                    value={slide.alt}
+                    onChange={(e) =>
+                      setHeroImages((current) =>
+                        current.map((item, i) => (i === index ? { ...item, alt: e.target.value } : item)),
+                      )
+                    }
+                    placeholder="Texte alternatif"
+                    className="w-full rounded-xl border border-border bg-card px-3 py-2 text-xs outline-none"
+                  />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={uploading}
+                    onChange={(e) => void handleHeroSlideUpload(index, e)}
+                    className="w-full text-xs text-foreground/80"
+                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => moveHeroSlide(index, -1)}
+                      className="rounded-lg border border-border px-2 py-1 text-[11px] text-foreground"
+                    >
+                      ←
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveHeroSlide(index, 1)}
+                      className="rounded-lg border border-border px-2 py-1 text-[11px] text-foreground"
+                    >
+                      →
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeHeroSlide(index)}
+                      disabled={heroImages.length <= 1}
+                      className="rounded-lg border border-red-200 px-2 py-1 text-[11px] text-red-600 disabled:opacity-40"
+                    >
+                      Retirer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -447,7 +649,8 @@ export default function AdminEditLanding() {
               <input
                 type="file"
                 accept="image/*"
-                onChange={(e) => handleImageUpload("about", e)}
+                disabled={uploading}
+                onChange={(e) => void handleAboutUpload(e)}
                 className="mt-2 text-sm text-foreground/80"
               />
             </div>
@@ -710,11 +913,47 @@ export default function AdminEditLanding() {
                     />
                   </div>
                   <div>
+                    <label className="block text-sm font-medium text-foreground/80">Texte détaillé (page galerie)</label>
+                    <textarea
+                      value={item.content || ""}
+                      onChange={(e) => updateGalleryField(index, "content", e.target.value)}
+                      rows={4}
+                      className="mt-2 w-full rounded-3xl border border-border bg-card p-4 text-sm text-foreground outline-none"
+                    />
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div>
+                      <label className="block text-sm font-medium text-foreground/80">Date</label>
+                      <input
+                        value={item.date || ""}
+                        onChange={(e) => updateGalleryField(index, "date", e.target.value)}
+                        className="mt-2 w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground/80">Lieu</label>
+                      <input
+                        value={item.location || ""}
+                        onChange={(e) => updateGalleryField(index, "location", e.target.value)}
+                        className="mt-2 w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground/80">Chapitre</label>
+                      <input
+                        value={item.chapter || ""}
+                        onChange={(e) => updateGalleryField(index, "chapter", e.target.value)}
+                        className="mt-2 w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div>
                     <label className="block text-sm font-medium text-foreground/80">Image</label>
                     <input
                       type="file"
                       accept="image/*"
-                      onChange={(e) => handleGalleryUpload(index, e)}
+                      disabled={uploading}
+                      onChange={(e) => void handleGalleryUpload(index, e)}
                       className="mt-2 text-sm text-foreground/80"
                     />
                   </div>
@@ -836,13 +1075,18 @@ export default function AdminEditLanding() {
                     <input
                       type="file"
                       accept="image/*"
+                      disabled={uploading}
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
                         if (!file) return;
-                        const url = await dataUrlFromFile(file);
-                        setNewsItems((current) =>
-                          current.map((news, newsIndex) => (newsIndex === index ? { ...news, image: url } : news)),
-                        );
+                        try {
+                          const url = await uploadImage(file, "news");
+                          setNewsItems((current) =>
+                            current.map((news, newsIndex) => (newsIndex === index ? { ...news, image: url } : news)),
+                          );
+                        } catch (err) {
+                          showNotice("error", err instanceof Error ? err.message : "Échec upload.");
+                        }
                       }}
                       className="mt-2 text-sm text-foreground/80"
                     />
@@ -1002,24 +1246,26 @@ export default function AdminEditLanding() {
         </div>
         <div className="mt-6 space-y-6">
           {testimonials.map((item, index) => (
-            <div key={index} className="rounded-3xl border border-border bg-muted/60 p-5 shadow-sm">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-                <div className="flex-1 space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-foreground/80">Nom</label>
-                    <input
-                      value={item.name}
-                      onChange={(e) => setTestimonials((current) => current.map((testimonial, testimonialIndex) => testimonialIndex === index ? { ...testimonial, name: e.target.value } : testimonial))}
-                      className="mt-2 w-full rounded-3xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-foreground/80">Rôle</label>
-                    <input
-                      value={item.role}
-                      onChange={(e) => setTestimonials((current) => current.map((testimonial, testimonialIndex) => testimonialIndex === index ? { ...testimonial, role: e.target.value } : testimonial))}
-                      className="mt-2 w-full rounded-3xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none"
-                    />
+            <div key={item.id || index} className="rounded-3xl border border-border bg-muted/60 p-4 shadow-sm sm:p-5">
+              <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_12.5rem]">
+                <div className="min-w-0 space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-sm font-medium text-foreground/80">Nom</label>
+                      <input
+                        value={item.name}
+                        onChange={(e) => setTestimonials((current) => current.map((testimonial, testimonialIndex) => testimonialIndex === index ? { ...testimonial, name: e.target.value } : testimonial))}
+                        className="mt-2 w-full rounded-3xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground/80">Rôle</label>
+                      <input
+                        value={item.role}
+                        onChange={(e) => setTestimonials((current) => current.map((testimonial, testimonialIndex) => testimonialIndex === index ? { ...testimonial, role: e.target.value } : testimonial))}
+                        className="mt-2 w-full rounded-3xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none"
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-foreground/80">Citation</label>
@@ -1030,18 +1276,85 @@ export default function AdminEditLanding() {
                       className="mt-2 w-full rounded-3xl border border-border bg-card p-4 text-sm text-foreground outline-none"
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground/80">Récit complet (page détail)</label>
+                    <textarea
+                      value={item.fullStory || ""}
+                      onChange={(e) =>
+                        setTestimonials((current) =>
+                          current.map((testimonial, testimonialIndex) =>
+                            testimonialIndex === index ? { ...testimonial, fullStory: e.target.value } : testimonial,
+                          ),
+                        )
+                      }
+                      rows={5}
+                      className="mt-2 w-full rounded-3xl border border-border bg-card p-4 text-sm text-foreground outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground/80">Chapitre</label>
+                    <input
+                      value={item.chapter || ""}
+                      onChange={(e) =>
+                        setTestimonials((current) =>
+                          current.map((testimonial, testimonialIndex) =>
+                            testimonialIndex === index ? { ...testimonial, chapter: e.target.value } : testimonial,
+                          ),
+                        )
+                      }
+                      className="mt-2 w-full rounded-3xl border border-border bg-card px-4 py-3 text-sm outline-none"
+                    />
+                  </div>
                 </div>
-                <div className="w-full max-w-full rounded-3xl border border-border bg-card p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-semibold text-foreground">Preview</span>
+
+                <aside className="flex w-full flex-col gap-3 rounded-3xl border border-border bg-card p-4 lg:w-[12.5rem]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-foreground">Photo</span>
                     <button
                       type="button"
                       onClick={() => setTestimonials((current) => current.filter((_, i) => i !== index))}
                       className="rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground transition hover:bg-muted"
-                    >Supprimer</button>
+                    >
+                      Supprimer
+                    </button>
                   </div>
-                  <img src={item.image} alt={`Aperçu témoignage ${item.name}`} className="mt-4 h-48 w-full rounded-3xl object-cover" />
-                </div>
+                  <div className="mx-auto aspect-square w-28 overflow-hidden rounded-full border border-border bg-muted sm:w-32 lg:w-full">
+                    {item.image ? (
+                      <img
+                        src={item.image}
+                        alt={`Aperçu témoignage ${item.name}`}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+                        Aucune photo
+                      </div>
+                    )}
+                  </div>
+                  <label className="block text-xs font-medium text-foreground/80">
+                    Changer la photo
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={uploading}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const url = await uploadImage(file, "testimonials");
+                          setTestimonials((current) =>
+                            current.map((testimonial, testimonialIndex) =>
+                              testimonialIndex === index ? { ...testimonial, image: url } : testimonial,
+                            ),
+                          );
+                        } catch (err) {
+                          showNotice("error", err instanceof Error ? err.message : "Échec upload.");
+                        }
+                      }}
+                      className="mt-2 block w-full text-xs text-foreground/80 file:mr-2 file:rounded-full file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-xs file:font-medium"
+                    />
+                  </label>
+                </aside>
               </div>
             </div>
           ))}
@@ -1096,10 +1409,11 @@ export default function AdminEditLanding() {
             </button>
             <button
               type="button"
-              onClick={save}
-              className="rounded-xl bg-[var(--sgi-red)] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[var(--sgi-red-deep)] sm:py-2.5"
+              disabled={saving || uploading}
+              onClick={() => void save()}
+              className="rounded-xl bg-[var(--sgi-red)] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[var(--sgi-red-deep)] disabled:opacity-60 sm:py-2.5"
             >
-              Enregistrer
+              {saving ? "Publication…" : "Enregistrer"}
             </button>
             {remoteSyncEnabled && (
               <button
@@ -1107,7 +1421,7 @@ export default function AdminEditLanding() {
                 onClick={syncRemote}
                 className="col-span-2 rounded-xl border border-[var(--sgi-gold)] px-4 py-3 text-sm font-semibold text-[var(--sgi-gold)] transition hover:bg-[var(--sgi-gold)]/10 sm:col-span-1 sm:py-2.5"
               >
-                Synchroniser Supabase
+                Synchroniser
               </button>
             )}
           </div>

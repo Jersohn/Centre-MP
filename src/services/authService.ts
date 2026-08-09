@@ -6,7 +6,7 @@ export function hasSupabaseAuth() {
 
 export async function signInWithEmail(email: string, password: string) {
   if (!supabase) {
-    return { data: null, error: new Error("Supabase n'est pas configuré.") };
+    return { data: null, error: new Error("Service indisponible.") };
   }
 
   return await supabase.auth.signInWithPassword({

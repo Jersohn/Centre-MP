@@ -1,7 +1,17 @@
-import { jsPDF } from "jspdf";
+﻿import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
 import type { MemberRecord } from "./memberFormUtils";
 import type { PlatformRole } from "./roles";
+
+export type DashboardCollecteLike = {
+  type: "vague-paix" | "zaimu-ordinaire" | "zaimu-special" | string;
+  montant: number;
+  statut: string;
+  membre: string;
+  chapitre?: string;
+  district?: string;
+  groupe?: string;
+};
 
 export type UnitStat = {
   key: string;
@@ -9,8 +19,21 @@ export type UnitStat = {
   membres: number;
   actifs: number;
   vaguePaix: number;
-  zaimu: number;
-  dons: number;
+  zaimuOrdinaire: number;
+  zaimuSpecial: number;
+};
+
+export type DashboardOrgSnapshot = {
+  chapitres: Array<{ id: string; name: string }>;
+  districts: Array<{ id: string; name: string; chapitre_id: string; chapitre_name?: string | null }>;
+  groupes: Array<{
+    id: string;
+    name: string;
+    district_id: string;
+    district_name?: string | null;
+    chapitre_id?: string | null;
+    chapitre_name?: string | null;
+  }>;
 };
 
 export type DashboardScope = {
@@ -30,46 +53,110 @@ const fmt = (n: number) => {
   return `${sign}${String(Math.abs(Math.round(n))).replace(/\B(?=(\d{3})+(?!\d))/g, " ")}`;
 };
 
-function aggregateBy(members: MemberRecord[], key: keyof MemberRecord): UnitStat[] {
-  const map = new Map<string, MemberRecord[]>();
-  for (const member of members) {
-    const label = String(member[key] || "Non renseigné");
-    const list = map.get(label) || [];
-    list.push(member);
-    map.set(label, list);
-  }
-  return [...map.entries()]
-    .map(([label, list]) => ({
-      key: label,
-      label,
-      membres: list.length,
-      actifs: list.filter((m) => m.statut === "Actif").length,
-      vaguePaix: list.filter((m) => m.abonnementVaguePaix).length,
-      zaimu: list.reduce((sum, m) => sum + m.totalDons, 0),
-      dons: list.reduce((sum, m) => sum + m.totalDons, 0),
-    }))
-    .sort((a, b) => b.membres - a.membres);
+function memberKey(prenom: string, nom: string) {
+  return `${prenom} ${nom}`.trim().toLowerCase();
 }
 
-export function buildDashboardScope(role: PlatformRole, members: MemberRecord[]): DashboardScope {
+function statsForUnit(
+  list: MemberRecord[],
+  collectes: DashboardCollecteLike[],
+): Omit<UnitStat, "key" | "label"> {
+  const names = new Set(list.map((m) => memberKey(m.prenom, m.nom)));
+  const ofUnit = collectes.filter(
+    (c) => c.statut === "Validé" && names.has((c.membre || "").trim().toLowerCase()),
+  );
+  return {
+    membres: list.length,
+    actifs: list.filter((m) => m.statut === "Actif").length,
+    vaguePaix: list.filter((m) => m.abonnementVaguePaix).length,
+    zaimuOrdinaire: ofUnit
+      .filter((c) => c.type === "zaimu-ordinaire")
+      .reduce((sum, c) => sum + c.montant, 0),
+    zaimuSpecial: ofUnit
+      .filter((c) => c.type === "zaimu-special")
+      .reduce((sum, c) => sum + c.montant, 0),
+  };
+}
+
+function membersOf(
+  members: MemberRecord[],
+  match: { chapitre?: string; district?: string; groupe?: string },
+) {
+  return members.filter((m) => {
+    if (match.chapitre && m.chapitre !== match.chapitre) return false;
+    if (match.district && m.district !== match.district) return false;
+    if (match.groupe && m.groupe !== match.groupe) return false;
+    return true;
+  });
+}
+
+function rowsFromUnits(
+  units: Array<{ key: string; label: string }>,
+  members: MemberRecord[],
+  collectes: DashboardCollecteLike[],
+  pick: (unitLabel: string) => MemberRecord[],
+): UnitStat[] {
+  return units.map((unit) => ({
+    key: unit.key,
+    label: unit.label,
+    ...statsForUnit(pick(unit.label), collectes),
+  }));
+}
+
+export function buildDashboardScope(
+  role: PlatformRole,
+  members: MemberRecord[],
+  org: DashboardOrgSnapshot = { chapitres: [], districts: [], groupes: [] },
+  collectes: DashboardCollecteLike[] = [],
+  assignment: { chapitre?: string; district?: string; groupe?: string } = {},
+): DashboardScope {
+  const chapitreCount = org.chapitres.length;
+  const actifs = members.filter((m) => m.statut === "Actif").length;
+  const validated = collectes.filter((c) => c.statut === "Validé");
+  const zaimuOrdinaireTotal = validated
+    .filter((c) => c.type === "zaimu-ordinaire")
+    .reduce((sum, c) => sum + c.montant, 0);
+  const zaimuSpecialTotal = validated
+    .filter((c) => c.type === "zaimu-special")
+    .reduce((sum, c) => sum + c.montant, 0);
+
   if (role === "district") {
-    const rows = aggregateBy(members, "groupe");
-    const chapterCount = new Set(members.map((m) => m.chapitre)).size;
+    const districtName =
+      (assignment.district || "").trim() ||
+      members[0]?.district ||
+      org.districts[0]?.name ||
+      "";
+    const chapitreName = (assignment.chapitre || "").trim() || members[0]?.chapitre || "";
+    const districtId = org.districts.find((d) => d.name === districtName)?.id;
+    const groupeUnits = org.groupes
+      .filter((g) =>
+        districtId
+          ? g.district_id === districtId
+          : !districtName || g.district_name === districtName,
+      )
+      .map((g) => ({ key: g.id, label: g.name }));
+    const units =
+      groupeUnits.length > 0
+        ? groupeUnits
+        : [...new Set(members.map((m) => m.groupe).filter(Boolean))].map((name) => ({
+            key: name,
+            label: name,
+          }));
+    const rows = rowsFromUnits(units, members, collectes, (label) =>
+      membersOf(members, { groupe: label, district: districtName || undefined }),
+    );
     return {
-      title: "Pilotage du district",
-      subtitle: "Effectifs et indicateurs par groupe du district",
+      title: districtName || "Pilotage du district",
+      subtitle: chapitreName
+        ? `District que vous pilotez · ${chapitreName} · indicateurs par groupe`
+        : "District que vous pilotez · effectifs et indicateurs par groupe",
       unitLabel: "Groupe",
       unitPlural: "Groupes",
       kpis: [
-        { label: "Membres du district", value: fmt(members.length), hint: "Tous groupes confondus", tone: "blue" },
-        { label: "Groupes", value: fmt(rows.length), hint: "Unités actives", tone: "gold" },
-        { label: "Chapitres liés", value: fmt(chapterCount), hint: "Périmètre du district", tone: "red" },
-        {
-          label: "Vague de Paix",
-          value: fmt(members.filter((m) => m.abonnementVaguePaix).length),
-          hint: "Abonnés année en cours",
-          tone: "green",
-        },
+        { label: "Membres", value: fmt(members.length), hint: "", tone: "blue" },
+        { label: "Groupes", value: fmt(units.length || rows.length), hint: "", tone: "gold" },
+        { label: "Zaimu ordinaire", value: fmt(zaimuOrdinaireTotal), hint: "FCFA", tone: "gold" },
+        { label: "Zaimu spécial", value: fmt(zaimuSpecialTotal), hint: "FCFA", tone: "red" },
       ],
       rows,
       chartTitle: "Membres par groupe",
@@ -77,27 +164,39 @@ export function buildDashboardScope(role: PlatformRole, members: MemberRecord[])
   }
 
   if (role === "chapitre") {
-    const rows = aggregateBy(members, "district");
+    const chapitreName =
+      (assignment.chapitre || "").trim() ||
+      members[0]?.chapitre ||
+      org.chapitres[0]?.name ||
+      "";
+    const chapitreId = org.chapitres.find((c) => c.name === chapitreName)?.id;
+    const districtUnits = org.districts
+      .filter((d) =>
+        chapitreId
+          ? d.chapitre_id === chapitreId
+          : !chapitreName || d.chapitre_name === chapitreName,
+      )
+      .map((d) => ({ key: d.id, label: d.name }));
+    const units =
+      districtUnits.length > 0
+        ? districtUnits
+        : [...new Set(members.map((m) => m.district).filter(Boolean))].map((name) => ({
+            key: name,
+            label: name,
+          }));
+    const rows = rowsFromUnits(units, members, collectes, (label) =>
+      membersOf(members, { district: label, chapitre: chapitreName || undefined }),
+    );
     return {
-      title: "Pilotage du chapitre",
-      subtitle: "Nombre de districts et statistiques détaillées par district",
+      title: chapitreName || "Pilotage du chapitre",
+      subtitle: "Chapitre que vous pilotez · effectifs et indicateurs par district",
       unitLabel: "District",
       unitPlural: "Districts",
       kpis: [
-        { label: "Membres du chapitre", value: fmt(members.length), hint: "Tous districts", tone: "blue" },
-        { label: "Districts", value: fmt(rows.length), hint: "Sous le chapitre", tone: "gold" },
-        {
-          label: "Membres actifs",
-          value: fmt(members.filter((m) => m.statut === "Actif").length),
-          hint: "Statut Actif",
-          tone: "green",
-        },
-        {
-          label: "Zaimu cumulés",
-          value: fmt(members.reduce((s, m) => s + m.totalDons, 0)),
-          hint: "CDF",
-          tone: "red",
-        },
+        { label: "Membres", value: fmt(members.length), hint: "", tone: "blue" },
+        { label: "Districts", value: fmt(units.length || rows.length), hint: "", tone: "gold" },
+        { label: "Zaimu ordinaire", value: fmt(zaimuOrdinaireTotal), hint: "FCFA", tone: "gold" },
+        { label: "Zaimu spécial", value: fmt(zaimuSpecialTotal), hint: "FCFA", tone: "red" },
       ],
       rows,
       chartTitle: "Membres par district",
@@ -105,32 +204,33 @@ export function buildDashboardScope(role: PlatformRole, members: MemberRecord[])
   }
 
   if (role === "groupe") {
-    const rows = aggregateBy(members, "groupe");
+    const groupeName =
+      (assignment.groupe || "").trim() ||
+      members[0]?.groupe ||
+      org.groupes[0]?.name ||
+      "Groupe";
+    const districtName = (assignment.district || "").trim() || members[0]?.district || "";
+    const chapitreName = (assignment.chapitre || "").trim() || members[0]?.chapitre || "";
+    const parentLine = [districtName, chapitreName].filter(Boolean).join(" · ");
+    const rows = [
+      {
+        key: groupeName,
+        label: groupeName,
+        ...statsForUnit(members, collectes),
+      },
+    ];
     return {
-      title: "Pilotage du groupe",
-      subtitle: "Vue des membres et indicateurs du groupe",
+      title: groupeName || "Pilotage du groupe",
+      subtitle: parentLine
+        ? `Groupe que vous pilotez · ${parentLine}`
+        : "Groupe que vous pilotez · membres et indicateurs",
       unitLabel: "Groupe",
       unitPlural: "Groupes",
       kpis: [
-        { label: "Membres", value: fmt(members.length), hint: "Dans le groupe", tone: "blue" },
-        {
-          label: "Actifs",
-          value: fmt(members.filter((m) => m.statut === "Actif").length),
-          hint: "Statut Actif",
-          tone: "green",
-        },
-        {
-          label: "Vague de Paix",
-          value: fmt(members.filter((m) => m.abonnementVaguePaix).length),
-          hint: "Abonnés",
-          tone: "gold",
-        },
-        {
-          label: "Dons zaimu",
-          value: fmt(members.reduce((s, m) => s + m.totalDons, 0)),
-          hint: "CDF",
-          tone: "red",
-        },
+        { label: "Membres", value: fmt(members.length), hint: "", tone: "blue" },
+        { label: "Actifs", value: fmt(actifs), hint: "", tone: "green" },
+        { label: "Zaimu ordinaire", value: fmt(zaimuOrdinaireTotal), hint: "FCFA", tone: "gold" },
+        { label: "Zaimu spécial", value: fmt(zaimuSpecialTotal), hint: "FCFA", tone: "red" },
       ],
       rows,
       chartTitle: "Répartition du groupe",
@@ -138,27 +238,28 @@ export function buildDashboardScope(role: PlatformRole, members: MemberRecord[])
   }
 
   // admin + centre
-  const rows = aggregateBy(members, "chapitre");
+  const chapitreUnits = org.chapitres.map((c) => ({ key: c.id, label: c.name }));
+  const units =
+    chapitreUnits.length > 0
+      ? chapitreUnits
+      : [...new Set(members.map((m) => m.chapitre).filter(Boolean))].map((name) => ({
+          key: name,
+          label: name,
+        }));
+  const rows = rowsFromUnits(units, members, collectes, (label) =>
+    membersOf(members, { chapitre: label }),
+  );
+
   return {
-    title: "Pilotage du centre",
-    subtitle: "Nombre de chapitres et statistiques consolidées par chapitre",
+    title: role === "admin" ? "Administration" : "Centre Miroir Parfait",
+    subtitle: "Indicateurs consolidés à partir de l’organisation et des membres",
     unitLabel: "Chapitre",
     unitPlural: "Chapitres",
     kpis: [
-      { label: "Membres du centre", value: fmt(members.length), hint: "Tous chapitres", tone: "blue" },
-      { label: "Chapitres", value: fmt(rows.length), hint: "Unités territoriales", tone: "gold" },
-      {
-        label: "Districts",
-        value: fmt(new Set(members.map((m) => m.district)).size),
-        hint: "Tous chapitres",
-        tone: "red",
-      },
-      {
-        label: "Groupes",
-        value: fmt(new Set(members.map((m) => m.groupe)).size),
-        hint: "Tous niveaux",
-        tone: "green",
-      },
+      { label: "Membres", value: fmt(members.length), hint: "", tone: "blue" },
+      { label: "Chapitres", value: fmt(chapitreCount || units.length), hint: "", tone: "gold" },
+      { label: "Zaimu ordinaire", value: fmt(zaimuOrdinaireTotal), hint: "FCFA", tone: "gold" },
+      { label: "Zaimu spécial", value: fmt(zaimuSpecialTotal), hint: "FCFA", tone: "red" },
     ],
     rows,
     chartTitle: "Membres par chapitre",
@@ -174,20 +275,21 @@ export function exportDashboardPdf(options: {
 }) {
   const { scope, roleLabel, fromDate, toDate, filename } = options;
   const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const margin = 40;
+  const margin = 36;
   let y = 48;
 
-  // Header band
   doc.setFillColor(10, 47, 82);
   doc.rect(0, 0, 595, 72, "F");
-  doc.setFillColor(200, 151, 26);
+  doc.setFillColor(26, 52, 112);
   doc.rect(0, 72, 198, 4, "F");
+  doc.setFillColor(200, 151, 26);
+  doc.rect(198, 72, 199, 4, "F");
   doc.setFillColor(194, 58, 43);
-  doc.rect(198, 72, 397, 4, "F");
+  doc.rect(397, 72, 198, 4, "F");
 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(16);
-  doc.text("Centre Miroir Parfait — SGI Côte d’Ivoire", margin, 34);
+  doc.text("Centre Miroir Parfait - SGI Cote d'Ivoire", margin, 34);
   doc.setFontSize(11);
   doc.text(scope.title, margin, 54);
 
@@ -196,7 +298,7 @@ export function exportDashboardPdf(options: {
   doc.setFontSize(12);
   doc.text(`Profil : ${roleLabel}`, margin, y);
   y += 18;
-  doc.text(`Période d’export : ${fromDate} → ${toDate}`, margin, y);
+  doc.text(`Periode d'export : du ${fromDate} au ${toDate}`, margin, y);
   y += 18;
   doc.setTextColor(90, 107, 125);
   doc.setFontSize(10);
@@ -210,28 +312,29 @@ export function exportDashboardPdf(options: {
   doc.setFontSize(10);
   scope.kpis.forEach((kpi) => {
     doc.setFillColor(243, 246, 250);
-    doc.roundedRect(margin, y - 10, 515, 28, 4, 4, "F");
+    doc.roundedRect(margin, y - 10, 523, 28, 4, 4, "F");
     doc.setTextColor(10, 47, 82);
-    doc.text(`${kpi.label} : ${kpi.value}  (${kpi.hint})`, margin + 10, y + 8);
+    const detail = kpi.hint ? `  (${kpi.hint})` : "";
+    doc.text(`${kpi.label} : ${kpi.value}${detail}`, margin + 10, y + 8);
     y += 34;
   });
 
   y += 10;
   doc.setFontSize(13);
   doc.setTextColor(16, 32, 51);
-  doc.text(`Détail par ${scope.unitLabel.toLowerCase()}`, margin, y);
+  doc.text(`Detail par ${scope.unitLabel.toLowerCase()}`, margin, y);
   y += 20;
 
   doc.setFillColor(10, 47, 82);
-  doc.rect(margin, y - 12, 515, 22, "F");
+  doc.rect(margin, y - 12, 523, 22, "F");
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(9);
-  doc.text(scope.unitLabel, margin + 8, y);
-  doc.text("Membres", margin + 160, y);
-  doc.text("Actifs", margin + 230, y);
-  doc.text("Vague Paix", margin + 290, y);
-  doc.text("Zaimu", margin + 370, y);
-  doc.text("Dons", margin + 460, y);
+  doc.setFontSize(8);
+  doc.text(scope.unitLabel, margin + 6, y);
+  doc.text("Membres", margin + 120, y);
+  doc.text("Actifs", margin + 175, y);
+  doc.text("VP", margin + 225, y);
+  doc.text("Zaimu ord.", margin + 275, y);
+  doc.text("Zaimu spe.", margin + 370, y);
   y += 18;
 
   doc.setTextColor(16, 32, 51);
@@ -242,22 +345,22 @@ export function exportDashboardPdf(options: {
     }
     if (index % 2 === 0) {
       doc.setFillColor(248, 250, 252);
-      doc.rect(margin, y - 11, 515, 18, "F");
+      doc.rect(margin, y - 11, 523, 18, "F");
     }
-    doc.setFontSize(9);
-    doc.text(row.label.slice(0, 28), margin + 8, y);
-    doc.text(String(row.membres), margin + 160, y);
-    doc.text(String(row.actifs), margin + 230, y);
-    doc.text(String(row.vaguePaix), margin + 290, y);
-    doc.text(`${fmt(row.zaimu)}`, margin + 370, y);
-    doc.text(`${fmt(row.dons)}`, margin + 460, y);
+    doc.setFontSize(8);
+    doc.text(row.label.slice(0, 22), margin + 6, y);
+    doc.text(String(row.membres), margin + 120, y);
+    doc.text(String(row.actifs), margin + 175, y);
+    doc.text(String(row.vaguePaix), margin + 225, y);
+    doc.text(fmt(row.zaimuOrdinaire), margin + 275, y);
+    doc.text(fmt(row.zaimuSpecial), margin + 370, y);
     y += 18;
   });
 
   y += 20;
   doc.setFontSize(8);
   doc.setTextColor(120, 130, 145);
-  doc.text(`Document généré le ${new Date().toLocaleString("fr-FR")} — Usage interne SGI`, margin, Math.min(y, 820));
+  doc.text(`Document genere le ${new Date().toLocaleString("fr-FR")} - Usage interne SGI`, margin, Math.min(y, 820));
 
   doc.save(filename);
 }
@@ -269,15 +372,16 @@ export function exportDashboardExcel(options: {
   toDate: string;
   filename: string;
   members: MemberRecord[];
+  collectes?: DashboardCollecteLike[];
 }) {
-  const { scope, roleLabel, fromDate, toDate, filename, members } = options;
+  const { scope, roleLabel, fromDate, toDate, filename, members, collectes = [] } = options;
 
   const resume = [
     { Indicateur: "Profil", Valeur: roleLabel },
     { Indicateur: "Période début", Valeur: fromDate },
     { Indicateur: "Période fin", Valeur: toDate },
     { Indicateur: "Titre", Valeur: scope.title },
-    ...scope.kpis.map((kpi) => ({ Indicateur: kpi.label, Valeur: kpi.value, Detail: kpi.hint })),
+    ...scope.kpis.map((kpi) => ({ Indicateur: kpi.label, Valeur: kpi.value, Detail: kpi.hint || "" })),
   ];
 
   const detail = scope.rows.map((row) => ({
@@ -285,22 +389,32 @@ export function exportDashboardExcel(options: {
     Membres: row.membres,
     Actifs: row.actifs,
     "Vague de Paix": row.vaguePaix,
-    "Zaimu (CDF)": row.zaimu,
-    "Dons zaimu (CDF)": row.dons,
+    "Zaimu ordinaire (FCFA)": row.zaimuOrdinaire,
+    "Zaimu spécial (FCFA)": row.zaimuSpecial,
   }));
 
-  const membresSheet = members.map((m) => ({
-    Prénom: m.prenom,
-    Nom: m.nom,
-    Email: m.email,
-    Chapitre: m.chapitre,
-    District: m.district,
-    Groupe: m.groupe,
-    Statut: m.statut,
-    "Vague de Paix": m.abonnementVaguePaix ? "Oui" : "Non",
-    "Zaimu (CDF)": m.totalDons,
-    "Dons (CDF)": m.totalDons,
-  }));
+  const membresSheet = members.map((m) => {
+    const name = memberKey(m.prenom, m.nom);
+    const ofMember = collectes.filter(
+      (c) => c.statut === "Validé" && (c.membre || "").trim().toLowerCase() === name,
+    );
+    return {
+      Prénom: m.prenom,
+      Nom: m.nom,
+      Email: m.email,
+      Chapitre: m.chapitre,
+      District: m.district,
+      Groupe: m.groupe,
+      Statut: m.statut,
+      "Vague de Paix": m.abonnementVaguePaix ? "Oui" : "Non",
+      "Zaimu ordinaire (FCFA)": ofMember
+        .filter((c) => c.type === "zaimu-ordinaire")
+        .reduce((s, c) => s + c.montant, 0),
+      "Zaimu spécial (FCFA)": ofMember
+        .filter((c) => c.type === "zaimu-special")
+        .reduce((s, c) => s + c.montant, 0),
+    };
+  });
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(resume), "Résumé");

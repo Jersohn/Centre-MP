@@ -1,0 +1,123 @@
+import type { PlatformRole } from "./roles";
+
+/** Rang hiérarchique (plus élevé = autorité supérieure). */
+const ROLE_RANK: Record<PlatformRole, number> = {
+  admin: 50,
+  centre: 40,
+  chapitre: 30,
+  district: 20,
+  groupe: 10,
+};
+
+export function roleRank(role: PlatformRole): number {
+  return ROLE_RANK[role] ?? 0;
+}
+
+/** Convertit une responsabilité membre vers un rôle plateforme, si applicable. */
+export function platformRoleFromResponsabilite(responsabilite: string): PlatformRole | null {
+  const value = (responsabilite || "").trim();
+  const normalized = value === "Membre" ? "Membre simple" : value;
+  if (normalized === "Administrateur" || normalized.toLowerCase() === "admin") return "admin";
+  if (normalized === "Responsable centre") return "centre";
+  if (normalized === "Responsable chapitre") return "chapitre";
+  if (normalized === "Responsable district") return "district";
+  if (normalized === "Responsable groupe") return "groupe";
+  return null;
+}
+
+/**
+ * Cible hiérarchiquement supérieure ou de même niveau :
+ * le responsable connecté ne peut pas la désactiver, supprimer
+ * ni changer sa responsabilité / son rôle.
+ */
+export function isProtectedHierarchyTarget(
+  actorRole: PlatformRole,
+  targetRole: PlatformRole | null | undefined,
+): boolean {
+  if (!targetRole) return false;
+  if (actorRole === "admin") return false;
+  return roleRank(targetRole) >= roleRank(actorRole);
+}
+
+/** Qui peut modifier le périmètre org (chapitre / district / groupe). */
+export function canManageOrgScope(
+  actorRole: PlatformRole,
+  targetRole: PlatformRole,
+  isSelf: boolean,
+): boolean {
+  if (isSelf) return actorRole === "admin" || actorRole === "centre";
+  if (isProtectedHierarchyTarget(actorRole, targetRole)) return false;
+  if (actorRole === "admin") return true;
+  if (actorRole === "centre") return targetRole !== "admin";
+  if (actorRole === "chapitre") return targetRole === "district" || targetRole === "groupe";
+  if (actorRole === "district") return targetRole === "groupe";
+  return false;
+}
+
+/** Modification du rôle / statut d’un compte utilisateur. */
+export function canManageUserAccount(
+  actorRole: PlatformRole,
+  targetRole: PlatformRole,
+  isSelf: boolean,
+): boolean {
+  if (isSelf) return false;
+  if (targetRole === "admin" && actorRole !== "admin") return false;
+  if (isProtectedHierarchyTarget(actorRole, targetRole)) return false;
+  if (actorRole === "admin") return true;
+  if (actorRole === "centre") return true;
+  if (actorRole === "chapitre") return targetRole === "district" || targetRole === "groupe";
+  return false;
+}
+
+/** Suppression de compte : admin / centre uniquement (pas soi-même ni supérieur). */
+export function canDeleteUser(
+  actorRole: PlatformRole,
+  targetRole: PlatformRole,
+  isSelf: boolean,
+): boolean {
+  if (isSelf) return false;
+  if (isProtectedHierarchyTarget(actorRole, targetRole)) return false;
+  if (actorRole === "admin") return true;
+  if (actorRole === "centre") return targetRole !== "admin";
+  return false;
+}
+
+/** Désactivation d’un membre (y compris s’il est aussi responsable). */
+export function canDeactivateMember(actorRole: PlatformRole, memberResponsabilite: string): boolean {
+  const targetRole = platformRoleFromResponsabilite(memberResponsabilite);
+  return !isProtectedHierarchyTarget(actorRole, targetRole);
+}
+
+/** Changement de responsabilité / promotion d’un membre. */
+export function canChangeMemberResponsabilite(
+  actorRole: PlatformRole,
+  memberResponsabilite: string,
+): boolean {
+  const targetRole = platformRoleFromResponsabilite(memberResponsabilite);
+  if (isProtectedHierarchyTarget(actorRole, targetRole)) return false;
+  if (actorRole === "admin" || actorRole === "centre") return true;
+  if (actorRole === "chapitre") return true; // sous-jacents / membres simples
+  return false;
+}
+
+/** Champs org visibles / requis selon le rôle cible. */
+export function orgFieldsForRole(role: PlatformRole): {
+  chapitre: boolean;
+  district: boolean;
+  groupe: boolean;
+  /** Centre uniquement : peut n’avoir aucun rattachement org. */
+  optionalAttachment: boolean;
+} {
+  if (role === "admin") {
+    return { chapitre: false, district: false, groupe: false, optionalAttachment: false };
+  }
+  if (role === "centre") {
+    return { chapitre: true, district: true, groupe: true, optionalAttachment: true };
+  }
+  // Chapitre / district / groupe : le formulaire enregistre le rattachement complet
+  // (groupe d’appartenance), même si le rôle plateforme reste chapitre ou district.
+  if (role === "chapitre" || role === "district" || role === "groupe") {
+    return { chapitre: true, district: true, groupe: true, optionalAttachment: false };
+  }
+  return { chapitre: true, district: true, groupe: true, optionalAttachment: false };
+}

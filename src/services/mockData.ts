@@ -136,6 +136,19 @@ export const galleryItems = [
       "L’activité chapitre a rassemblé responsables et membres pour un temps d’étude, de partage et d’organisation.\n\nAu programme : encouragements, bilan des actions du mois et préparation des prochaines initiatives au service de la communauté.",
     highlights: ["Unité du chapitre", "Étude et orientation", "Service communautaire"],
   },
+  {
+    id: "activite-jeunesse-rissho",
+    title: "Activité jeunesse — Rissho Ankoku Ron",
+    description: "La jeunesse du chapitre unie dans la joie, la solidarité et l’engagement.",
+    image: landingImages.gallery.jeunesseRissho,
+    date: "9 août 2026",
+    location: "Chapitre Rissho Ankoku Ron — Abidjan",
+    chapter: "Rissho Ankoku Ron",
+    category: "Jeunesse",
+    content:
+      "Les jeunes du chapitre Rissho Ankoku Ron se sont réunis pour une activité jeunesse marquée par l’unité, l’encouragement mutuel et la détermination partagée.\n\nPoings levés et sourires, ce moment a rappelé la force de la jeunesse du Centre Miroir Parfait pour bâtir la paix dans la société.",
+    highlights: ["Jeunesse du chapitre", "Solidarité", "Engagement pour la paix"],
+  },
 ];
 
 export const newsItems = [
@@ -162,6 +175,18 @@ export const newsItems = [
     location: "Côte d’Ivoire",
     content:
       "Une campagne de paix et d’unité est lancée pour mobiliser les membres autour d’actions concrètes dans les quartiers, les groupes et les familles.\n\nDialogues, moments culturels, encouragements mutuels et initiatives solidaires seront mis en avant afin de renforcer les liens entre les chapitres.\n\nCette campagne invite chacun à contribuer, à sa mesure, à une culture de respect, d’écoute et de responsabilité partagée.\n\nLes responsables locaux accompagneront le déploiement des activités et partageront régulièrement les avancées auprès de la communauté.",
+  },
+  {
+    id: "visite-chapitres",
+    title: "Visite des chapitres",
+    summary: "Les responsables centre partagent encouragement et perspective avec les trois chapitres.",
+    date: "28 juillet 2026",
+    author: "Responsable centre",
+    image: landingImages.news.training,
+    category: "Vie du centre",
+    location: "Abidjan, Côte d’Ivoire",
+    content:
+      "Une tournée d’encouragement a été organisée auprès des chapitres Rissho Ankoku Ron, Shin Gyo Gaku et Trois Trésors.\n\nCes rencontres ont permis de renforcer l’unité, d’écouter les défis locaux et de confirmer les priorités du mois : étude, dialogue et accompagnement des familles.",
   },
 ];
 
@@ -260,6 +285,19 @@ export const testimonials = [
     fullStory:
       "Mme Amani anime un groupe dynamique à Cocody. Elle salue une expérience numérique qui respecte l’esprit humaniste de la Soka Gakkai tout en offrant des outils pratiques pour l’agenda, les actualités et le partage des moments de vie. Pour elle, chaque membre doit pouvoir se sentir informé, soutenu et inspiré, où qu’il se trouve.",
     themes: ["Humanisme", "Communication", "Dynamique de groupe"],
+  },
+  {
+    id: "yao",
+    name: "M. Yao",
+    role: "Responsable jeunesse — Marcory",
+    quote: "Les jeunes trouvent ici des repères concrets pour avancer avec courage et responsabilité.",
+    image: landingImages.testimonials.man,
+    chapter: "Shin Gyo Gaku",
+    location: "Marcory",
+    memberSince: "2019",
+    fullStory:
+      "M. Yao coordonne les activités jeunesse. Il témoigne de l’élan créé par les moments d’étude, les dialogues et les projets collectifs qui aident chacun à développer sa propre révolution humaine.",
+    themes: ["Jeunesse", "Courage", "Responsabilité"],
   },
 ];
 

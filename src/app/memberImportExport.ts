@@ -1,4 +1,4 @@
-import { jsPDF } from "jspdf";
+﻿import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
 import type { MemberFormValues, MemberRecord } from "./memberFormUtils";
 import { memberFullName } from "./membersData";
@@ -82,9 +82,9 @@ export const ZAIMU_BILAN_EXPORT_FIELDS: ExportFieldOption[] = [
   { key: "Chapitre", label: "Chapitre", group: "Bilan cota" },
   { key: "District", label: "District", group: "Bilan cota" },
   { key: "Groupe", label: "Groupe", group: "Bilan cota" },
-  { key: "Cota assignée (CDF)", label: "Cota assignée", group: "Bilan cota" },
-  { key: "Payé validé (CDF)", label: "Payé validé", group: "Bilan cota" },
-  { key: "Reste (CDF)", label: "Montant restant", group: "Bilan cota" },
+  { key: "Cota assignée (FCFA)", label: "Cota assignée", group: "Bilan cota" },
+  { key: "Payé validé (FCFA)", label: "Payé validé", group: "Bilan cota" },
+  { key: "Reste (FCFA)", label: "Montant restant", group: "Bilan cota" },
   { key: "Nb paiements", label: "Nb paiements", group: "Bilan cota" },
   { key: "Dernier paiement", label: "Dernier paiement", group: "Bilan cota" },
   { key: "Statut cota", label: "Statut cota", group: "Bilan cota" },
@@ -95,7 +95,7 @@ export const ZAIMU_PAYMENT_EXPORT_FIELDS: ExportFieldOption[] = [
   { key: "Référence reçu", label: "Référence reçu", group: "Paiements" },
   { key: "Date", label: "Date", group: "Paiements" },
   { key: "Membre", label: "Membre", group: "Paiements" },
-  { key: "Montant (CDF)", label: "Montant", group: "Paiements" },
+  { key: "Montant (FCFA)", label: "Montant", group: "Paiements" },
   { key: "Statut", label: "Statut", group: "Paiements" },
   { key: "Chapitre", label: "Chapitre", group: "Paiements" },
   { key: "District", label: "District", group: "Paiements" },
@@ -114,14 +114,14 @@ export const ZAIMU_EXPORT_DEFAULT_FIELDS = [
   "Chapitre",
   "District",
   "Groupe",
-  "Cota assignée (CDF)",
-  "Payé validé (CDF)",
-  "Reste (CDF)",
+  "Cota assignée (FCFA)",
+  "Payé validé (FCFA)",
+  "Reste (FCFA)",
   "Statut cota",
   "Référence",
   "Référence reçu",
   "Date",
-  "Montant (CDF)",
+  "Montant (FCFA)",
   "Statut",
   "Motif",
 ];
@@ -141,24 +141,24 @@ export function ensureLeadingNameFields(fields: string[], leading: string[]) {
 /** Garantit la présence et l’ordre : Membre → … → Payé → Montant restant. */
 export function ensureZaimuBilanColumns(fields: string[]) {
   const withMember = ensureLeadingNameFields(fields, ["Membre"]);
-  const withoutReste = withMember.filter((f) => f !== "Reste (CDF)");
-  const payeIdx = withoutReste.indexOf("Payé validé (CDF)");
+  const withoutReste = withMember.filter((f) => f !== "Reste (FCFA)");
+  const payeIdx = withoutReste.indexOf("Payé validé (FCFA)");
   if (payeIdx >= 0) {
     return [
       ...withoutReste.slice(0, payeIdx + 1),
-      "Reste (CDF)",
+      "Reste (FCFA)",
       ...withoutReste.slice(payeIdx + 1),
     ];
   }
-  const cotaIdx = withoutReste.indexOf("Cota assignée (CDF)");
+  const cotaIdx = withoutReste.indexOf("Cota assignée (FCFA)");
   if (cotaIdx >= 0) {
     return [
       ...withoutReste.slice(0, cotaIdx + 1),
-      "Reste (CDF)",
+      "Reste (FCFA)",
       ...withoutReste.slice(cotaIdx + 1),
     ];
   }
-  return [...withoutReste.slice(0, 1), "Reste (CDF)", ...withoutReste.slice(1)];
+  return [...withoutReste.slice(0, 1), "Reste (FCFA)", ...withoutReste.slice(1)];
 }
 
 /** Séparateur de milliers ASCII — jsPDF ne gère pas bien \u202f / \u00a0 (affichés comme "/"). */
@@ -179,7 +179,33 @@ function formatCell(value: unknown) {
 }
 
 function isAmountField(key: string) {
-  return /cdf|montant|cota|payé|paye|reste|assigne|assigné|dons|zaimu/i.test(key);
+  return /fcfa|cdf|montant|cota|payé|paye|reste|assigne|assigné|dons|zaimu/i.test(key);
+}
+
+function drawTableHeaderRow(
+  doc: jsPDF,
+  fields: string[],
+  labels: Record<string, string>,
+  widths: number[],
+  margin: number,
+  usable: number,
+  y: number,
+  headerColor: [number, number, number],
+) {
+  const rowH = 20;
+  doc.setFillColor(...headerColor);
+  doc.rect(margin, y - 12, usable, rowH, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  let x = margin;
+  fields.forEach((key, i) => {
+    const label = sanitizeExportText(labels[key] || key);
+    const lines = doc.splitTextToSize(label, Math.max(18, widths[i] - 6));
+    doc.text(lines[0] || label, x + 3, y);
+    x += widths[i];
+  });
+  return y + rowH - 2;
 }
 
 function drawDynamicPdfTable(
@@ -188,52 +214,95 @@ function drawDynamicPdfTable(
   fields: string[],
   labels: Record<string, string>,
   startY: number,
-  headerColor: [number, number, number]
+  headerColor: [number, number, number],
 ) {
-  const margin = 36;
-  const usable = 842 - margin * 2;
-  const weights = fields.map((key) => (isAmountField(key) ? 1.35 : 1));
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 32;
+  const usable = pageW - margin * 2;
+  const bottomLimit = pageH - 48;
+  const weights = fields.map((key) => {
+    if (isAmountField(key)) return 1.25;
+    if (/email/i.test(key)) return 1.45;
+    if (/telephone|téléphone/i.test(key)) return 1.15;
+    if (/prenom|prénom|nom$/i.test(key)) return 1.1;
+    return 1;
+  });
   const weightSum = weights.reduce((a, b) => a + b, 0) || 1;
   const widths = weights.map((w) => (usable * w) / weightSum);
   let y = startY;
-  let x = margin;
 
-  doc.setFillColor(...headerColor);
-  doc.rect(margin, y - 11, usable, 18, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(7.5);
-  fields.forEach((key, i) => {
-    const label = sanitizeExportText(labels[key] || key);
-    const maxLabel = Math.max(4, Math.floor(widths[i] / 4.2));
-    doc.text(label.slice(0, maxLabel), x + 2, y);
-    x += widths[i];
-  });
-  y += 16;
+  y = drawTableHeaderRow(doc, fields, labels, widths, margin, usable, y, headerColor);
+  doc.setFont("helvetica", "normal");
   doc.setTextColor(16, 32, 51);
 
   rows.forEach((row, index) => {
-    if (y > 560) {
+    if (y > bottomLimit) {
       doc.addPage();
       y = 40;
+      y = drawTableHeaderRow(doc, fields, labels, widths, margin, usable, y, headerColor);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(16, 32, 51);
     }
     if (index % 2 === 0) {
-      doc.setFillColor(248, 250, 252);
+      doc.setFillColor(246, 248, 251);
       doc.rect(margin, y - 10, usable, 16, "F");
     }
-    x = margin;
+    let x = margin;
+    doc.setFontSize(7.5);
     fields.forEach((key, i) => {
       const text = formatCell(row[key]);
-      // Ne pas couper les montants au milieu (sinon "1 200 000" → "1 /200" avec fontes PDF)
-      const maxChars = isAmountField(key)
-        ? Math.max(text.length, Math.floor(widths[i] / 3.6))
-        : Math.max(6, Math.floor(widths[i] / 4.2));
-      doc.text(text.slice(0, maxChars), x + 2, y);
+      const maxWidth = Math.max(16, widths[i] - 6);
+      const lines = doc.splitTextToSize(text, maxWidth);
+      const cell = Array.isArray(lines) ? String(lines[0] || "") : String(lines || "");
+      doc.text(cell, x + 3, y);
       x += widths[i];
     });
     y += 15;
   });
 
   return y;
+}
+
+function drawMembersPdfChrome(doc: jsPDF, subtitle: string, meta: string) {
+  const pageW = doc.internal.pageSize.getWidth();
+  doc.setFillColor(10, 47, 82);
+  doc.rect(0, 0, pageW, 64, "F");
+  const band = pageW / 3;
+  doc.setFillColor(10, 47, 82);
+  doc.rect(0, 64, band, 4, "F");
+  doc.setFillColor(200, 151, 26);
+  doc.rect(band, 64, band, 4, "F");
+  doc.setFillColor(194, 58, 43);
+  doc.rect(band * 2, 64, band, 4, "F");
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("Centre Miroir Parfait — SGI Côte d'Ivoire", 32, 28);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.text(sanitizeExportText(subtitle), 32, 46);
+  doc.setFontSize(8.5);
+  doc.setTextColor(220, 230, 240);
+  doc.text(sanitizeExportText(meta), 32, 58);
+}
+
+function drawMembersPdfFooters(doc: jsPDF) {
+  const pageCount = doc.getNumberOfPages();
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  for (let i = 1; i <= pageCount; i += 1) {
+    doc.setPage(i);
+    doc.setDrawColor(220, 226, 234);
+    doc.setLineWidth(0.7);
+    doc.line(32, pageH - 30, pageW - 32, pageH - 30);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Document généré pour usage interne — Centre Miroir Parfait", 32, pageH - 16);
+    doc.text(`Page ${i} / ${pageCount}`, pageW - 32, pageH - 16, { align: "right" });
+  }
 }
 
 const EXAMPLE_ROW: Record<MemberImportColumn, string> = {
@@ -365,32 +434,32 @@ export function exportMembersPdf(
   const labels = Object.fromEntries(MEMBER_EXPORT_FIELDS.map((f) => [f.key, f.label]));
   const rows = members.map((m) => pickRowFields(memberToImportRow(m), selected));
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
-  const margin = 36;
-  let y = 40;
+  const generatedAt = new Date().toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
-  doc.setFillColor(10, 47, 82);
-  doc.rect(0, 0, 842, 58, "F");
-  doc.setFillColor(200, 151, 26);
-  doc.rect(0, 58, 280, 3, "F");
-  doc.setFillColor(194, 58, 43);
-  doc.rect(280, 58, 562, 3, "F");
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(14);
-  doc.text("Centre Miroir Parfait — Liste des membres", margin, 28);
-  doc.setFontSize(10);
-  doc.text(options.title || "Export membres", margin, 46);
-
-  y = 84;
-  doc.setTextColor(16, 32, 51);
-  doc.setFontSize(10);
-  doc.text(
-    `Total : ${members.length} membre(s) · ${selected.length} champ(s) — ${new Date().toLocaleString("fr-FR")}`,
-    margin,
-    y
+  drawMembersPdfChrome(
+    doc,
+    "Liste des membres",
+    `${members.length} membre${members.length > 1 ? "s" : ""} · Généré le ${generatedAt}`,
   );
-  y += 20;
+
+  let y = 92;
+  doc.setTextColor(10, 47, 82);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("Annuaire des membres", 32, y);
+  doc.setDrawColor(200, 151, 26);
+  doc.setLineWidth(2);
+  doc.line(32, y + 5, 168, y + 5);
+  y += 22;
+
   drawDynamicPdfTable(doc, rows, selected, labels, y, [10, 47, 82]);
+  drawMembersPdfFooters(doc);
   doc.save(options.filename);
 }
 
@@ -416,9 +485,9 @@ function buildZaimuSpecialMemberRows(members: MemberRecord[], collectes: ZaimuSp
       Chapitre: m.chapitre,
       District: m.district,
       Groupe: m.groupe,
-      "Cota assignée (CDF)": assigne,
-      "Payé validé (CDF)": payeValide || paye,
-      "Reste (CDF)": reste,
+      "Cota assignée (FCFA)": assigne,
+      "Payé validé (FCFA)": payeValide || paye,
+      "Reste (FCFA)": reste,
       "Nb paiements": paiements.length,
       "Dernier paiement": dernier?.date || "—",
       "Statut cota": assigne <= 0 ? "Sans cota" : reste === 0 ? "Soldé" : paye > 0 ? "En cours" : "Non commencé",
@@ -436,7 +505,7 @@ function buildZaimuSpecialPaymentRows(members: MemberRecord[], collectes: ZaimuS
       "Référence reçu": c.referenceRecu || "—",
       Date: c.date || "—",
       Membre: c.membre,
-      "Montant (CDF)": c.montant,
+      "Montant (FCFA)": c.montant,
       Statut: c.statut,
       Chapitre: c.chapitre,
       District: c.district,
@@ -509,38 +578,32 @@ export function exportZaimuSpecialPdf(
   const bilan = buildZaimuSpecialMemberRows(members, collectes);
   const paiements = buildZaimuSpecialPaymentRows(members, collectes);
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
-  const margin = 36;
-  let y = 40;
-
-  doc.setFillColor(10, 47, 82);
-  doc.rect(0, 0, 842, 58, "F");
-  doc.setFillColor(200, 151, 26);
-  doc.rect(0, 58, 280, 3, "F");
-  doc.setFillColor(194, 58, 43);
-  doc.rect(280, 58, 562, 3, "F");
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(14);
-  doc.text("Centre Miroir Parfait — Paiements Zaimu spécial", margin, 28);
-  doc.setFontSize(10);
-  doc.text(options.title || ZAIMU_SPECIAL_CAMPAIGN.label, margin, 46);
-
-  y = 84;
-  doc.setTextColor(16, 32, 51);
-  doc.setFontSize(10);
-  const totalPaye = bilan.reduce((s, r) => s + Number(r["Payé validé (CDF)"] || 0), 0);
-  const totalAssigne = bilan.reduce((s, r) => s + Number(r["Cota assignée (CDF)"] || 0), 0);
-  doc.text(
-    `Membres : ${bilan.length} · Paiements : ${paiements.length} · Cota ${formatExportNumber(totalAssigne)} · Payé ${formatExportNumber(totalPaye)} CDF`,
-    margin,
-    y
+  const margin = 32;
+  const totalPaye = bilan.reduce((s, r) => s + Number(r["Payé validé (FCFA)"] || 0), 0);
+  const totalAssigne = bilan.reduce((s, r) => s + Number(r["Cota assignée (FCFA)"] || 0), 0);
+  const generatedAt = new Date().toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  drawMembersPdfChrome(
+    doc,
+    "Paiements Zaimu spécial",
+    `${bilan.length} membre${bilan.length > 1 ? "s" : ""} · ${paiements.length} paiement${paiements.length > 1 ? "s" : ""} · Cota ${formatExportNumber(totalAssigne)} · Payé ${formatExportNumber(totalPaye)} FCFA · ${generatedAt}`,
   );
-  y += 22;
+  let y = 92;
 
   if (bilanFields.length) {
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
-    doc.text("1. Bilan cota par membre", margin, y);
-    y += 14;
+    doc.setTextColor(10, 47, 82);
+    doc.text("Bilan cota par membre", margin, y);
+    doc.setDrawColor(200, 151, 26);
+    doc.setLineWidth(2);
+    doc.line(margin, y + 5, 180, y + 5);
+    y += 22;
     y = drawDynamicPdfTable(
       doc,
       bilan.map((r) => pickRowFields(r, bilanFields)),
@@ -557,10 +620,14 @@ export function exportZaimuSpecialPdf(
       doc.addPage();
       y = 40;
     }
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
-    doc.setTextColor(16, 32, 51);
-    doc.text(`${bilanFields.length ? "2" : "1"}. Détail des paiements`, margin, y);
-    y += 14;
+    doc.setTextColor(10, 47, 82);
+    doc.text("Détail des paiements", margin, y);
+    doc.setDrawColor(194, 58, 43);
+    doc.setLineWidth(2);
+    doc.line(margin, y + 5, 168, y + 5);
+    y += 22;
     drawDynamicPdfTable(
       doc,
       paiements.map((r) => pickRowFields(r, paymentFields)),
@@ -571,6 +638,7 @@ export function exportZaimuSpecialPdf(
     );
   }
 
+  drawMembersPdfFooters(doc);
   doc.save(options.filename);
 }
 

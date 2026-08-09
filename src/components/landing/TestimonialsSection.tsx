@@ -3,7 +3,8 @@ import { ArrowRight } from "lucide-react";
 import { Link } from "react-router";
 import { useEffect, useState } from "react";
 import contentService, { TestimonialItem } from "../../services/contentService";
-import { SectionIntro, Stagger, staggerItem, useMotionSafe } from "./motion";
+import { HorizontalScroll } from "./HorizontalScroll";
+import { Reveal, SectionIntro, useMotionSafe } from "./motion";
 
 export function TestimonialsSection() {
   const [testimonials, setTestimonials] = useState<TestimonialItem[]>(contentService.getContent().testimonials);
@@ -30,34 +31,39 @@ export function TestimonialsSection() {
         }
       />
 
-      <Stagger className="mt-6 grid gap-4 md:grid-cols-2" delay={0.08}>
-        {testimonials.map((item) => (
-          <motion.div key={item.id} variants={animate ? staggerItem : undefined}>
-            <motion.div whileHover={animate ? { y: -4 } : undefined} transition={{ duration: 0.25 }}>
+      <Reveal className="mt-6" delay={0.06}>
+        <HorizontalScroll label="Témoignages">
+          {testimonials.map((item) => (
+            <motion.div
+              key={item.id}
+              whileHover={animate ? { y: -3 } : undefined}
+              transition={{ duration: 0.25 }}
+              className="w-[min(82vw,19rem)] shrink-0 snap-start sm:w-[21rem]"
+            >
               <Link
                 to={`/temoignages/${item.id}`}
-                className="dash-panel block h-full p-5 hover:shadow-[var(--shadow-lift)] sm:p-6"
+                className="dash-panel flex h-full flex-col p-5 hover:shadow-[var(--shadow-lift)] sm:p-6"
               >
-                <p className="font-display text-lg font-semibold leading-relaxed text-[var(--sgi-ink)] sm:text-xl">
+                <p className="line-clamp-4 font-display text-lg font-semibold leading-relaxed text-[var(--sgi-ink)]">
                   “{item.quote}”
                 </p>
-                <div className="mt-6 flex items-center gap-3">
-                  <div className="h-12 w-12 overflow-hidden rounded-full ring-2 ring-[var(--sgi-red)]/35">
+                <div className="mt-auto flex items-center gap-3 pt-5">
+                  <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full ring-2 ring-[var(--sgi-red)]/35">
                     <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
                   </div>
-                  <div>
-                    <p className="font-semibold text-[var(--sgi-ink)]">{item.name}</p>
-                    <p className="text-sm text-muted-foreground">{item.role}</p>
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-[var(--sgi-ink)]">{item.name}</p>
+                    <p className="truncate text-sm text-muted-foreground">{item.role}</p>
                   </div>
                 </div>
-                <span className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[var(--sgi-blue)]">
+                <span className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-[var(--sgi-blue)]">
                   Lire le détail <ArrowRight size={14} />
                 </span>
               </Link>
             </motion.div>
-          </motion.div>
-        ))}
-      </Stagger>
+          ))}
+        </HorizontalScroll>
+      </Reveal>
     </section>
   );
 }

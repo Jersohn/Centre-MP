@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router";
 import { LandingPage } from "../pages/LandingPage";
 import { LoginPage } from "../pages/LoginPage";
+import { AcceptInvitePage } from "../pages/AcceptInvitePage";
 import { GalleryPage } from "../pages/GalleryPage";
 import { GalleryDetailPage } from "../pages/GalleryDetailPage";
 import { TestimonialsPage } from "../pages/TestimonialsPage";
@@ -38,6 +39,7 @@ export function AppRoutes() {
         <Route path="/temoignages" element={<TestimonialsPage />} />
         <Route path="/temoignages/:id" element={<TestimonialDetailPage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/invitation" element={<AcceptInvitePage />} />
         <Route path="/dashboard/admin" element={<App />} />
         <Route path="/dashboard/admin/edit-landing" element={<AdminEditLanding />} />
         <Route path="/dashboard/centre" element={<App />} />

@@ -1,4 +1,4 @@
-import { jsPDF } from "jspdf";
+﻿import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
 import type { CollecteRecord, CollecteStatut, CollecteTab } from "./CollectesModule";
 import { formatExportNumber, type ExportFieldOption } from "./memberImportExport";
@@ -29,7 +29,7 @@ export const COLLECTE_EXPORT_FIELDS: ExportFieldOption[] = [
   { key: "N° enregistrement", label: "N° enregistrement" },
   { key: "Référence reçu", label: "Référence reçu" },
   { key: "Membre", label: "Membre" },
-  { key: "Montant (CDF)", label: "Montant" },
+  { key: "Montant (FCFA)", label: "Montant" },
   { key: "Date", label: "Date" },
   { key: "Statut", label: "Statut" },
   { key: "Chapitre", label: "Chapitre" },
@@ -44,7 +44,7 @@ export const COLLECTE_EXPORT_DEFAULT_FIELDS = [
   "N° enregistrement",
   "Référence reçu",
   "Membre",
-  "Montant (CDF)",
+  "Montant (FCFA)",
   "Date",
   "Statut",
   "Chapitre",
@@ -70,7 +70,7 @@ const EXAMPLE_ROW: Record<CollecteImportColumn, string> = {
 
 const GUIDE_ROWS = [
   { Champ: "Membre / Montant / Date", Regle: "Obligatoires" },
-  { Champ: "Montant", Regle: "Nombre entier (CDF), sans séparateur" },
+  { Champ: "Montant", Regle: "Nombre entier (FCFA), sans séparateur" },
   { Champ: "Date", Regle: "Format AAAA-MM-JJ" },
   { Champ: "Statut", Regle: "En attente | Validé | Annulé" },
   { Champ: "ReferenceRecu", Regle: "Optionnel — référence du reçu papier / mobile money" },
@@ -96,10 +96,10 @@ function ensureLeadingMember(fields: string[]) {
 
 export function collecteToExportRow(record: CollecteRecord): Record<string, string | number> {
   return {
-    "N° enregistrement": record.id,
+    "N° enregistrement": record.numero || record.id,
     "Référence reçu": record.referenceRecu || "",
     Membre: record.membre,
-    "Montant (CDF)": record.montant,
+    "Montant (FCFA)": record.montant,
     Date: record.date,
     Statut: record.statut,
     Chapitre: record.chapitre,
@@ -177,6 +177,7 @@ export function parseCollectesImportWorkbook(
       : "En attente") as CollecteStatut;
 
     records.push({
+      numero: "",
       type,
       membre,
       montant: Math.round(montant),
@@ -209,9 +210,11 @@ export function createCollectesFromImport(
   let sequence = existing.filter((item) => item.type === type).length;
   return imported.map((values) => {
     sequence += 1;
+    const numero = `${prefix}-${year}-${String(sequence).padStart(3, "0")}`;
     return {
-      id: `${prefix}-${year}-${String(sequence).padStart(3, "0")}`,
+      id: numero,
       ...values,
+      numero: values.numero || numero,
       type,
     };
   });
@@ -291,7 +294,7 @@ export function exportCollectesPdf(
     .filter((r) => r.statut === "Validé")
     .reduce((sum, r) => sum + r.montant, 0);
   doc.text(
-    `${records.length} ligne(s) · Total validé ${formatExportNumber(total)} CDF · ${selected.length} champ(s)`,
+    `${records.length} ligne(s) · Total validé ${formatExportNumber(total)} FCFA · ${selected.length} champ(s)`,
     margin,
     y
   );

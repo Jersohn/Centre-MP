@@ -1,0 +1,47 @@
+# Centre Miroir Parfait — Supabase local / CLI config
+# Docs: https://supabase.com/docs/guides/local-development/cli/config
+
+project_id = "centre-mp"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 17
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["https://centre-mp-eta.vercel.app"]
+enable_signup = false
+
+[auth.email]
+enable_signup = false
+enable_confirmations = false
+
+[functions.ai-chat]
+verify_jwt = false
+
+[functions.gosho-du-jour]
+verify_jwt = false
+
+[functions.encouragement-du-jour]
+verify_jwt = false
+
+[functions.admin-upsert-profile]
+verify_jwt = true
+
+[functions.admin-delete-user]
+verify_jwt = true
+
+[functions.admin-invite-user]
+verify_jwt = true

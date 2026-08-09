@@ -3,6 +3,8 @@ import type { PlatformRole } from "./roles";
 import { defaultChapitre, defaultDistrict, defaultGroupe } from "./orgHierarchy";
 
 export type CollecteLike = {
+  id?: string;
+  membre?: string;
   type: "vague-paix" | "zaimu-ordinaire" | "zaimu-special";
   montant: number;
   date: string;
@@ -25,7 +27,7 @@ const DEMO_CHAPITRE = defaultChapitre(); // Rissho Ankoku Ron
 const DEMO_DISTRICT = defaultDistrict(DEMO_CHAPITRE); // District Bodhisattva (3 groupes)
 const DEMO_GROUPE = defaultGroupe(DEMO_CHAPITRE, DEMO_DISTRICT); // BODDHISATTVA
 
-/** Périmètre démo par profil (en attendant le rattachement réel des comptes). */
+/** Périmètre démo par profil (fallback local uniquement). */
 export const DEMO_ORG_SCOPE: Record<PlatformRole, OrgScope> = {
   groupe: {
     label: `${DEMO_GROUPE} — ${DEMO_DISTRICT} · ${DEMO_CHAPITRE}`,
@@ -45,6 +47,60 @@ export const DEMO_ORG_SCOPE: Record<PlatformRole, OrgScope> = {
   centre: { label: "Centre Miroir Parfait — bilan consolidé" },
   admin: { label: "Administration — bilan consolidé du centre" },
 };
+
+/** Périmètre réel depuis le profil connecté (centre/admin = tout le centre). */
+export function orgScopeFromProfile(
+  role: PlatformRole,
+  names: { chapitre?: string | null; district?: string | null; groupe?: string | null },
+): OrgScope {
+  const chapitre = (names.chapitre || "").trim();
+  const district = (names.district || "").trim();
+  const groupe = (names.groupe || "").trim();
+
+  if (role === "admin") {
+    return { label: "Administration — bilan consolidé du centre" };
+  }
+  if (role === "centre") {
+    return { label: "Centre Miroir Parfait" };
+  }
+  if (role === "chapitre") {
+    return {
+      label: chapitre ? `${chapitre} (tous districts)` : "Chapitre",
+      chapitre: chapitre || undefined,
+    };
+  }
+  if (role === "district") {
+    return {
+      label: [district, chapitre].filter(Boolean).join(" — ") || "District",
+      chapitre: chapitre || undefined,
+      district: district || undefined,
+    };
+  }
+  return {
+    label: [groupe, district, chapitre].filter(Boolean).join(" · ") || "Groupe",
+    chapitre: chapitre || undefined,
+    district: district || undefined,
+    groupe: groupe || undefined,
+  };
+}
+
+/** Nom de l’unité que le responsable pilote (chapitre / district / groupe). */
+export function primaryOrgUnitLabel(role: PlatformRole, scope: OrgScope): string {
+  if (role === "groupe") return scope.groupe || "Groupe non rattaché";
+  if (role === "district") return scope.district || "District non rattaché";
+  if (role === "chapitre") return scope.chapitre || "Chapitre non rattaché";
+  if (role === "centre") return "Centre Miroir Parfait";
+  return "Administration";
+}
+
+/** Libellé du type d’unité pilotée. */
+export function primaryOrgUnitKind(role: PlatformRole): string {
+  if (role === "groupe") return "Groupe";
+  if (role === "district") return "District";
+  if (role === "chapitre") return "Chapitre";
+  if (role === "centre") return "Centre";
+  return "Espace";
+}
 
 export type MemberListKpis = {
   totalMembres: number;
@@ -127,6 +183,81 @@ export function filterCollectesByScope(records: CollecteLike[], scope: OrgScope)
     if (scope.groupe && r.groupe !== scope.groupe) return false;
     return true;
   });
+}
+
+/** Unité de ventilation selon le rôle (les cumuls remontent vers le centre). */
+export type StatsBreakdownUnit = "chapitre" | "district" | "groupe";
+
+export function statsBreakdownUnitForRole(role: PlatformRole): StatsBreakdownUnit {
+  if (role === "chapitre") return "district";
+  if (role === "district" || role === "groupe") return "groupe";
+  return "chapitre";
+}
+
+export function statsBreakdownLabel(unit: StatsBreakdownUnit): string {
+  if (unit === "district") return "District";
+  if (unit === "groupe") return "Groupe";
+  return "Chapitre";
+}
+
+export type StatsBreakdownRow = {
+  key: string;
+  label: string;
+  membres: number;
+  cotisations: number;
+  zaimuOrdinaire: number;
+  zaimuSpecial: number;
+  abonnementsVp: number;
+};
+
+export function buildStatsBreakdown(
+  members: MemberRecord[],
+  collectes: CollecteLike[],
+  unit: StatsBreakdownUnit,
+): StatsBreakdownRow[] {
+  const map = new Map<string, StatsBreakdownRow>();
+
+  const unitKey = (item: { chapitre?: string; district?: string; groupe?: string }) => {
+    if (unit === "groupe") return item.groupe || "Non renseigné";
+    if (unit === "district") return item.district || "Non renseigné";
+    return item.chapitre || "Non renseigné";
+  };
+
+  for (const member of members) {
+    const key = unitKey(member);
+    const row = map.get(key) || {
+      key,
+      label: key,
+      membres: 0,
+      cotisations: 0,
+      zaimuOrdinaire: 0,
+      zaimuSpecial: 0,
+      abonnementsVp: 0,
+    };
+    row.membres += 1;
+    if (member.abonnementVaguePaix) row.abonnementsVp += 1;
+    map.set(key, row);
+  }
+
+  for (const collecte of collectes) {
+    if (collecte.statut !== "Validé") continue;
+    const key = unitKey(collecte);
+    const row = map.get(key) || {
+      key,
+      label: key,
+      membres: 0,
+      cotisations: 0,
+      zaimuOrdinaire: 0,
+      zaimuSpecial: 0,
+      abonnementsVp: 0,
+    };
+    if (collecte.type === "vague-paix") row.cotisations += collecte.montant;
+    else if (collecte.type === "zaimu-ordinaire") row.zaimuOrdinaire += collecte.montant;
+    else if (collecte.type === "zaimu-special") row.zaimuSpecial += collecte.montant;
+    map.set(key, row);
+  }
+
+  return [...map.values()].sort((a, b) => b.membres - a.membres || a.label.localeCompare(b.label, "fr"));
 }
 
 export function computeMemberListKpis(

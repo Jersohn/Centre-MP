@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -20,12 +20,23 @@ import {
 } from "lucide-react";
 import type { PlatformRole } from "./roles";
 import { ROLE_LABELS } from "./roles";
-import { MEMBERS_SEED } from "./membersData";
 import {
   buildDashboardScope,
   exportDashboardExcel,
   exportDashboardPdf,
 } from "./dashboardStats";
+import { useOpsData } from "./opsDataStore";
+import { useOrgTree } from "./useOrgTree";
+import {
+  DEMO_ORG_SCOPE,
+  filterCollectesByScope,
+  filterMembersByScope,
+  orgScopeFromProfile,
+  primaryOrgUnitKind,
+  primaryOrgUnitLabel,
+  type OrgScope,
+} from "./memberListStats";
+import { fetchMyProfile, hasRemoteProfiles } from "../services/profileService";
 
 const TONE: Record<string, string> = {
   blue: "bg-[var(--sgi-blue)]/10 text-[var(--sgi-blue)]",
@@ -51,12 +62,101 @@ function yearStartISO() {
   return `${d.getFullYear()}-01-01`;
 }
 
-export default function RoleDashboard({ role }: { role: PlatformRole }) {
+export default function RoleDashboard({
+  role,
+  orgScope: orgScopeProp,
+}: {
+  role: PlatformRole;
+  orgScope?: OrgScope;
+}) {
   const [fromDate, setFromDate] = useState(yearStartISO);
   const [toDate, setToDate] = useState(todayISO);
-  const members = MEMBERS_SEED;
-  const scope = useMemo(() => buildDashboardScope(role, members), [role, members]);
+  const { members, collectes, loading } = useOpsData();
+  const orgTree = useOrgTree();
+  const [orgScope, setOrgScope] = useState<OrgScope>(
+    () => orgScopeProp || DEMO_ORG_SCOPE[role],
+  );
+
+  useEffect(() => {
+    if (orgScopeProp) {
+      setOrgScope(orgScopeProp);
+      return;
+    }
+    let cancelled = false;
+    async function loadScope() {
+      if (hasRemoteProfiles()) {
+        const { data } = await fetchMyProfile();
+        if (!cancelled && data) {
+          let chapitre = data.chapitre_name || "";
+          let district = data.district_name || "";
+          let groupe = data.groupe_name || "";
+          if ((!chapitre || !district || !groupe) && (data.chapitre_id || data.district_id || data.groupe_id)) {
+            const names = orgTree.nameOf({
+              chapitreId: data.chapitre_id || "",
+              districtId: data.district_id || "",
+              groupeId: data.groupe_id || "",
+            });
+            chapitre = chapitre || names.chapitre;
+            district = district || names.district;
+            groupe = groupe || names.groupe;
+          }
+          setOrgScope(orgScopeFromProfile(role, { chapitre, district, groupe }));
+        } else if (!cancelled) {
+          setOrgScope(orgScopeFromProfile(role, {}));
+        }
+      } else if (!cancelled) {
+        setOrgScope(DEMO_ORG_SCOPE[role]);
+      }
+    }
+    void loadScope();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, orgScopeProp, orgTree.chapitres.length]);
+
+  const scopedMembers = useMemo(
+    () => filterMembersByScope(members, orgScope),
+    [members, orgScope],
+  );
+  const scopedCollectes = useMemo(
+    () => filterCollectesByScope(collectes, orgScope),
+    [collectes, orgScope],
+  );
+
+  const orgSnapshot = useMemo(
+    () => ({
+      chapitres: orgTree.chapitres.map((item) => ({ id: item.id, name: item.name })),
+      districts: orgTree.districts.map((item) => ({
+        id: item.id,
+        name: item.name,
+        chapitre_id: item.chapitre_id,
+        chapitre_name: item.chapitre_name,
+      })),
+      groupes: orgTree.groupes.map((item) => ({
+        id: item.id,
+        name: item.name,
+        district_id: item.district_id,
+        district_name: item.district_name,
+        chapitre_id: item.chapitre_id,
+        chapitre_name: item.chapitre_name,
+      })),
+    }),
+    [orgTree.chapitres, orgTree.districts, orgTree.groupes],
+  );
+  const scope = useMemo(
+    () =>
+      buildDashboardScope(role, scopedMembers, orgSnapshot, scopedCollectes, {
+        chapitre: orgScope.chapitre,
+        district: orgScope.district,
+        groupe: orgScope.groupe,
+      }),
+    [role, scopedMembers, orgSnapshot, scopedCollectes, orgScope],
+  );
   const RoleIcon = ICON_BY_ROLE[role];
+  const dataLoading = loading || orgTree.loading;
+  const unitKind = primaryOrgUnitKind(role);
+  const unitName = primaryOrgUnitLabel(role, orgScope);
 
   const chartData = scope.rows.map((row) => ({
     name: row.label.replace("Chapitre ", "Ch. ").replace("District ", "D. ").replace("Groupe ", "G. "),
@@ -80,13 +180,19 @@ export default function RoleDashboard({ role }: { role: PlatformRole }) {
       roleLabel: ROLE_LABELS[role],
       fromDate,
       toDate,
-      members,
+      members: scopedMembers,
+      collectes: scopedCollectes,
       filename: `dashboard_${role}_${fromDate}_${toDate}.xlsx`,
     });
   };
 
   return (
     <div className="dash-page gap-5 sm:gap-6">
+      {dataLoading && (
+        <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+          Chargement des indicateurs…
+        </div>
+      )}
       <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="sgi-tricolor h-1.5 w-full" aria-hidden />
         <div
@@ -102,10 +208,17 @@ export default function RoleDashboard({ role }: { role: PlatformRole }) {
             </span>
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--sgi-gold)]">
-                {ROLE_LABELS[role]}
+                {ROLE_LABELS[role]} · {unitKind}
               </p>
-              <h2 className="mt-1 font-display text-xl font-semibold text-foreground sm:text-2xl">{scope.title}</h2>
+              <h2 className="mt-1 font-display text-xl font-semibold text-foreground sm:text-2xl">
+                {scope.title}
+              </h2>
               <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{scope.subtitle}</p>
+              {(role === "chapitre" || role === "district" || role === "groupe") && (
+                <p className="mt-2 inline-flex items-center rounded-lg border border-[var(--sgi-blue)]/20 bg-[var(--sgi-blue)]/8 px-2.5 py-1 text-xs font-semibold text-[var(--sgi-blue)]">
+                  Vous pilotez : {unitName}
+                </p>
+              )}
             </div>
           </div>
           <div className="inline-flex items-center gap-2 rounded-xl border border-border bg-card/90 px-3 py-2 text-xs text-muted-foreground">
@@ -119,12 +232,12 @@ export default function RoleDashboard({ role }: { role: PlatformRole }) {
         {scope.kpis.map((kpi) => (
           <div key={kpi.label} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
             <div className={`mb-3 inline-flex rounded-xl px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${TONE[kpi.tone]}`}>
-              {kpi.hint}
+              {kpi.label}
             </div>
-            <p className="text-xs text-muted-foreground">{kpi.label}</p>
             <p className="mt-1 font-display text-2xl font-bold text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
               {kpi.value}
             </p>
+            {kpi.hint ? <p className="mt-1 text-xs text-muted-foreground">{kpi.hint}</p> : null}
           </div>
         ))}
       </div>
@@ -181,7 +294,7 @@ export default function RoleDashboard({ role }: { role: PlatformRole }) {
         </div>
         <div className="grid grid-cols-1 gap-2 border-t border-border bg-secondary/30 px-4 py-3 text-xs text-muted-foreground sm:grid-cols-3 sm:px-5">
           <p className="inline-flex items-center gap-1.5">
-            <Download size={12} /> Résumé + KPI
+            <Download size={12} /> Résumé + KPI · {unitKind} {unitName}
           </p>
           <p className="inline-flex items-center gap-1.5">
             <Layers3 size={12} /> Tableau par {scope.unitLabel.toLowerCase()}
@@ -204,7 +317,7 @@ export default function RoleDashboard({ role }: { role: PlatformRole }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
-                  {[scope.unitLabel, "Membres", "Actifs", "Vague Paix", "Zaimu", "Dons"].map((h) => (
+                  {[scope.unitLabel, "Membres", "Actifs", "Vague Paix", "Zaimu ord.", "Zaimu sp."].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
@@ -222,10 +335,10 @@ export default function RoleDashboard({ role }: { role: PlatformRole }) {
                     <td className="px-4 py-3 font-mono text-foreground">{row.actifs}</td>
                     <td className="px-4 py-3 font-mono text-foreground">{row.vaguePaix}</td>
                     <td className="px-4 py-3 font-mono text-muted-foreground">
-                      {new Intl.NumberFormat("fr-FR").format(row.zaimu)}
+                      {new Intl.NumberFormat("fr-FR").format(row.zaimuOrdinaire)}
                     </td>
                     <td className="px-4 py-3 font-mono text-muted-foreground">
-                      {new Intl.NumberFormat("fr-FR").format(row.dons)}
+                      {new Intl.NumberFormat("fr-FR").format(row.zaimuSpecial)}
                     </td>
                   </tr>
                 ))}

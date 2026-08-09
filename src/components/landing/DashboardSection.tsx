@@ -29,6 +29,10 @@ export function DashboardSection() {
     ? content.dailyDirective
     : apiEncouragement || content.dailyDirective;
 
+  /** Aperçu court pour les cards — le texte intégral reste sur /lecture-du-jour. */
+  const encouragementPreview = (encouragement.text || encouragement.fullText || "").trim();
+  const goshoPreview = (gosho.excerpt || gosho.fullText || "").trim();
+
   return (
     <section id="aujourdhui" className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
       <SectionIntro
@@ -45,84 +49,96 @@ export function DashboardSection() {
         }
       />
 
-      <div className="grid gap-4 lg:grid-cols-12">
+      <div className="grid items-stretch gap-4 lg:grid-cols-12">
         <Reveal className="lg:col-span-5" delay={0.05}>
-          <motion.div whileHover={animate ? { y: -4 } : undefined} transition={{ duration: 0.25 }}>
+          <motion.div
+            className="h-full"
+            whileHover={animate ? { y: -4 } : undefined}
+            transition={{ duration: 0.25 }}
+          >
             <Link
               to="/lecture-du-jour"
-              className="relative block h-full overflow-hidden rounded-2xl border border-white/10 bg-[var(--sgi-blue)] p-5 text-white shadow-[var(--shadow-soft)] sm:p-6"
+              className="relative flex h-full min-h-[17.5rem] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[var(--sgi-blue)] p-5 text-white shadow-[var(--shadow-soft)] sm:min-h-[19rem] sm:p-6"
             >
               <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white/10" />
-              <div className="relative">
+              <div className="relative flex min-h-0 flex-1 flex-col">
                 <div className="flex items-center gap-2 text-[var(--sgi-gold-soft)]">
-                  <SunMedium size={18} />
-                  <p className="text-xs font-bold uppercase tracking-[0.2em]">{encouragement.title}</p>
+                  <SunMedium size={18} className="shrink-0" />
+                  <p className="truncate text-xs font-bold uppercase tracking-[0.2em]">{encouragement.title}</p>
                 </div>
-                <p className="mt-2 text-xs text-white/70">{encouragement.date}</p>
-                <p className="mt-4 font-display text-xl font-semibold leading-snug text-white sm:text-2xl">
-                  “{encouragement.text || encouragement.fullText}”
+                <p className="mt-2 truncate text-xs text-white/70">{encouragement.date}</p>
+                <p className="mt-4 line-clamp-4 font-display text-xl font-semibold leading-snug text-white sm:line-clamp-5 sm:text-2xl">
+                  “{encouragementPreview}”
                 </p>
                 {encouragementLoading && (
                   <p className="mt-2 inline-flex items-center gap-2 text-xs text-white/75">
                     <LoaderCircle size={14} className="animate-spin" /> Mise à jour…
                   </p>
                 )}
-                <p className="mt-4 text-sm font-semibold text-white/85">— {encouragement.author}</p>
-                <span className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[var(--sgi-gold-soft)]">
-                  Lire l’encouragement complet <ArrowRight size={14} />
-                </span>
+                <div className="mt-auto pt-4">
+                  <p className="truncate text-sm font-semibold text-white/85">— {encouragement.author}</p>
+                  <span className="mt-3 inline-flex items-center gap-1 text-sm font-bold text-[var(--sgi-gold-soft)]">
+                    Lire l’encouragement complet <ArrowRight size={14} />
+                  </span>
+                </div>
               </div>
             </Link>
           </motion.div>
         </Reveal>
 
         <Reveal className="lg:col-span-4" delay={0.12}>
-          <motion.div whileHover={animate ? { y: -4 } : undefined} transition={{ duration: 0.25 }}>
+          <motion.div
+            className="h-full"
+            whileHover={animate ? { y: -4 } : undefined}
+            transition={{ duration: 0.25 }}
+          >
             <Link
               to="/lecture-du-jour?onglet=gosho"
-              className="relative block h-full overflow-hidden rounded-2xl border border-white/10 bg-[var(--sgi-blue)] p-5 text-white shadow-[var(--shadow-soft)] sm:p-6"
+              className="relative flex h-full min-h-[17.5rem] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[var(--sgi-blue)] p-5 text-white shadow-[var(--shadow-soft)] sm:min-h-[19rem] sm:p-6"
             >
               <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white/10" />
-              <div className="relative">
+              <div className="relative flex min-h-0 flex-1 flex-col">
                 <div className="flex items-center gap-2 text-[var(--sgi-gold-soft)]">
-                  <BookOpen size={18} />
-                  <p className="text-xs font-bold uppercase tracking-[0.2em]">{gosho.title}</p>
+                  <BookOpen size={18} className="shrink-0" />
+                  <p className="truncate text-xs font-bold uppercase tracking-[0.2em]">{gosho.title}</p>
                 </div>
-                <p className="mt-2 text-xs text-white/70">{gosho.reference}</p>
-                <p className="mt-4 font-display text-xl font-semibold leading-snug text-white sm:text-2xl">
-                  “{gosho.excerpt || gosho.fullText}”
+                <p className="mt-2 truncate text-xs text-white/70">{gosho.reference}</p>
+                <p className="mt-4 line-clamp-4 font-display text-xl font-semibold leading-snug text-white sm:line-clamp-5 sm:text-2xl">
+                  “{goshoPreview}”
                 </p>
                 {goshoLoading && (
                   <p className="mt-2 inline-flex items-center gap-2 text-xs text-white/75">
                     <LoaderCircle size={14} className="animate-spin" /> Mise à jour…
                   </p>
                 )}
-                <p className="mt-4 text-sm font-semibold text-white/85">— {goshoAuthor}</p>
-                <span className="mt-5 inline-flex items-center gap-1 text-sm font-bold text-[var(--sgi-gold-soft)]">
-                  Lire le Gosho du jour <ArrowRight size={14} />
-                </span>
+                <div className="mt-auto pt-4">
+                  <p className="truncate text-sm font-semibold text-white/85">— {goshoAuthor}</p>
+                  <span className="mt-3 inline-flex items-center gap-1 text-sm font-bold text-[var(--sgi-gold-soft)]">
+                    Lire le Gosho du jour <ArrowRight size={14} />
+                  </span>
+                </div>
               </div>
             </Link>
           </motion.div>
         </Reveal>
 
         <Reveal className="lg:col-span-3" delay={0.18}>
-          <article className="dash-panel h-full p-5 sm:p-6">
+          <article className="dash-panel flex h-full min-h-[17.5rem] flex-col p-5 sm:min-h-[19rem] sm:p-6">
             <div className="flex items-center gap-2 text-[var(--sgi-blue)]">
               <CalendarDays size={18} />
               <p className="text-xs font-bold uppercase tracking-[0.2em]">À venir</p>
             </div>
-            <ul className="mt-4 space-y-3">
+            <ul className="mt-4 min-h-0 flex-1 space-y-3 overflow-hidden">
               {nextEvents.map((event) => (
                 <li key={event.id || event.title} className="rounded-xl bg-secondary/70 px-3 py-3">
-                  <p className="text-sm font-bold text-[var(--sgi-ink)]">{event.title}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <p className="line-clamp-2 text-sm font-bold text-[var(--sgi-ink)]">{event.title}</p>
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
                     {event.date} · {event.time}
                   </p>
                 </li>
               ))}
             </ul>
-            <Link to="/agenda" className="mt-4 inline-flex text-sm font-bold text-[var(--sgi-blue)] hover:underline">
+            <Link to="/agenda" className="mt-auto pt-4 inline-flex text-sm font-bold text-[var(--sgi-blue)] hover:underline">
               Voir l’agenda
             </Link>
           </article>

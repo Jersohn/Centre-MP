@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
 import { parseISO, format } from "date-fns";
 import {
-  LayoutDashboard, Users, Wallet, FileText, BarChart3,
+  LayoutDashboard, Users, FileText, BarChart3,
   Bell, Search, Plus, Filter, Eye, Edit2, UserX,
   Download, ChevronRight, ChevronDown, ChevronUp,
   ArrowUpRight, ArrowDownRight, TrendingUp,
   CheckCircle, Clock, XCircle, Send, Globe, BookOpen,
   Calendar, Target, X, Menu, LogOut, Settings, Layers,
-  ChevronLeft, SquarePen, Moon, Sun, HeartHandshake, Camera, FileUp, UserRound,
+  ChevronLeft, SquarePen, Moon, Sun, HeartHandshake, FileUp, UserRound,
+  Shield, Layers3, MapPinned, UsersRound,
 } from "lucide-react";
 import { useTheme } from "../theme/ThemeProvider";
 import {
@@ -19,43 +19,70 @@ import {
   Tooltip, Legend, ResponsiveContainer, ComposedChart
 } from "recharts";
 import sgiLogo from "../../image/logo-sgi.jpg";
-import { createMemberFromForm, readImageAsDataUrl } from "./memberFormUtils";
+import { type MemberRecord } from "./memberFormUtils";
+import { memberFullName } from "./membersData";
+import PersonCreateForm from "./PersonCreateForm";
 import { DashboardAiAssistant } from "../components/ai/DashboardAiAssistant";
 import { DeveloperCredit } from "../components/DeveloperCredit";
-import { MEMBERS_SEED } from "./membersData";
 import { MemberAvatar } from "./MemberAvatar";
 import AdminEditLanding from "../pages/AdminEditLanding";
-import CollectesModule, { COLLECTES_SEED } from "./CollectesModule";
+import CollectesModule, { type CollecteRecord } from "./CollectesModule";
 import RoleDashboard from "./RoleDashboard";
 import MembersKpiPanel from "./MembersKpiPanel";
 import MembersImportExportBar from "./MembersImportExportBar";
-import ZaimuQuotaPanel from "./ZaimuQuotaPanel";
 import ProfilePage from "./ProfilePage";
-import { DEMO_ORG_SCOPE, filterMembersByScope } from "./memberListStats";
 import {
-  formatCdf,
+  buildStatsBreakdown,
+  computeMemberListKpis,
+  DEMO_ORG_SCOPE,
+  filterCollectesByScope,
+  filterMembersByScope,
+  orgScopeFromProfile,
+  primaryOrgUnitKind,
+  primaryOrgUnitLabel,
+  statsBreakdownLabel,
+  statsBreakdownUnitForRole,
+  type OrgScope,
+} from "./memberListStats";
+import { exportStatisticsPdf } from "./statsExport";
+import {
+  formatFcfa,
   getMemberSpecialAssignment,
   getMemberZaimuPaid,
   ZAIMU_SPECIAL_CAMPAIGN,
 } from "./zaimuQuota";
-import { RowActionsMenu } from "./RowActionsMenu";
-import { ALLOWED_ROLES, MODULE_ACCESS, ROLE_LABELS, type ModuleKey, type PlatformRole } from "./roles";
-import { INITIAL_PROFILES, type ProfileStatus, type UserProfile as Profile } from "./profilesData";
 import {
-  ALL_DISTRICT_NAMES,
-  CHAPITRE_NAMES,
-  coerceOrgSelection,
-  defaultChapitre,
-  defaultDistrict,
-  defaultGroupe,
-  districtsForChapitre,
-  groupesForDistrict,
-} from "./orgHierarchy";
+  listQuotaAssignments,
+  listSpecialCampaigns,
+  type ZaimuCampaign,
+} from "../services/quotaService";
+import { RowActionsMenu } from "./RowActionsMenu";
+import { ALLOWED_ROLES, ROLE_LABELS, type ModuleKey, type PlatformRole } from "./roles";
+import { useOrgTree } from "./useOrgTree";
+import { OpsDataProvider, useOpsData } from "./opsDataStore";
+import SettingsModule from "./settings/SettingsModule";
+import { loadModuleAccess, RBAC_CHANGED_EVENT } from "./settings/rbacStore";
+import ChapitresModule from "./org/ChapitresModule";
+import DistrictsModule from "./org/DistrictsModule";
+import GroupesModule from "./org/GroupesModule";
+import { assignableRoles } from "./settings/usersStore";
+import {
+  canChangeMemberResponsabilite,
+  canDeactivateMember,
+} from "./orgAccess";
+import { signOut } from "../services/authService";
+import { fetchMyProfile, hasRemoteProfiles, inviteUserRemote } from "../services/profileService";
+import { resolveOrgIds } from "../services/orgService";
+import { PROFILE_UPDATED_EVENT } from "./profilesData";
+
+type SessionProfile = {
+  name: string;
+  photo: string;
+  orgScope: OrgScope;
+};
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
-const CHAPITRES = ["Tous", ...CHAPITRE_NAMES];
-const DISTRICTS = ["Tous", ...ALL_DISTRICT_NAMES];
 const STATUTS = ["Tous", "Actif", "En attente", "Suspendu"];
 const RESPONSABILITES = [
   "Membre simple",
@@ -65,41 +92,6 @@ const RESPONSABILITES = [
   "Responsable centre",
 ] as const;
 const RESPONSABILITE_FILTERS = ["Tous", ...RESPONSABILITES] as const;
-
-const membres = MEMBERS_SEED;
-
-const cotisationsMensuelles = [
-  { mois: "Fév", montant: 2850000, membres: 84 },
-  { mois: "Mar", montant: 3120000, membres: 89 },
-  { mois: "Avr", montant: 2940000, membres: 87 },
-  { mois: "Mai", montant: 3450000, membres: 94 },
-  { mois: "Jui", montant: 3780000, membres: 98 },
-  { mois: "Jul", montant: 4120000, membres: 103 },
-];
-
-const donsZaimu = [
-  { name: "Développement", value: 42, color: "var(--sgi-blue)" },
-  { name: "Solidarité", value: 28, color: "var(--sgi-gold)" },
-  { name: "Éducation", value: 18, color: "var(--sgi-forest)" },
-  { name: "Santé", value: 12, color: "var(--sgi-red)" },
-];
-
-const membresByChap = [
-  { chapitre: "Rissho\nAnkoku Ron", membres: 60, cotisations: 3600000, dons: 900000 },
-  { chapitre: "Shin Gyo\nGaku", membres: 55, cotisations: 3300000, dons: 820000 },
-  { chapitre: "Trois\nTrésors", membres: 58, cotisations: 3480000, dons: 870000 },
-];
-
-const transactions = [
-  { id: "TXN-2024-0891", date: "2024-07-28", membre: "Tshisekedi Wa M-C.", type: "Cotisation", montant: 60000, statut: "Validé", chapitre: "Chapitre 1 – Kinshasa" },
-  { id: "TXN-2024-0890", date: "2024-07-27", membre: "Kabongo Mwamba J-P.", type: "Don Zaimu", montant: 25000, statut: "Validé", chapitre: "Chapitre 1 – Kinshasa" },
-  { id: "TXN-2024-0889", date: "2024-07-26", membre: "Lemaire Sophie", type: "Abonnement", montant: 15000, statut: "Validé", chapitre: "Chapitre 3 – Paris" },
-  { id: "TXN-2024-0888", date: "2024-07-25", membre: "Mbeki Nkosi Amara", type: "Cotisation", montant: 60000, statut: "Validé", chapitre: "Chapitre 2 – Brazzaville" },
-  { id: "TXN-2024-0887", date: "2024-07-24", membre: "Fontaine Cécile", type: "Cotisation", montant: 60000, statut: "En attente", chapitre: "Chapitre 3 – Paris" },
-  { id: "TXN-2024-0886", date: "2024-07-23", membre: "Ngandu Patrick", type: "Don Zaimu", montant: 10000, statut: "Validé", chapitre: "Chapitre 1 – Kinshasa" },
-  { id: "TXN-2024-0885", date: "2024-07-22", membre: "Bakary Moussa", type: "Cotisation", montant: 60000, statut: "Validé", chapitre: "Chapitre 2 – Brazzaville" },
-  { id: "TXN-2024-0884", date: "2024-07-21", membre: "Diallo Ousmane", type: "Cotisation", montant: 60000, statut: "Rejeté", chapitre: "Chapitre 4 – Abidjan" },
-];
 
 const directives = [
   {
@@ -115,7 +107,7 @@ const directives = [
   {
     id: 3, titre: "Lancement de la campagne Vague de Paix — Saison 4", date: "2024-07-15", auteur: "Commission Culturelle",
     audience: "Tous les chapitres", priorite: "Haute", statut: "Publié",
-    contenu: "La quatrième saison de l'abonnement Vague de Paix est officiellement ouverte. Les membres souhaitant s'abonner peuvent le faire auprès de leur responsable de chapitre ou via le portail en ligne. Tarif : 15 000 CDF / 15 EUR / 5 000 FCFA par mois."
+    contenu: "La quatrième saison de l'abonnement Vague de Paix est officiellement ouverte. Les membres souhaitant s'abonner peuvent le faire auprès de leur responsable de chapitre ou via le portail en ligne. Tarif : 5 000 FCFA par mois."
   },
   {
     id: 4, titre: "Note interne — Procédures d'admission révisées", date: "2024-07-08", auteur: "Commission Adhésion",
@@ -127,16 +119,6 @@ const directives = [
     audience: "Tous les chapitres", priorite: "Basse", statut: "Brouillon",
     contenu: "Un programme de formation intensif à destination des responsables de chapitres et de districts sera organisé en septembre 2024. Les modalités seront communiquées prochainement."
   },
-];
-
-const RBAC_MATRIX = [
-  { module: "Tableau de bord", roles: { admin: true, centre: true, chapitre: true, district: true, groupe: true } },
-  { module: "Membres", roles: { admin: true, centre: true, chapitre: true, district: true, groupe: true } },
-  { module: "Finances", roles: { admin: true, centre: true, chapitre: false, district: false, groupe: false } },
-  { module: "Collectes", roles: { admin: true, centre: true, chapitre: true, district: true, groupe: true } },
-  { module: "Statistiques", roles: { admin: true, centre: true, chapitre: true, district: true, groupe: false } },
-  { module: "Contenu", roles: { admin: true, centre: true, chapitre: false, district: false, groupe: false } },
-  { module: "Paramètres", roles: { admin: true, centre: true, chapitre: false, district: false, groupe: false } },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -192,19 +174,6 @@ function PrioriteBadge({ priorite }: { priorite: string }) {
   );
 }
 
-function TypeBadge({ type }: { type: string }) {
-  const map: Record<string, string> = {
-    "Cotisation": "bg-primary/10 text-primary",
-    "Don Zaimu": "bg-accent/10 text-accent",
-    "Abonnement": "bg-purple-50 text-purple-700",
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${map[type] || "bg-gray-100 text-gray-500"}`}>
-      {type}
-    </span>
-  );
-}
-
 // ─── KPI Card ────────────────────────────────────────────────────────────────
 
 function SgiEmblem({ className }: { className?: string }) {
@@ -250,8 +219,10 @@ const NAV = [
   { key: "statistiques", label: "Statistiques", icon: BarChart3, group: "principal" },
   { key: "membres", label: "Membres", icon: Users, group: "gestion" },
   { key: "collectes", label: "Collectes", icon: HeartHandshake, group: "gestion" },
-  { key: "finances", label: "Finances", icon: Wallet, group: "gestion" },
   { key: "contenu", label: "Contenu", icon: SquarePen, group: "gestion" },
+  { key: "chapitres", label: "Chapitres", icon: Layers3, group: "organisation" },
+  { key: "districts", label: "Districts", icon: MapPinned, group: "organisation" },
+  { key: "groupes", label: "Groupes", icon: UsersRound, group: "organisation" },
   { key: "profil", label: "Mon profil", icon: UserRound, group: "compte" },
   { key: "settings", label: "Paramètres", icon: Settings, group: "compte" },
 ] as const;
@@ -279,6 +250,7 @@ function SidebarNavItems({
   const groups = [
     { id: "principal", label: "Vue" },
     { id: "gestion", label: "Travail" },
+    { id: "organisation", label: "Organisation" },
     { id: "compte", label: "Compte" },
   ] as const;
 
@@ -345,6 +317,7 @@ function SidebarShell({
   onNavigate,
   allowedModules,
   role,
+  sessionProfile,
   onLogout,
   collapsed = false,
   setCollapsed,
@@ -355,6 +328,7 @@ function SidebarShell({
   onNavigate: (key: ModuleKey) => void;
   allowedModules: ModuleKey[];
   role: PlatformRole;
+  sessionProfile: SessionProfile;
   onLogout: () => void;
   collapsed?: boolean;
   setCollapsed?: (value: boolean) => void;
@@ -362,12 +336,9 @@ function SidebarShell({
   showCollapse?: boolean;
 }) {
   const space = ROLE_SPACE[role];
-  const initials = ROLE_LABELS[role]
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  const displayName = sessionProfile.name || ROLE_LABELS[role];
+  const unitKind = primaryOrgUnitKind(role);
+  const unitName = primaryOrgUnitLabel(role, sessionProfile.orgScope);
 
   return (
     <>
@@ -422,12 +393,13 @@ function SidebarShell({
           <div className="overflow-hidden rounded-2xl bg-secondary/70 ring-1 ring-border">
             <div className="sgi-tricolor h-1 w-full" aria-hidden />
             <div className="flex items-center gap-3 px-3 py-3">
-              <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--sgi-blue)] font-display text-xs font-bold text-white">
-                {initials}
-              </div>
+              <MemberAvatar photo={sessionProfile.photo} name={displayName} size="md" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-foreground">{ROLE_LABELS[role]}</p>
-                <p className="truncate text-[11px] text-muted-foreground">{space.subtitle}</p>
+                <p className="truncate text-sm font-semibold text-foreground">{displayName}</p>
+                <p className="truncate text-[11px] text-muted-foreground">{ROLE_LABELS[role]}</p>
+                <p className="mt-0.5 truncate text-[11px] font-semibold text-[var(--sgi-blue)]" title={`${unitKind} ${unitName}`}>
+                  {unitKind} · {unitName}
+                </p>
               </div>
               <span className="shrink-0 rounded-md bg-[var(--sgi-red)]/12 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--sgi-red)]">
                 {space.title.replace("Espace ", "")}
@@ -437,12 +409,12 @@ function SidebarShell({
         </div>
       ) : (
         <div className="relative z-[1] flex justify-center px-3 pt-4">
-          <div
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--sgi-blue)] font-display text-xs font-bold text-white ring-2 ring-[var(--sgi-gold)]/40"
-            title={`${ROLE_LABELS[role]} — ${space.title}`}
-          >
-            {initials}
-          </div>
+          <MemberAvatar
+            photo={sessionProfile.photo}
+            name={displayName}
+            size="md"
+            className="ring-2 ring-[var(--sgi-gold)]/40"
+          />
         </div>
       )}
 
@@ -484,6 +456,7 @@ function Sidebar({
   setCollapsed,
   allowedModules,
   role,
+  sessionProfile,
   onLogout,
 }: {
   active: string;
@@ -492,6 +465,7 @@ function Sidebar({
   setCollapsed: (v: boolean) => void;
   allowedModules: ModuleKey[];
   role: PlatformRole;
+  sessionProfile: SessionProfile;
   onOpenSettings: () => void;
   onLogout: () => void;
 }) {
@@ -514,6 +488,7 @@ function Sidebar({
         onNavigate={setActive}
         allowedModules={allowedModules}
         role={role}
+        sessionProfile={sessionProfile}
         onLogout={onLogout}
         collapsed={collapsed}
         setCollapsed={setCollapsed}
@@ -528,6 +503,7 @@ function Sidebar({
 function Topbar({
   title,
   role,
+  sessionProfile,
   onOpenProfile,
   onOpenSettings,
   onOpenContent,
@@ -539,6 +515,7 @@ function Topbar({
 }: {
   title: string;
   role: PlatformRole;
+  sessionProfile: SessionProfile;
   onOpenProfile: () => void;
   onOpenSettings: () => void;
   onOpenContent: () => void;
@@ -551,12 +528,9 @@ function Topbar({
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const { theme, toggleTheme } = useTheme();
   const space = ROLE_SPACE[role];
-  const initials = ROLE_LABELS[role]
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  const displayName = sessionProfile.name || ROLE_LABELS[role];
+  const unitKind = primaryOrgUnitKind(role);
+  const unitName = primaryOrgUnitLabel(role, sessionProfile.orgScope);
 
   useEffect(() => {
     if (!profileMenuOpen) return;
@@ -602,8 +576,17 @@ function Topbar({
             <span className="hidden items-center rounded-md border border-[var(--sgi-gold)]/30 bg-[var(--sgi-gold)]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--sgi-gold)] sm:inline-flex">
               {space.title}
             </span>
+            {(role === "chapitre" || role === "district" || role === "groupe") && (
+              <span className="hidden max-w-[16rem] truncate items-center rounded-md border border-[var(--sgi-blue)]/25 bg-[var(--sgi-blue)]/8 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--sgi-blue)] lg:inline-flex">
+                {unitKind} · {unitName}
+              </span>
+            )}
           </div>
-          <p className="mt-0.5 hidden text-xs text-muted-foreground sm:block">{space.subtitle}</p>
+          <p className="mt-0.5 hidden text-xs text-muted-foreground sm:block">
+            {(role === "chapitre" || role === "district" || role === "groupe")
+              ? `Vous pilotez le ${unitKind.toLowerCase()} ${unitName}`
+              : space.subtitle}
+          </p>
         </div>
         <div className="flex items-center gap-1.5 sm:gap-2">
         <a
@@ -643,12 +626,15 @@ function Topbar({
             onClick={() => setProfileMenuOpen(!profileMenuOpen)}
             className="flex items-center gap-2 rounded-xl px-1.5 py-1.5 transition hover:bg-secondary sm:px-2"
           >
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--sgi-blue)] text-xs font-bold text-white ring-2 ring-[var(--sgi-gold)]/35">
-              {initials}
-            </div>
+            <MemberAvatar
+              photo={sessionProfile.photo}
+              name={displayName}
+              size="md"
+              className="!h-9 !w-9 ring-2 ring-[var(--sgi-gold)]/35"
+            />
             <div className="hidden text-left sm:block">
-              <p className="text-sm font-semibold text-foreground">{ROLE_LABELS[role]}</p>
-              <p className="text-[11px] text-muted-foreground">{space.title}</p>
+              <p className="max-w-[10rem] truncate text-sm font-semibold text-foreground">{displayName}</p>
+              <p className="text-[11px] text-muted-foreground">{ROLE_LABELS[role]}</p>
             </div>
           </button>
           {profileMenuOpen && (
@@ -675,7 +661,7 @@ function Topbar({
                 <UserRound size={15} />
                 Mon profil
               </button>
-              {(role === "admin" || role === "centre") && (
+              {(role === "admin" || role === "centre" || role === "chapitre") && (
                 <button
                   type="button"
                   onClick={() => {
@@ -721,8 +707,8 @@ function Topbar({
 
 // ─── Dashboard Module ─────────────────────────────────────────────────────────
 
-function Dashboard({ role }: { role: PlatformRole }) {
-  return <RoleDashboard role={role} />;
+function Dashboard({ role, orgScope }: { role: PlatformRole; orgScope: OrgScope }) {
+  return <RoleDashboard role={role} orgScope={orgScope} />;
 }
 
 // ─── Membres Module ───────────────────────────────────────────────────────────
@@ -737,16 +723,160 @@ function MembreDetailField({
   return (
     <div className="rounded-2xl border border-border/80 bg-background/50 p-3.5">
       <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
-      <div className="mt-1.5 break-words text-sm font-semibold text-foreground">{value}</div>
+      <div className="mt-1.5 break-words text-sm font-semibold text-foreground">{value || "—"}</div>
     </div>
   );
 }
 
-function MembreDetail({ membre, onClose }: { membre: typeof membres[0]; onClose: () => void }) {
-  const zoPaye = getMemberZaimuPaid(COLLECTES_SEED, membre, "zaimu-ordinaire");
-  const zsPaye = getMemberZaimuPaid(COLLECTES_SEED, membre, "zaimu-special");
-  const zsAssigne = getMemberSpecialAssignment(ZAIMU_SPECIAL_CAMPAIGN, membre);
-  const zsReste = Math.max(0, zsAssigne - zsPaye);
+function FinanceStat({
+  label,
+  value,
+  hint,
+  tone = "blue",
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  tone?: "blue" | "gold" | "red" | "green";
+}) {
+  const toneClass = {
+    blue: "border-[var(--sgi-blue)]/20 bg-[var(--sgi-blue)]/8 text-[var(--sgi-blue)]",
+    gold: "border-[var(--sgi-gold)]/25 bg-[var(--sgi-gold)]/10 text-[var(--sgi-gold)]",
+    red: "border-[var(--sgi-red)]/25 bg-[var(--sgi-red)]/10 text-[var(--sgi-red)]",
+    green: "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  }[tone];
+  return (
+    <div className={`rounded-2xl border p-3.5 ${toneClass}`}>
+      <p className="text-[11px] font-bold uppercase tracking-[0.12em] opacity-90">{label}</p>
+      <p className="mt-1 font-display text-xl font-bold text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
+        {value}
+      </p>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
+type SpecialEngagementRow = {
+  campaign: ZaimuCampaign;
+  engagement: number;
+  paye: number;
+  reste: number;
+  surplus: number;
+};
+
+function memberPayments(
+  collectes: CollecteRecord[],
+  fullName: string,
+  type?: CollecteRecord["type"],
+) {
+  const name = fullName.trim().toLowerCase();
+  return collectes
+    .filter((c) => c.membre.trim().toLowerCase() === name)
+    .filter((c) => (type ? c.type === type : true))
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function sumValidated(rows: CollecteRecord[]) {
+  return rows.filter((c) => c.statut === "Validé").reduce((sum, c) => sum + c.montant, 0);
+}
+
+function MembreDetail({ membre, onClose }: { membre: MemberRecord; onClose: () => void }) {
+  const { collectes } = useOpsData();
+  const fullName = memberFullName(membre);
+  const [engagements, setEngagements] = useState<SpecialEngagementRow[]>([]);
+  const [engagementsLoading, setEngagementsLoading] = useState(true);
+
+  const vpRows = useMemo(
+    () => memberPayments(collectes, fullName, "vague-paix"),
+    [collectes, fullName],
+  );
+  const zoRows = useMemo(
+    () => memberPayments(collectes, fullName, "zaimu-ordinaire"),
+    [collectes, fullName],
+  );
+  const zsRows = useMemo(
+    () => memberPayments(collectes, fullName, "zaimu-special"),
+    [collectes, fullName],
+  );
+  const allMemberRows = useMemo(
+    () => memberPayments(collectes, fullName),
+    [collectes, fullName],
+  );
+
+  const vpPaye = sumValidated(vpRows);
+  const zoPaye = sumValidated(zoRows);
+  const zsPaye = sumValidated(zsRows);
+  const zsFallbackAssigne = getMemberSpecialAssignment(ZAIMU_SPECIAL_CAMPAIGN, membre);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setEngagementsLoading(true);
+      const { data: campaigns } = await listSpecialCampaigns();
+      const active = (campaigns || []).filter((c) => c.is_active);
+      const rows: SpecialEngagementRow[] = [];
+      for (const campaign of active) {
+        const { data: assignments } = await listQuotaAssignments(campaign.id);
+        const groupeRow = (assignments || []).find(
+          (a) =>
+            a.level === "groupe" &&
+            (a.groupe_name || "").trim().toLowerCase() === membre.groupe.trim().toLowerCase() &&
+            (!membre.district ||
+              (a.district_name || "").trim().toLowerCase() === membre.district.trim().toLowerCase()),
+        );
+        const districtRow = (assignments || []).find(
+          (a) =>
+            a.level === "district" &&
+            (a.district_name || "").trim().toLowerCase() === membre.district.trim().toLowerCase(),
+        );
+        const chapitreRow = (assignments || []).find(
+          (a) =>
+            a.level === "chapitre" &&
+            (a.chapitre_name || "").trim().toLowerCase() === membre.chapitre.trim().toLowerCase(),
+        );
+        const membreRow = (assignments || []).find(
+          (a) => a.level === "membre" && a.member_id && a.member_id === membre.remoteId,
+        );
+        const engagement = Number(
+          membreRow?.assigne ||
+            groupeRow?.assigne ||
+            districtRow?.assigne ||
+            chapitreRow?.assigne ||
+            0,
+        );
+        const paye = zsRows
+          .filter((c) => c.statut === "Validé")
+          .filter((c) => {
+            const label = campaign.label.trim().toLowerCase();
+            return (
+              (c.periode || "").trim().toLowerCase() === label ||
+              (c.motif || "").trim().toLowerCase() === label
+            );
+          })
+          .reduce((sum, c) => sum + c.montant, 0);
+        if (engagement <= 0 && paye <= 0) continue;
+        rows.push({
+          campaign,
+          engagement,
+          paye,
+          reste: Math.max(0, engagement - paye),
+          surplus: Math.max(0, paye - engagement),
+        });
+      }
+      if (!cancelled) {
+        setEngagements(rows);
+        setEngagementsLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [membre.chapitre, membre.district, membre.groupe, membre.remoteId, zsRows]);
+
+  const zsEngagementTotal =
+    engagements.reduce((sum, row) => sum + row.engagement, 0) || zsFallbackAssigne;
+  const zsResteTotal = Math.max(0, zsEngagementTotal - zsPaye);
 
   return (
     <div
@@ -754,7 +884,7 @@ function MembreDetail({ membre, onClose }: { membre: typeof membres[0]; onClose:
       onClick={onClose}
     >
       <div
-        className="flex max-h-[94vh] w-full max-w-xl flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-[var(--shadow-lift)] sm:rounded-3xl"
+        className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-[var(--shadow-lift)] sm:rounded-3xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sgi-tricolor h-1.5 w-full shrink-0" aria-hidden />
@@ -795,50 +925,63 @@ function MembreDetail({ membre, onClose }: { membre: typeof membres[0]; onClose:
                 >
                   {membre.responsabilite === "Membre" ? "Membre simple" : membre.responsabilite}
                 </span>
+                {membre.abonnementVaguePaix && (
+                  <span className="rounded-full bg-[var(--sgi-blue)]/12 px-2.5 py-0.5 text-[11px] font-bold text-[var(--sgi-blue)]">
+                    Vague de Paix
+                  </span>
+                )}
               </div>
               <h3 className="mt-2 font-display text-xl font-semibold leading-tight text-foreground sm:text-2xl">
                 {membre.prenom} {membre.nom}
               </h3>
-              <p className="mt-1 text-sm text-muted-foreground">{membre.chapitre}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {[membre.groupe, membre.district, membre.chapitre].filter(Boolean).join(" · ") || "—"}
+              </p>
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <a
-              href={`mailto:${membre.email}`}
-              className="rounded-2xl border border-border bg-card/90 px-3.5 py-3 text-sm shadow-sm backdrop-blur transition hover:border-[var(--sgi-blue)]/30"
-            >
-              <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Email</p>
-              <p className="mt-1 truncate font-medium text-[var(--sgi-blue)]">{membre.email}</p>
-            </a>
-            <a
-              href={`tel:${membre.telephone}`}
-              className="rounded-2xl border border-border bg-card/90 px-3.5 py-3 text-sm shadow-sm backdrop-blur transition hover:border-[var(--sgi-blue)]/30"
-            >
-              <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Téléphone</p>
-              <p className="mt-1 font-medium text-foreground">{membre.telephone}</p>
-            </a>
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <FinanceStat
+              label="Vague de Paix"
+              value={`${formatFcfa(vpPaye)} FCFA`}
+              hint={
+                membre.abonnementVaguePaix
+                  ? `${vpRows.filter((r) => r.statut === "Validé").length} paiement(s) · abonné`
+                  : `${vpRows.filter((r) => r.statut === "Validé").length} paiement(s) · non abonné`
+              }
+              tone="blue"
+            />
+            <FinanceStat
+              label="Zaimu ordinaire"
+              value={`${formatFcfa(zoPaye)} FCFA`}
+              hint={`${zoRows.filter((r) => r.statut === "Validé").length} paiement(s) validé(s)`}
+              tone="gold"
+            />
+            <FinanceStat
+              label="Zaimu spécial"
+              value={`${formatFcfa(zsPaye)} FCFA`}
+              hint={
+                zsEngagementTotal > 0
+                  ? `Engagement ${formatFcfa(zsEngagementTotal)} · reste ${formatFcfa(zsResteTotal)}`
+                  : `${zsRows.filter((r) => r.statut === "Validé").length} paiement(s)`
+              }
+              tone="red"
+            />
           </div>
         </div>
 
         <div className="overflow-y-auto px-5 py-5 sm:px-6">
-          <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Identité & pratique</p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            Identité & pratique
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <MembreDetailField label="Email" value={membre.email} />
+            <MembreDetailField label="Téléphone" value={membre.telephone} />
             <MembreDetailField label="Date de naissance" value={membre.dateNaissance} />
-            <MembreDetailField label="Catégorie" value={membre.categorie} />
-            <MembreDetailField label="Département" value={membre.departement} />
+            <MembreDetailField label="Catégorie" value={membre.categorie || membre.departement} />
+            <MembreDetailField label="Département" value={membre.departement || "—"} />
             <MembreDetailField label="Début de pratique" value={membre.dateDebutPratique} />
             <MembreDetailField label="Adhésion" value={membre.adhesion} />
-            <MembreDetailField
-              label="Vague de Paix"
-              value={
-                membre.abonnementVaguePaix ? (
-                  <span className="text-emerald-600 dark:text-emerald-400">Abonné (année en cours)</span>
-                ) : (
-                  "Non abonné"
-                )
-              }
-            />
             <MembreDetailField
               label="Sokahan"
               value={
@@ -849,19 +992,8 @@ function MembreDetail({ membre, onClose }: { membre: typeof membres[0]; onClose:
                 )
               }
             />
-          </div>
-
-          <p className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Organisation</p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <MembreDetailField
-              label="Responsabilité"
-              value={membre.responsabilite === "Membre" ? "Membre simple" : membre.responsabilite}
-            />
-            <MembreDetailField label="Quartier" value={membre.quartier} />
-            <MembreDetailField label="District" value={membre.district} />
-            <MembreDetailField label="Groupe" value={membre.groupe} />
-            <MembreDetailField
-              label="Abonnement"
+              label="Abonnement général"
               value={
                 membre.abonnement ? (
                   <span className="text-emerald-600 dark:text-emerald-400">Actif</span>
@@ -872,23 +1004,181 @@ function MembreDetail({ membre, onClose }: { membre: typeof membres[0]; onClose:
             />
           </div>
 
-          <p className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Zaimu</p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-[var(--sgi-gold)]/25 bg-[var(--sgi-gold)]/10 p-4">
-              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--sgi-gold)]">Zaimu ordinaire</p>
-              <p className="mt-1 font-display text-2xl font-bold text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
-                {formatCdf(zoPaye)}
-              </p>
-              <p className="text-xs text-muted-foreground">CDF payés (validés)</p>
-            </div>
-            <div className="rounded-2xl border border-[var(--sgi-red)]/25 bg-[var(--sgi-red)]/10 p-4">
-              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--sgi-red)]">Zaimu spécial (cota)</p>
-              <p className="mt-1 font-display text-xl font-bold text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
-                {formatCdf(zsPaye)} / {formatCdf(zsAssigne)}
-              </p>
-              <p className="text-xs text-muted-foreground">Payé / assigné · reste {formatCdf(zsReste)} CDF</p>
-            </div>
+          <p className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            Organisation
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <MembreDetailField
+              label="Responsabilité"
+              value={membre.responsabilite === "Membre" ? "Membre simple" : membre.responsabilite}
+            />
+            <MembreDetailField label="Chapitre" value={membre.chapitre} />
+            <MembreDetailField label="District" value={membre.district} />
+            <MembreDetailField label="Groupe" value={membre.groupe} />
+            <MembreDetailField label="Quartier" value={membre.quartier} />
           </div>
+
+          <p className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            Abonnement Vague de Paix
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <MembreDetailField
+              label="Statut"
+              value={
+                membre.abonnementVaguePaix ? (
+                  <span className="text-emerald-600 dark:text-emerald-400">Abonné</span>
+                ) : (
+                  "Non abonné"
+                )
+              }
+            />
+            <MembreDetailField label="Total payé (validé)" value={`${formatFcfa(vpPaye)} FCFA`} />
+            <MembreDetailField
+              label="Dernier paiement"
+              value={vpRows[0] ? `${vpRows[0].date} · ${formatFcfa(vpRows[0].montant)} FCFA` : "—"}
+            />
+          </div>
+
+          <p className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            Zaimu ordinaire
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <MembreDetailField label="Total payé (validé)" value={`${formatFcfa(zoPaye)} FCFA`} />
+            <MembreDetailField
+              label="Nombre de paiements"
+              value={String(zoRows.filter((r) => r.statut === "Validé").length)}
+            />
+            <MembreDetailField
+              label="Dernier paiement"
+              value={zoRows[0] ? `${zoRows[0].date} · ${formatFcfa(zoRows[0].montant)} FCFA` : "—"}
+            />
+          </div>
+
+          <p className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            Zaimu spécial — engagements
+          </p>
+          {engagementsLoading ? (
+            <p className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+              Chargement des engagements…
+            </p>
+          ) : engagements.length === 0 ? (
+            <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+              Aucun engagement de campagne pour ce périmètre.
+              {zsPaye > 0 && (
+                <span className="mt-1 block text-foreground">
+                  Payé au total : {formatFcfa(zsPaye)} FCFA (validé).
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40">
+                    {["Campagne", "Engagement", "Payé", "Reste", "Surplus"].map((h) => (
+                      <th
+                        key={h}
+                        className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {engagements.map((row) => (
+                    <tr key={row.campaign.id} className="border-b border-border last:border-b-0">
+                      <td className="px-3 py-2.5">
+                        <p className="font-medium text-foreground">{row.campaign.label}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {row.campaign.date_echeance
+                            ? `Échéance ${new Date(row.campaign.date_echeance).toLocaleDateString("fr-FR")}`
+                            : "Sans échéance"}
+                        </p>
+                      </td>
+                      <td className="px-3 py-2.5 font-mono">{formatFcfa(row.engagement)}</td>
+                      <td className="px-3 py-2.5 font-mono text-emerald-700 dark:text-emerald-400">
+                        {formatFcfa(row.paye)}
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-[var(--sgi-red)]">
+                        {formatFcfa(row.reste)}
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-[var(--sgi-gold)]">
+                        {formatFcfa(row.surplus)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <p className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            Historique des paiements
+          </p>
+          {allMemberRows.length === 0 ? (
+            <p className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+              Aucun paiement enregistré pour ce membre.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40">
+                    {["N°", "Date", "Type", "Montant", "Campagne / période", "Statut"].map((h) => (
+                      <th
+                        key={h}
+                        className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {allMemberRows.slice(0, 12).map((row) => (
+                    <tr key={row.id} className="border-b border-border last:border-b-0">
+                      <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                        {row.numero || row.id.slice(0, 8)}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">{row.date}</td>
+                      <td className="px-3 py-2 text-xs">
+                        {row.type === "vague-paix"
+                          ? "Vague de Paix"
+                          : row.type === "zaimu-ordinaire"
+                            ? "Zaimu ordinaire"
+                            : "Zaimu spécial"}
+                      </td>
+                      <td className="px-3 py-2 font-mono font-medium">
+                        {formatFcfa(row.montant)}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">
+                        {row.periode || row.motif || "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                            row.statut === "Validé"
+                              ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400"
+                              : row.statut === "Annulé"
+                                ? "bg-[var(--sgi-red)]/12 text-[var(--sgi-red)]"
+                                : "bg-[var(--sgi-gold)]/15 text-[var(--sgi-gold)]"
+                          }`}
+                        >
+                          {row.statut}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {allMemberRows.length > 12 && (
+                <p className="px-3 py-2 text-[11px] text-muted-foreground">
+                  + {allMemberRows.length - 12} autre(s) paiement(s)
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="border-t border-border px-5 py-4 sm:px-6">
@@ -905,83 +1195,118 @@ function MembreDetail({ membre, onClose }: { membre: typeof membres[0]; onClose:
   );
 }
 
-type MembresTab = "liste" | "indicateurs" | "cota" | "import-export";
+type MembresTab = "liste" | "import-export";
 
 const MEMBRES_TABS: { key: MembresTab; label: string; short: string; icon: typeof Users; hint: string }[] = [
   { key: "liste", label: "Liste des membres", short: "Liste", icon: Users, hint: "Recherche, filtres, ajout et fiches" },
-  { key: "indicateurs", label: "Indicateurs", short: "Indicateurs", icon: BarChart3, hint: "Effectifs et bilans par période" },
-  { key: "cota", label: "Cota Zaimu", short: "Cota Zaimu", icon: Target, hint: "Assigné, payé et reste par niveau" },
   { key: "import-export", label: "Import & export", short: "Import / Export", icon: FileUp, hint: "Template, import Excel, export PDF/Excel" },
 ];
 
+function suggestedPlatformRole(responsabilite: string): PlatformRole {
+  const value = responsabilite === "Membre" ? "Membre simple" : responsabilite;
+  if (value === "Responsable centre") return "centre";
+  if (value === "Responsable chapitre") return "chapitre";
+  if (value === "Responsable district") return "district";
+  return "groupe";
+}
+
+function platformRoleToResponsabilite(role: PlatformRole): string {
+  if (role === "centre") return "Responsable centre";
+  if (role === "chapitre") return "Responsable chapitre";
+  if (role === "district") return "Responsable district";
+  if (role === "groupe") return "Responsable groupe";
+  return "Membre simple";
+}
+
 function Membres({ role }: { role: PlatformRole }) {
-  const orgScope = DEMO_ORG_SCOPE[role];
+  const orgTree = useOrgTree();
+  const {
+    members,
+    setMembers,
+    collectes,
+    reloadMembers,
+    loading: membersLoading,
+    error: membersError,
+  } = useOpsData();
+  const canPromote = assignableRoles(role).length > 0;
+  const [orgScope, setOrgScope] = useState<OrgScope>(() => DEMO_ORG_SCOPE[role]);
   const [activeTab, setActiveTab] = useState<MembresTab>("liste");
-  const [chapitreFilter, setChapitreFilter] = useState(orgScope.chapitre || "Tous");
-  const [districtFilter, setDistrictFilter] = useState(orgScope.district || "Tous");
+  const [chapitreFilter, setChapitreFilter] = useState("Tous");
+  const [districtFilter, setDistrictFilter] = useState("Tous");
   const [statutFilter, setStatutFilter] = useState("Tous");
   const [responsabiliteFilter, setResponsabiliteFilter] = useState("Tous");
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<typeof membres[0] | null>(null);
+  const [selected, setSelected] = useState<MemberRecord | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const emptyForm = {
-    prenom: "",
-    nom: "",
-    email: "",
-    telephone: "",
-    dateNaissance: "",
-    departement: "",
-    categorie: "Homme",
-    responsabilite: "Membre simple",
-    dateDebutPratique: "",
-    abonnementVaguePaix: true,
-    sokahan: false,
-    quartier: "",
-    chapitre: orgScope.chapitre || defaultChapitre(),
-    district: orgScope.district || defaultDistrict(),
-    groupe: orgScope.groupe || defaultGroupe(),
-    statut: "Actif",
-    abonnement: true,
-    photo: "",
-  };
-  const [formValues, setFormValues] = useState(emptyForm);
-  const [members, setMembers] = useState(membres);
-  const [formError, setFormError] = useState("");
+  const [promoteTarget, setPromoteTarget] = useState<MemberRecord | null>(null);
+  const [promoteRole, setPromoteRole] = useState<PlatformRole>("groupe");
+  const [promoteBusy, setPromoteBusy] = useState(false);
+  const [promoteError, setPromoteError] = useState<string | null>(null);
+  const [promoteInfo, setPromoteInfo] = useState<string | null>(null);
+  const [memberToast, setMemberToast] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const MEMBERS_PAGE_SIZE = 10;
+  // Centre / admin : aucun filtre de périmètre → tous les membres + responsables rattachés.
   const scopedMembers = useMemo(() => filterMembersByScope(members, orgScope), [members, orgScope]);
+  const chapitreFilterOptions = useMemo(
+    () => ["Tous", ...orgTree.chapitres.map((item) => item.name)],
+    [orgTree.chapitres],
+  );
   const districtFilterOptions = useMemo(() => {
-    if (chapitreFilter === "Tous") return DISTRICTS;
-    return ["Tous", ...districtsForChapitre(chapitreFilter)];
-  }, [chapitreFilter]);
-  const formDistrictOptions = useMemo(
-    () => districtsForChapitre(formValues.chapitre),
-    [formValues.chapitre],
-  );
-  const formGroupeOptions = useMemo(
-    () => groupesForDistrict(formValues.chapitre, formValues.district),
-    [formValues.chapitre, formValues.district],
-  );
+    if (chapitreFilter === "Tous") {
+      return ["Tous", ...orgTree.districts.map((item) => item.name)];
+    }
+    const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
+    const districts = chapitre
+      ? orgTree.districtsForChapitreId(chapitre.id).map((item) => item.name)
+      : [];
+    return ["Tous", ...districts];
+  }, [chapitreFilter, orgTree]);
 
-  const handlePhotoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setFormError("Veuillez sélectionner une image (JPG, PNG, WEBP…).");
-      return;
+  useEffect(() => {
+    let cancelled = false;
+    async function loadScope() {
+      if (hasRemoteProfiles()) {
+        const { data } = await fetchMyProfile();
+        if (!cancelled && data) {
+          let chapitre = data.chapitre_name || "";
+          let district = data.district_name || "";
+          let groupe = data.groupe_name || "";
+          if ((!chapitre || !district || !groupe) && (data.chapitre_id || data.district_id || data.groupe_id)) {
+            const names = orgTree.nameOf({
+              chapitreId: data.chapitre_id || "",
+              districtId: data.district_id || "",
+              groupeId: data.groupe_id || "",
+            });
+            chapitre = chapitre || names.chapitre;
+            district = district || names.district;
+            groupe = groupe || names.groupe;
+          }
+          const scope = orgScopeFromProfile(role, { chapitre, district, groupe });
+          setOrgScope(scope);
+          setChapitreFilter(scope.chapitre || "Tous");
+          setDistrictFilter(scope.district || "Tous");
+        } else if (!cancelled) {
+          setOrgScope(orgScopeFromProfile(role, {}));
+        }
+      } else if (!cancelled) {
+        setOrgScope(DEMO_ORG_SCOPE[role]);
+        setChapitreFilter(DEMO_ORG_SCOPE[role].chapitre || "Tous");
+        setDistrictFilter(DEMO_ORG_SCOPE[role].district || "Tous");
+      }
     }
-    if (file.size > 2.5 * 1024 * 1024) {
-      setFormError("La photo ne doit pas dépasser 2,5 Mo.");
-      return;
-    }
-    try {
-      const photo = await readImageAsDataUrl(file);
-      setFormValues((prev) => ({ ...prev, photo }));
-      setFormError("");
-    } catch {
-      setFormError("Impossible de lire la photo. Réessayez.");
-    }
-  };
+    void loadScope();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, orgTree.chapitres.length]);
+
+  useEffect(() => {
+    if (!memberToast) return;
+    const timer = window.setTimeout(() => setMemberToast(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [memberToast]);
 
   const filtered = useMemo(() => scopedMembers.filter((m) => {
     if (chapitreFilter !== "Tous" && m.chapitre !== chapitreFilter) return false;
@@ -1008,18 +1333,72 @@ function Membres({ role }: { role: PlatformRole }) {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!formValues.prenom.trim() || !formValues.nom.trim() || !formValues.email.trim()) {
-      setFormError("Le prénom, le nom et l’e-mail sont obligatoires.");
+  const handlePromoteMember = async () => {
+    if (!promoteTarget) return;
+    if (!canChangeMemberResponsabilite(role, promoteTarget.responsabilite)) {
+      setPromoteError("Impossible de modifier la responsabilité d’un responsable hiérarchique.");
       return;
     }
+    setPromoteBusy(true);
+    setPromoteError(null);
+    setPromoteInfo(null);
+    try {
+      const fullName = `${promoteTarget.prenom} ${promoteTarget.nom}`.trim();
 
-    const newMember = createMemberFromForm(formValues, members as any);
-    setMembers((prev) => [newMember, ...prev]);
-    setShowForm(false);
-    setFormValues(emptyForm);
-    setFormError("");
+      if (hasRemoteProfiles()) {
+        // Toujours résoudre le rattachement complet du membre (chapitre / district / groupe).
+        const { data: orgIds, error: orgError } = await resolveOrgIds({
+          chapitre: promoteTarget.chapitre,
+          district: promoteTarget.district,
+          groupe: promoteTarget.groupe,
+        });
+        if (orgError) throw orgError;
+        if (promoteRole !== "admin" && promoteRole !== "centre") {
+          if (!orgIds.chapitre_id || !orgIds.district_id || !orgIds.groupe_id) {
+            throw new Error(
+              "Chapitre, district et groupe du membre sont requis pour créer le compte responsable.",
+            );
+          }
+        }
+        const { data, error } = await inviteUserRemote({
+          email: promoteTarget.email,
+          full_name: fullName,
+          role: promoteRole,
+          status: "actif",
+          skip_email_confirm: true,
+          telephone: promoteTarget.telephone,
+          department: promoteTarget.groupe || promoteTarget.district || promoteTarget.chapitre,
+          chapitre_id: orgIds.chapitre_id,
+          district_id: orgIds.district_id,
+          groupe_id: orgIds.groupe_id,
+          member_id: promoteTarget.remoteId || null,
+        });
+        if (error || !data) throw error || new Error("Promotion impossible.");
+        const pwd = data.temporaryPassword
+          ? ` Mot de passe temporaire : ${data.temporaryPassword}`
+          : "";
+        setPromoteInfo((data.message || "Responsable promu.") + pwd);
+      } else {
+        setPromoteInfo("Responsabilité mise à jour.");
+      }
+
+      setMembers((prev) =>
+        prev.map((member) =>
+          member.id === promoteTarget.id
+            ? { ...member, responsabilite: platformRoleToResponsabilite(promoteRole) }
+            : member,
+        ),
+      );
+      setPromoteTarget((current) =>
+        current
+          ? { ...current, responsabilite: platformRoleToResponsabilite(promoteRole) }
+          : current,
+      );
+    } catch (err) {
+      setPromoteError(err instanceof Error ? err.message : "Échec de la promotion.");
+    } finally {
+      setPromoteBusy(false);
+    }
   };
 
   const currentTab = MEMBRES_TABS.find((t) => t.key === activeTab) ?? MEMBRES_TABS[0];
@@ -1027,6 +1406,69 @@ function Membres({ role }: { role: PlatformRole }) {
   return (
     <div className="dash-page gap-5 sm:gap-6">
       {selected && <MembreDetail membre={selected} onClose={() => setSelected(null)} />}
+
+      {promoteTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-[var(--sgi-blue-deep)]/40 p-4 sm:items-center"
+          onClick={() => !promoteBusy && setPromoteTarget(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-lift)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Shield size={16} className="text-[var(--sgi-blue)]" />
+              Promouvoir en responsable
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {promoteTarget.prenom} {promoteTarget.nom} · {promoteTarget.email}
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Attribue à ce membre un accès à la plateforme avec le rôle choisi. Un mot de passe temporaire sera généré pour sa première connexion.
+            </p>
+            <label className="mt-4 block space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Rôle plateforme</span>
+              <select
+                value={promoteRole}
+                onChange={(e) => setPromoteRole(e.target.value as PlatformRole)}
+                className="w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none"
+              >
+                {assignableRoles(role).map((item) => (
+                  <option key={item} value={item}>{ROLE_LABELS[item]}</option>
+                ))}
+              </select>
+            </label>
+            {promoteError && (
+              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                {promoteError}
+              </div>
+            )}
+            {promoteInfo && (
+              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                {promoteInfo}
+              </div>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={promoteBusy}
+                onClick={() => setPromoteTarget(null)}
+                className="rounded-xl border border-border px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/60"
+              >
+                Fermer
+              </button>
+              <button
+                type="button"
+                disabled={promoteBusy}
+                onClick={() => void handlePromoteMember()}
+                className="rounded-xl bg-[var(--sgi-blue)] px-3 py-2 text-xs font-medium text-white disabled:opacity-60"
+              >
+                {promoteBusy ? "Promotion…" : "Promouvoir"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="sgi-tricolor h-1.5 w-full" aria-hidden />
@@ -1038,7 +1480,6 @@ function Membres({ role }: { role: PlatformRole }) {
             <h2 className="mt-1 font-display text-xl font-semibold text-foreground">{currentTab.label}</h2>
             <p className="mt-1 text-sm text-muted-foreground">{currentTab.hint}</p>
           </div>
-          <p className="text-xs text-muted-foreground">{orgScope.label}</p>
         </div>
         <div className="flex gap-1 overflow-x-auto border-t border-border px-2 py-2 sm:px-3">
           {MEMBRES_TABS.map((tab) => {
@@ -1066,21 +1507,15 @@ function Membres({ role }: { role: PlatformRole }) {
         </div>
       </div>
 
-      {activeTab === "indicateurs" && (
-        <MembersKpiPanel role={role} members={members} collectes={COLLECTES_SEED} />
-      )}
-
-      {activeTab === "cota" && (
-        <ZaimuQuotaPanel role={role} collectes={COLLECTES_SEED} />
-      )}
-
       {activeTab === "import-export" && (
         <MembersImportExportBar
           members={members}
           filteredMembers={filtered}
-          collectes={COLLECTES_SEED}
-          scopeLabel={orgScope.label}
-          onImport={(imported) => setMembers((prev) => [...imported, ...prev])}
+          collectes={collectes}
+          onImport={(imported) => {
+            setMembers((prev) => [...imported, ...prev]);
+            void reloadMembers();
+          }}
         />
       )}
 
@@ -1105,13 +1540,16 @@ function Membres({ role }: { role: PlatformRole }) {
               const nextChapitre = e.target.value;
               setChapitreFilter(nextChapitre);
               if (nextChapitre !== "Tous" && districtFilter !== "Tous") {
-                const allowed = districtsForChapitre(nextChapitre);
+                const chapitre = orgTree.chapitres.find((item) => item.name === nextChapitre);
+                const allowed = chapitre
+                  ? orgTree.districtsForChapitreId(chapitre.id).map((item) => item.name)
+                  : [];
                 if (!allowed.includes(districtFilter)) setDistrictFilter("Tous");
               }
             }}
             className="dash-field disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {CHAPITRES.map((option) => (
+            {chapitreFilterOptions.map((option) => (
               <option key={option}>{option}</option>
             ))}
           </select>
@@ -1150,172 +1588,60 @@ function Membres({ role }: { role: PlatformRole }) {
         </button>
       </div>
 
-      {showForm && (
-        <form onSubmit={handleSubmit} className="grid gap-4 rounded-xl border border-border bg-card p-4 md:grid-cols-2">
-          {formError && <div className="rounded-lg border border-[var(--sgi-red)]/25 bg-[var(--sgi-red)]/10 px-3 py-2 text-sm text-[var(--sgi-red-deep)] dark:text-[var(--sgi-red-soft)] md:col-span-2">{formError}</div>}
-
-          <div className="md:col-span-2 rounded-2xl border border-dashed border-[var(--sgi-blue)]/25 bg-secondary/40 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Photo du membre</p>
-            <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center">
-              <MemberAvatar
-                photo={formValues.photo}
-                prenom={formValues.prenom || "N"}
-                nom={formValues.nom || "M"}
-                size="xl"
-              />
-              <div className="min-w-0 flex-1 space-y-2">
-                <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-[var(--sgi-blue)] px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90">
-                  <Camera size={15} />
-                  {formValues.photo ? "Changer la photo" : "Ajouter une photo"}
-                  <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
-                </label>
-                {formValues.photo && (
-                  <button
-                    type="button"
-                    onClick={() => setFormValues((prev) => ({ ...prev, photo: "" }))}
-                    className="ml-0 block text-sm font-medium text-[var(--sgi-red)] hover:underline sm:ml-3 sm:inline"
-                  >
-                    Retirer la photo
-                  </button>
-                )}
-                <p className="text-xs text-muted-foreground">JPG, PNG ou WEBP — 2,5 Mo max. Affichée dans la liste et la fiche détail.</p>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Prénom</label>
-            <input required value={formValues.prenom} onChange={(e) => setFormValues((prev) => ({ ...prev, prenom: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Nom</label>
-            <input required value={formValues.nom} onChange={(e) => setFormValues((prev) => ({ ...prev, nom: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Email</label>
-            <input type="email" required value={formValues.email} onChange={(e) => setFormValues((prev) => ({ ...prev, email: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Téléphone</label>
-            <input value={formValues.telephone} onChange={(e) => setFormValues((prev) => ({ ...prev, telephone: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Date de naissance</label>
-            <input type="date" value={formValues.dateNaissance} onChange={(e) => setFormValues((prev) => ({ ...prev, dateNaissance: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Département</label>
-            <input value={formValues.departement} onChange={(e) => setFormValues((prev) => ({ ...prev, departement: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Catégorie</label>
-            <select value={formValues.categorie} onChange={(e) => setFormValues((prev) => ({ ...prev, categorie: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm">
-              {['Homme', 'Femme', 'Jeune homme', 'Jeune fille', 'Avenir'].map((option) => <option key={option}>{option}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              Responsabilité
-            </label>
-            <select
-              value={formValues.responsabilite}
-              onChange={(e) => setFormValues((prev) => ({ ...prev, responsabilite: e.target.value }))}
-              className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm"
-            >
-              {RESPONSABILITES.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Précise si le membre est un membre simple ou un responsable.
-            </p>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Date de début de pratique</label>
-            <input type="date" value={formValues.dateDebutPratique} onChange={(e) => setFormValues((prev) => ({ ...prev, dateDebutPratique: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Quartier / lieu de résidence</label>
-            <input value={formValues.quartier} onChange={(e) => setFormValues((prev) => ({ ...prev, quartier: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Chapitre</label>
-            <select
-              value={formValues.chapitre}
-              onChange={(e) =>
-                setFormValues((prev) =>
-                  coerceOrgSelection({ ...prev, chapitre: e.target.value }),
-                )
-              }
-              className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm"
-            >
-              {CHAPITRE_NAMES.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">District</label>
-            <select
-              value={formValues.district}
-              onChange={(e) =>
-                setFormValues((prev) =>
-                  coerceOrgSelection({ ...prev, district: e.target.value }),
-                )
-              }
-              className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm"
-            >
-              {formDistrictOptions.map((d) => (
-                <option key={d}>{d}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Groupe</label>
-            <select
-              value={formValues.groupe}
-              onChange={(e) => setFormValues((prev) => ({ ...prev, groupe: e.target.value }))}
-              className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm"
-            >
-              {formGroupeOptions.map((g) => (
-                <option key={g}>{g}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">Statut</label>
-            <select value={formValues.statut} onChange={(e) => setFormValues((prev) => ({ ...prev, statut: e.target.value }))} className="w-full rounded-lg border border-border bg-input-background px-3 py-2 text-sm">
-              {STATUTS.filter((s) => s !== "Tous").map((s) => <option key={s}>{s}</option>)}
-            </select>
-          </div>
-          <div className="md:col-span-2 flex flex-wrap gap-4">
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              <input type="checkbox" checked={formValues.abonnementVaguePaix} onChange={(e) => setFormValues((prev) => ({ ...prev, abonnementVaguePaix: e.target.checked }))} />
-              Abonnement Vague de Paix de l’année en cours
-            </label>
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              <input type="checkbox" checked={formValues.sokahan} onChange={(e) => setFormValues((prev) => ({ ...prev, sokahan: e.target.checked }))} />
-              Sokahan (possède le Gohonzon)
-            </label>
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              <input type="checkbox" checked={formValues.abonnement} onChange={(e) => setFormValues((prev) => ({ ...prev, abonnement: e.target.checked }))} />
-              Abonné au service / newsletter
-            </label>
-          </div>
-          <div className="md:col-span-2 flex justify-end gap-2">
-            <button type="button" onClick={() => setShowForm(false)} className="rounded-lg border border-border px-4 py-2 text-sm">Annuler</button>
-            <button type="submit" className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Enregistrer</button>
-          </div>
-        </form>
+      {memberToast && (
+        <div className="rounded-xl border border-[var(--sgi-blue)]/20 bg-[var(--sgi-blue)]/5 px-4 py-3 text-sm text-foreground">
+          {memberToast}
+        </div>
+      )}
+      {membersError && (
+        <div className="rounded-xl border border-[var(--sgi-red)]/25 bg-[var(--sgi-red)]/5 px-4 py-3 text-sm text-[var(--sgi-red)]">
+          {membersError}
+          <button
+            type="button"
+            onClick={() => void reloadMembers()}
+            className="ml-3 underline underline-offset-2"
+          >
+            Réessayer
+          </button>
+        </div>
       )}
 
-      <div className="bg-card rounded-xl border border-border overflow-hidden">
+      {showForm && (
+        <PersonCreateForm
+          mode="member"
+          actorRole={role}
+          variant="inline"
+          existingMembers={members}
+          initialOrg={{
+            chapitre: orgScope.chapitre || orgTree.chapitres[0]?.name || "",
+            district:
+              orgScope.district ||
+              (orgScope.chapitre
+                ? orgTree.districts.find((d) => {
+                    const chap = orgTree.chapitres.find((c) => c.name === orgScope.chapitre);
+                    return chap && d.chapitre_id === chap.id;
+                  })?.name
+                : orgTree.districts[0]?.name) ||
+              "",
+            groupe: orgScope.groupe || orgTree.groupes[0]?.name || "",
+          }}
+          onCancel={() => setShowForm(false)}
+          onSuccess={({ member, message }) => {
+            setMembers((prev) => [member, ...prev]);
+            setShowForm(false);
+            setMemberToast(message);
+            void reloadMembers();
+          }}
+        />
+      )}
+
+      <div className="rounded-xl border border-border bg-card">
         <div className="px-5 py-3 border-b border-border flex items-center justify-between gap-3">
           <span className="text-sm font-medium text-foreground">
-            {filtered.length} membre{filtered.length !== 1 ? "s" : ""}
-            {filtered.length > 0 && (
+            {membersLoading
+              ? "Chargement des membres…"
+              : `${filtered.length} membre${filtered.length !== 1 ? "s" : ""}`}
+            {!membersLoading && filtered.length > 0 && (
               <span className="ml-2 font-normal text-muted-foreground">
                 · {Math.min((currentPage - 1) * MEMBERS_PAGE_SIZE + 1, filtered.length)}–
                 {Math.min(currentPage * MEMBERS_PAGE_SIZE, filtered.length)} sur {filtered.length}
@@ -1331,29 +1657,46 @@ function Membres({ role }: { role: PlatformRole }) {
           </button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[72rem] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                {["Membre", "Responsabilité", "Chapitre", "District", "Statut", "Zaimu ord.", "Zaimu sp. (payé/cota)", "Vague de Paix", "Actions"].map((h) => (
-                  <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">{h}</th>
+                {["Membre", "Responsabilité", "Chapitre", "District", "Statut", "Zaimu ord.", "Zaimu sp. (payé/cota)", "Vague de Paix", "Sokahan", "Actions"].map((h) => (
+                  <th
+                    key={h}
+                    className={`px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground ${
+                      h === "Actions"
+                        ? "sticky right-0 z-20 bg-muted/95 shadow-[-6px_0_12px_-8px_rgba(0,0,0,0.25)]"
+                        : ""
+                    }`}
+                  >
+                    {h}
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {paginatedMembers.length === 0 ? (
+              {membersLoading ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    Aucun membre ne correspond aux filtres.
+                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    Chargement de la liste des membres…
+                  </td>
+                </tr>
+              ) : paginatedMembers.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    {members.length === 0
+                      ? "Aucun membre enregistré pour le moment."
+                      : "Aucun membre ne correspond aux filtres."}
                   </td>
                 </tr>
               ) : (
                 paginatedMembers.map((m, i) => {
-                const zoPaye = getMemberZaimuPaid(COLLECTES_SEED, m, "zaimu-ordinaire");
-                const zsPaye = getMemberZaimuPaid(COLLECTES_SEED, m, "zaimu-special");
+                const zoPaye = getMemberZaimuPaid(collectes, m, "zaimu-ordinaire");
+                const zsPaye = getMemberZaimuPaid(collectes, m, "zaimu-special");
                 const zsAssigne = getMemberSpecialAssignment(ZAIMU_SPECIAL_CAMPAIGN, m);
                 const zsReste = Math.max(0, zsAssigne - zsPaye);
                 return (
-                <tr key={m.id} className={`border-b border-border hover:bg-muted/30 transition-colors ${i === paginatedMembers.length - 1 ? "border-b-0" : ""}`}>
+                <tr key={m.id} className={`group border-b border-border transition-colors hover:bg-muted/30 ${i === paginatedMembers.length - 1 ? "border-b-0" : ""}`}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
                       <MemberAvatar photo={m.photo} prenom={m.prenom} nom={m.nom} size="sm" />
@@ -1377,10 +1720,10 @@ function Membres({ role }: { role: PlatformRole }) {
                   <td className="px-4 py-3 text-xs text-muted-foreground">{m.chapitre.includes("–") ? m.chapitre.split("–")[1]?.trim() : m.chapitre}</td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">{m.district}</td>
                   <td className="px-4 py-3"><StatutBadge statut={m.statut} /></td>
-                  <td className="px-4 py-3 font-mono text-xs text-foreground">{formatCdf(zoPaye)}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-foreground">{formatFcfa(zoPaye)}</td>
                   <td className="px-4 py-3">
-                    <div className="font-mono text-xs text-foreground">{formatCdf(zsPaye)} / {formatCdf(zsAssigne)}</div>
-                    <div className="text-[10px] text-muted-foreground">Reste {formatCdf(zsReste)}</div>
+                    <div className="font-mono text-xs text-foreground">{formatFcfa(zsPaye)} / {formatFcfa(zsAssigne)}</div>
+                    <div className="text-[10px] text-muted-foreground">Reste {formatFcfa(zsReste)}</div>
                   </td>
                   <td className="px-4 py-3">
                     {m.abonnementVaguePaix
@@ -1388,6 +1731,11 @@ function Membres({ role }: { role: PlatformRole }) {
                       : <span className="text-xs text-muted-foreground">—</span>}
                   </td>
                   <td className="px-4 py-3">
+                    {m.sokahan
+                      ? <CheckCircle size={14} className="text-emerald-500" />
+                      : <span className="text-xs text-muted-foreground">—</span>}
+                  </td>
+                  <td className="sticky right-0 z-10 bg-card px-4 py-3 shadow-[-6px_0_12px_-8px_rgba(0,0,0,0.18)] group-hover:bg-muted/30">
                     <RowActionsMenu
                       actions={[
                         {
@@ -1400,20 +1748,36 @@ function Membres({ role }: { role: PlatformRole }) {
                           icon: <Edit2 size={14} />,
                           onClick: () => setSelected(m),
                         },
-                        {
-                          label: "Désactiver",
-                          icon: <UserX size={14} />,
-                          tone: "danger",
-                          onClick: () => {
-                            if (window.confirm(`Désactiver ${m.prenom} ${m.nom} ?`)) {
-                              setMembers((prev) =>
-                                prev.map((member) =>
-                                  member.id === m.id ? { ...member, statut: "Suspendu" } : member,
-                                ),
-                              );
-                            }
-                          },
-                        },
+                        ...(canPromote && canChangeMemberResponsabilite(role, m.responsabilite)
+                          ? [{
+                              label: "Promouvoir responsable",
+                              icon: <Shield size={14} />,
+                              onClick: () => {
+                                const roles = assignableRoles(role);
+                                const suggested = suggestedPlatformRole(m.responsabilite);
+                                setPromoteTarget(m);
+                                setPromoteRole(roles.includes(suggested) ? suggested : roles[0] || "groupe");
+                                setPromoteError(null);
+                                setPromoteInfo(null);
+                              },
+                            }]
+                          : []),
+                        ...(canDeactivateMember(role, m.responsabilite)
+                          ? [{
+                              label: "Désactiver",
+                              icon: <UserX size={14} />,
+                              tone: "danger" as const,
+                              onClick: () => {
+                                if (window.confirm(`Désactiver ${m.prenom} ${m.nom} ?`)) {
+                                  setMembers((prev) =>
+                                    prev.map((member) =>
+                                      member.id === m.id ? { ...member, statut: "Suspendu" } : member,
+                                    ),
+                                  );
+                                }
+                              },
+                            }]
+                          : []),
                       ]}
                     />
                   </td>
@@ -1470,161 +1834,10 @@ function Membres({ role }: { role: PlatformRole }) {
   );
 }
 
-// ─── Finances Module ──────────────────────────────────────────────────────────
-
-function Finances() {
-  const [typeFilter, setTypeFilter] = useState("Tous");
-  const [showForm, setShowForm] = useState(false);
-  const [formType, setFormType] = useState("Cotisation");
-  const [formMembre, setFormMembre] = useState("");
-  const [formMontant, setFormMontant] = useState("");
-
-  const types = ["Tous", "Cotisation", "Don Zaimu", "Abonnement"];
-  const filtered = transactions.filter((t) => typeFilter === "Tous" || t.type === typeFilter);
-
-  const totaux = useMemo(() => ({
-    cotisations: transactions.filter(t => t.type === "Cotisation" && t.statut === "Validé").reduce((a, t) => a + t.montant, 0),
-    dons: transactions.filter(t => t.type === "Don Zaimu" && t.statut === "Validé").reduce((a, t) => a + t.montant, 0),
-    abonnements: transactions.filter(t => t.type === "Abonnement" && t.statut === "Validé").reduce((a, t) => a + t.montant, 0),
-  }), []);
-
-  return (
-    <div className="dash-page">
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
-        {[
-          { label: "Cotisations validées", value: totaux.cotisations, color: "text-[var(--sgi-blue)]", bg: "bg-[var(--sgi-blue)]/10" },
-          { label: "Dons Zaimu validés", value: totaux.dons, color: "text-[var(--sgi-gold)]", bg: "bg-[var(--sgi-gold)]/15" },
-          { label: "Abonnements validés", value: totaux.abonnements, color: "text-[var(--sgi-red)]", bg: "bg-[var(--sgi-red)]/10" },
-        ].map(({ label, value, color, bg }) => (
-          <div key={label} className="flex items-center gap-3 rounded-xl border border-border bg-card p-4">
-            <div className={`${bg} ${color} rounded-lg p-2.5`}>
-              <Wallet size={16} />
-            </div>
-            <div className="min-w-0">
-              <div className="text-xs text-muted-foreground">{label}</div>
-              <div className={`truncate text-lg font-bold ${color}`} style={{ fontFamily: "var(--font-mono)" }}>{fmt(value)}</div>
-              <div className="text-xs text-muted-foreground">CDF</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Quick entry */}
-      <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <button
-          className="w-full flex items-center justify-between px-5 py-3.5 text-sm font-medium text-foreground hover:bg-muted/30 transition-colors"
-          onClick={() => setShowForm(!showForm)}
-        >
-          <div className="flex items-center gap-2">
-            <Plus size={15} className="text-[#1A3470]" />
-            Saisie rapide d'une transaction
-          </div>
-          {showForm ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        </button>
-        {showForm && (
-          <div className="grid grid-cols-1 gap-3 border-t border-border px-4 py-4 sm:grid-cols-2 sm:px-5 md:grid-cols-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Type</label>
-              <select value={formType} onChange={(e) => setFormType(e.target.value)}
-                className="dash-field">
-                {["Cotisation", "Don Zaimu", "Abonnement"].map((t) => <option key={t}>{t}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Membre</label>
-              <select value={formMembre} onChange={(e) => setFormMembre(e.target.value)}
-                className="dash-field">
-                <option value="">Sélectionner...</option>
-                {membres.map((m) => <option key={m.id}>{m.prenom} {m.nom}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block font-medium">Montant (CDF)</label>
-              <input value={formMontant} onChange={(e) => setFormMontant(e.target.value)}
-                type="number" placeholder="60 000"
-                className="w-full bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 ring-ring/30" />
-            </div>
-            <div className="flex items-end">
-              <button className="w-full bg-primary text-primary-foreground text-sm font-medium px-4 py-2 rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
-                <Send size={13} /> Enregistrer
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Transactions table */}
-      <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:px-5">
-          <span className="text-sm font-medium text-foreground">Transactions récentes</span>
-          <div className="flex flex-wrap gap-1.5 sm:ml-auto">
-            {types.map((t) => (
-              <button key={t} type="button" onClick={() => setTypeFilter(t)}
-                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${typeFilter === t ? "bg-[var(--sgi-blue)] text-white" : "bg-muted text-muted-foreground hover:bg-secondary"}`}>
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/40">
-                {["Référence", "Date", "Membre", "Type", "Montant", "Statut"].map((h) => (
-                  <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((t, i) => (
-                <tr key={t.id} className={`border-b border-border hover:bg-muted/30 transition-colors ${i === filtered.length - 1 ? "border-b-0" : ""}`}>
-                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{t.id}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{t.date}</td>
-                  <td className="px-4 py-3 font-medium text-foreground">{t.membre}</td>
-                  <td className="px-4 py-3"><TypeBadge type={t.type} /></td>
-                  <td className="px-4 py-3 font-medium text-foreground" style={{ fontFamily: "var(--font-mono)" }}>{fmt(t.montant)}</td>
-                  <td className="px-4 py-3"><StatutBadge statut={t.statut} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Report by district */}
-      <div className="bg-card rounded-xl border border-border p-5">
-        <div className="text-sm font-semibold text-foreground mb-4" style={{ fontFamily: "var(--font-display)" }}>Rapport par chapitre</div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border">
-                {["Chapitre", "Membres", "Cotisations (CDF)", "Dons Zaimu (CDF)", "Total"].map((h) => (
-                  <th key={h} className="text-left pb-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide pr-6">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {membresByChap.map((c, i) => (
-                <tr key={i} className={`border-b border-border ${i === membresByChap.length - 1 ? "border-b-0" : ""}`}>
-                  <td className="py-3 font-medium text-foreground pr-6">{c.chapitre.replace("\n", " ")}</td>
-                  <td className="py-3 text-muted-foreground pr-6" style={{ fontFamily: "var(--font-mono)" }}>{c.membres}</td>
-                  <td className="py-3 text-foreground pr-6" style={{ fontFamily: "var(--font-mono)" }}>{fmt(c.cotisations)}</td>
-                  <td className="py-3 text-foreground pr-6" style={{ fontFamily: "var(--font-mono)" }}>{fmt(c.dons)}</td>
-                  <td className="py-3 font-bold text-[#1A3470]" style={{ fontFamily: "var(--font-mono)" }}>{fmt(c.cotisations + c.dons)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Directives Module ────────────────────────────────────────────────────────
 
 function Directives() {
+  const orgTree = useOrgTree();
   const [showEditor, setShowEditor] = useState(false);
   const [titre, setTitre] = useState("");
   const [contenu, setContenu] = useState("");
@@ -1667,7 +1880,11 @@ function Directives() {
               <label className="text-xs text-muted-foreground mb-1 block font-medium">Audience cible</label>
               <select value={audience} onChange={(e) => setAudience(e.target.value)}
                 className="w-full md:w-72 bg-input-background border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:ring-2 ring-ring/30">
-                {["Tous les chapitres", ...CHAPITRE_NAMES, ...ALL_DISTRICT_NAMES].map((a) => (
+                {[
+                  "Tous les chapitres",
+                  ...orgTree.chapitres.map((item) => item.name),
+                  ...orgTree.districts.map((item) => item.name),
+                ].map((a) => (
                   <option key={a}>{a}</option>
                 ))}
               </select>
@@ -1741,101 +1958,224 @@ function Directives() {
 
 // ─── Statistiques Module ──────────────────────────────────────────────────────
 
-function Statistiques() {
-  const [axe, setAxe] = useState<"membres" | "cotisations" | "dons">("membres");
+function Statistiques({ role }: { role: PlatformRole }) {
+  const orgTree = useOrgTree();
+  const { members, collectes, loading } = useOpsData();
+  const [orgScope, setOrgScope] = useState<OrgScope>(() => DEMO_ORG_SCOPE[role]);
+  const [axe, setAxe] = useState<"membres" | "cotisations" | "zaimu-ordinaire" | "zaimu-special">(
+    "membres",
+  );
   const [fromDate, setFromDate] = useState(() => format(new Date(new Date().getFullYear(), 0, 1), "yyyy-MM-dd"));
   const [toDate, setToDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
 
-  const axeLabel: Record<string, string> = { membres: "Membres", cotisations: "Cotisations (CDF)", dons: "Dons Zaimu (CDF)" };
+  useEffect(() => {
+    let cancelled = false;
+    async function loadScope() {
+      if (hasRemoteProfiles()) {
+        const { data } = await fetchMyProfile();
+        if (!cancelled && data) {
+          let chapitre = data.chapitre_name || "";
+          let district = data.district_name || "";
+          let groupe = data.groupe_name || "";
+          if ((!chapitre || !district || !groupe) && (data.chapitre_id || data.district_id || data.groupe_id)) {
+            const names = orgTree.nameOf({
+              chapitreId: data.chapitre_id || "",
+              districtId: data.district_id || "",
+              groupeId: data.groupe_id || "",
+            });
+            chapitre = chapitre || names.chapitre;
+            district = district || names.district;
+            groupe = groupe || names.groupe;
+          }
+          setOrgScope(orgScopeFromProfile(role, { chapitre, district, groupe }));
+        } else if (!cancelled) {
+          setOrgScope(orgScopeFromProfile(role, {}));
+        }
+      } else if (!cancelled) {
+        setOrgScope(DEMO_ORG_SCOPE[role]);
+      }
+    }
+    void loadScope();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, orgTree.chapitres.length]);
 
-  const filteredTransactions = transactions.filter((t) => {
-    const date = parseISO(t.date);
-    const from = parseISO(fromDate);
-    const to = parseISO(toDate);
-    return date >= from && date <= to;
-  });
+  const axeLabel: Record<string, string> = {
+    membres: "Membres",
+    cotisations: "Vague de Paix (FCFA)",
+    "zaimu-ordinaire": "Zaimu ordinaire (FCFA)",
+    "zaimu-special": "Zaimu spécial (FCFA)",
+  };
+  const breakdownUnit = statsBreakdownUnitForRole(role);
+  const breakdownLabel = statsBreakdownLabel(breakdownUnit);
 
-  const totalCotisations = filteredTransactions
-    .filter((t) => t.type === "Cotisation")
-    .reduce((sum, t) => sum + t.montant, 0);
-  const totalDons = filteredTransactions
-    .filter((t) => t.type === "Don Zaimu")
-    .reduce((sum, t) => sum + t.montant, 0);
-  const totalTransactions = filteredTransactions.length;
-  const uniqueMembers = new Set(filteredTransactions.map((t) => t.membre)).size;
+  const scopedMembers = useMemo(
+    () => filterMembersByScope(members, orgScope),
+    [members, orgScope],
+  );
+  const scopedCollectes = useMemo(
+    () => filterCollectesByScope(collectes, orgScope),
+    [collectes, orgScope],
+  );
 
-  const trendData = cotisationsMensuelles.map((m) => ({
-    ...m,
-    donsMontant: Math.round(m.montant * 0.22),
-    abonnements: Math.round(m.membres * 0.43),
+  const periodCollectes = useMemo(
+    () =>
+      scopedCollectes.filter((c) => {
+        if (c.statut !== "Validé") return false;
+        const date = parseISO(c.date);
+        return date >= parseISO(fromDate) && date <= parseISO(toDate);
+      }),
+    [scopedCollectes, fromDate, toDate],
+  );
+
+  const filteredTransactions = useMemo(
+    () =>
+      periodCollectes.map((c, index) => ({
+        id: c.id || `tx-${index}`,
+        date: c.date,
+        membre: c.membre || "—",
+        type:
+          c.type === "vague-paix"
+            ? "Vague de Paix"
+            : c.type === "zaimu-ordinaire"
+              ? "Zaimu ordinaire"
+              : "Zaimu spécial",
+        montant: c.montant,
+        statut: c.statut,
+        chapitre: c.chapitre,
+        district: c.district,
+        groupe: c.groupe,
+      })),
+    [periodCollectes],
+  );
+
+  const totalCotisations = periodCollectes
+    .filter((c) => c.type === "vague-paix")
+    .reduce((sum, c) => sum + c.montant, 0);
+  const totalZaimuOrdinaire = periodCollectes
+    .filter((c) => c.type === "zaimu-ordinaire")
+    .reduce((sum, c) => sum + c.montant, 0);
+  const totalZaimuSpecial = periodCollectes
+    .filter((c) => c.type === "zaimu-special")
+    .reduce((sum, c) => sum + c.montant, 0);
+  const totalTransactions = periodCollectes.length;
+  const uniqueMembers = new Set(periodCollectes.map((c) => c.membre || "").filter(Boolean)).size;
+  const totalAbonnements = scopedMembers.filter((m) => m.abonnementVaguePaix).length;
+
+  const breakdownRows = useMemo(
+    () => buildStatsBreakdown(scopedMembers, periodCollectes, breakdownUnit),
+    [scopedMembers, periodCollectes, breakdownUnit],
+  );
+
+  const trendData = useMemo(() => {
+    const months: Array<{
+      mois: string;
+      montant: number;
+      zaimuOrdinaire: number;
+      zaimuSpecial: number;
+      membres: number;
+      abonnements: number;
+    }> = [];
+    const start = parseISO(fromDate);
+    const end = parseISO(toDate);
+    const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+    while (cursor <= end) {
+      const key = format(cursor, "yyyy-MM");
+      const label = format(cursor, "MMM yyyy");
+      const ofMonth = periodCollectes.filter((c) => c.date.startsWith(key));
+      months.push({
+        mois: label,
+        montant: ofMonth.filter((c) => c.type === "vague-paix").reduce((s, c) => s + c.montant, 0),
+        zaimuOrdinaire: ofMonth
+          .filter((c) => c.type === "zaimu-ordinaire")
+          .reduce((s, c) => s + c.montant, 0),
+        zaimuSpecial: ofMonth
+          .filter((c) => c.type === "zaimu-special")
+          .reduce((s, c) => s + c.montant, 0),
+        membres: scopedMembers.filter((m) => !m.adhesion || m.adhesion <= `${key}-31`).length,
+        abonnements: scopedMembers.filter((m) => m.abonnementVaguePaix).length,
+      });
+      cursor.setMonth(cursor.getMonth() + 1);
+      if (months.length > 18) break;
+    }
+    return months;
+  }, [periodCollectes, fromDate, toDate, scopedMembers]);
+
+  const barData = breakdownRows.map((row) => ({
+    name: row.label.replace("\n", " "),
+    Membres: row.membres,
+    Cotisations: row.cotisations,
+    "Zaimu ordinaire": row.zaimuOrdinaire,
+    "Zaimu spécial": row.zaimuSpecial,
   }));
-  const totalAbonnements = trendData.reduce((sum, m) => sum + m.abonnements, 0);
 
-  const barData = membresByChap.map((c) => ({
-    name: c.chapitre.replace("\n", " "),
-    Membres: c.membres,
-    Cotisations: c.cotisations,
-    Dons: c.dons,
-  }));
+  const consolidationHint =
+    role === "groupe"
+      ? "Bilan consolide du groupe"
+      : role === "district"
+        ? "Bilan consolide des groupes du district"
+        : role === "chapitre"
+          ? "Bilan consolide des districts du chapitre"
+          : "Point consolide du Centre";
+
+  const scopeSlug = (orgScope.groupe || orgScope.district || orgScope.chapitre || role)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gi, "_")
+    .replace(/^_|_$/g, "");
 
   const exportStatsPdf = () => {
-    const doc = new jsPDF({ unit: "pt", format: "a4" });
-    const title = "Rapport de statistiques du Centre";
-    doc.setFontSize(18);
-    doc.text(title, 40, 50);
-
-    doc.setFontSize(12);
-    doc.text(`Période : ${format(parseISO(fromDate), "dd MMM yyyy")} – ${format(parseISO(toDate), "dd MMM yyyy")}`, 40, 80);
-    doc.text(`Total de transactions : ${totalTransactions}`, 40, 100);
-    doc.text(`Membres actifs dans la période : ${uniqueMembers}`, 40, 120);
-    doc.text(`Total cotisations : ${fmt(totalCotisations)} CDF`, 40, 140);
-    doc.text(`Total dons : ${fmt(totalDons)} CDF`, 40, 160);
-    doc.text(`Abonnements estimés (6 mois) : ${fmt(totalAbonnements)} membres`, 40, 180);
-
-    doc.setFontSize(14);
-    doc.text("Synthèse par chapitre", 40, 220);
-    let y = 240;
-    doc.setFontSize(11);
-    doc.text("Chapitre", 40, y);
-    doc.text("Membres", 220, y);
-    doc.text("Cotisations", 350, y);
-    doc.text("Dons", 470, y);
-    y += 16;
-
-    membresByChap.forEach((c) => {
-      doc.text(c.chapitre.replace("\n", " "), 40, y);
-      doc.text(`${c.membres}`, 220, y);
-      doc.text(`${fmt(c.cotisations)} CDF`, 350, y);
-      doc.text(`${fmt(c.dons)} CDF`, 470, y);
-      y += 16;
-      if (y > 760) {
-        doc.addPage();
-        y = 50;
-      }
+    const kpis = computeMemberListKpis(scopedMembers, scopedCollectes, {
+      from: fromDate,
+      to: toDate,
     });
 
-    const filename = `statistiques_centre_${fromDate}_${toDate}.pdf`;
-    doc.save(filename);
+    exportStatisticsPdf({
+      roleLabel: ROLE_LABELS[role],
+      consolidationHint,
+      reportTitle:
+        role === "admin" || role === "centre"
+          ? "Bilan consolide du Centre"
+          : `Bilan consolide - ${orgScope.label}`,
+      scopeLabel: orgScope.label,
+      fromDateLabel: format(parseISO(fromDate), "dd/MM/yyyy"),
+      toDateLabel: format(parseISO(toDate), "dd/MM/yyyy"),
+      filename: `bilan_consolide_${scopeSlug}_${fromDate}_${toDate}.pdf`,
+      kpis,
+      summary: {
+        totalTransactions,
+        uniqueMembers,
+        totalCotisations,
+        totalZaimuOrdinaire,
+        totalZaimuSpecial,
+        totalAbonnements,
+      },
+    });
   };
 
   const exportStatsExcel = () => {
     const summaryData = [
-      { Clé: "Période", Valeur: `${format(parseISO(fromDate), "dd MMM yyyy")} – ${format(parseISO(toDate), "dd MMM yyyy")}` },
+      { Clé: "Périmètre", Valeur: orgScope.label },
+      { Clé: "Rôle", Valeur: ROLE_LABELS[role] },
+      { Clé: "Période", Valeur: `${format(parseISO(fromDate), "dd/MM/yyyy")} - ${format(parseISO(toDate), "dd/MM/yyyy")}` },
       { Clé: "Total de transactions", Valeur: totalTransactions },
-      { Clé: "Membres actifs", Valeur: uniqueMembers },
-      { Clé: "Total cotisations (CDF)", Valeur: totalCotisations },
-      { Clé: "Total dons (CDF)", Valeur: totalDons },
-      { Clé: "Abonnements estimés", Valeur: totalAbonnements },
+      { Clé: "Membres contributeurs", Valeur: uniqueMembers },
+      { Clé: "Vague de Paix (FCFA)", Valeur: totalCotisations },
+      { Clé: "Zaimu ordinaire (FCFA)", Valeur: totalZaimuOrdinaire },
+      { Clé: "Zaimu spécial (FCFA)", Valeur: totalZaimuSpecial },
+      { Clé: "Abonnements Vague de Paix", Valeur: totalAbonnements },
     ];
 
     const summarySheet = XLSX.utils.json_to_sheet(summaryData);
-    const chaptersSheet = XLSX.utils.json_to_sheet(
-      membresByChap.map((c) => ({
-        Chapitre: c.chapitre.replace("\n", " "),
-        Membres: c.membres,
-        Cotisations: c.cotisations,
-        Dons: c.dons,
-      }))
+    const breakdownSheet = XLSX.utils.json_to_sheet(
+      breakdownRows.map((row) => ({
+        [breakdownLabel]: row.label.replace("\n", " "),
+        Membres: row.membres,
+        "Zaimu ordinaire": row.zaimuOrdinaire,
+        "Zaimu spécial": row.zaimuSpecial,
+        "Abonnements VP": row.abonnementsVp,
+      })),
     );
     const transactionsSheet = XLSX.utils.json_to_sheet(
       filteredTransactions.map((t) => ({
@@ -1844,434 +2184,234 @@ function Statistiques() {
         Type: t.type,
         Montant: t.montant,
         Chapitre: t.chapitre,
-      }))
+        District: t.district,
+        Groupe: t.groupe,
+      })),
     );
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, summarySheet, "Résumé");
-    XLSX.utils.book_append_sheet(workbook, chaptersSheet, "Par chapitre");
+    XLSX.utils.book_append_sheet(workbook, breakdownSheet, `Par ${breakdownLabel}`);
     XLSX.utils.book_append_sheet(workbook, transactionsSheet, "Transactions");
 
-    const filename = `statistiques_centre_${fromDate}_${toDate}.xlsx`;
-    XLSX.writeFile(workbook, filename);
+    XLSX.writeFile(workbook, `statistiques_${scopeSlug}_${fromDate}_${toDate}.xlsx`);
   };
 
   return (
-    <div className="dash-page">
-      <div className="overflow-hidden rounded-2xl border border-border bg-card">
-        <div className="sgi-tricolor h-1.5 w-full" aria-hidden />
-        <div className="flex flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
-              Exporter les statistiques
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Rapport PDF / Excel structuré pour la période sélectionnée.
-            </div>
-          </div>
-          <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end lg:w-auto">
-            <div className="grid flex-1 grid-cols-2 gap-2 sm:flex-none">
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Du</span>
-                <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="dash-field" />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Au</span>
-                <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="dash-field" />
-              </label>
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:flex">
-              <button
-                type="button"
-                onClick={exportStatsPdf}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--sgi-blue)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
-              >
-                <Download size={14} /> Export PDF
-              </button>
-              <button
-                type="button"
-                onClick={exportStatsExcel}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--sgi-gold)]/40 bg-[var(--sgi-gold)]/10 px-4 py-2.5 text-sm font-semibold text-[var(--sgi-gold)] transition hover:bg-[var(--sgi-gold)]/20"
-              >
-                <Download size={14} /> Export Excel
-              </button>
-            </div>
-          </div>
+    <div className="dash-page gap-5 sm:gap-6">
+      {loading && (
+        <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+          Synchronisation des statistiques depuis Membres et Collectes…
         </div>
-      </div>
+      )}
+
+      <MembersKpiPanel
+        role={role}
+        members={members}
+        collectes={collectes}
+        orgScope={orgScope}
+        fromDate={fromDate}
+        toDate={toDate}
+        onFromDateChange={setFromDate}
+        onToDateChange={setToDate}
+        onExportPdf={exportStatsPdf}
+        onExportExcel={exportStatsExcel}
+      />
 
       <div className="bg-card rounded-xl border border-border p-5">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div>
-            <div className="text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>Analyse croisée par chapitre</div>
-            <div className="text-xs text-muted-foreground">Comparaison multi-indicateurs</div>
+            <div className="text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+              Analyse croisée par {breakdownLabel.toLowerCase()}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Comparaison multi-indicateurs
+            </div>
           </div>
           <div className="flex gap-1.5">
-            {(["membres", "cotisations", "dons"] as const).map((k) => (
+            {(
+              ["membres", "cotisations", "zaimu-ordinaire", "zaimu-special"] as const
+            ).map((k) => (
               <button key={k} onClick={() => setAxe(k)}
-                className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors capitalize ${axe === k ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-secondary"}`}>
+                className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${axe === k ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-secondary"}`}>
                 {axeLabel[k]}
               </button>
             ))}
           </div>
         </div>
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={barData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
-            <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false}
-              tickFormatter={axe === "membres" ? undefined : (v) => `${(v / 1000000).toFixed(1)}M`} />
-            <Tooltip contentStyle={{ background: "#fff", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 8, fontSize: 12 }}
-              formatter={(v: number) => [axe === "membres" ? v : `${fmt(v)} CDF`]} />
-            <Bar dataKey={axe === "membres" ? "Membres" : axe === "cotisations" ? "Cotisations" : "Dons"}
-              fill="#1A3470" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        {barData.length === 0 ? (
+          <div className="flex h-[260px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-4 text-center text-sm text-muted-foreground">
+            —
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={barData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false}
+                tickFormatter={axe === "membres" ? undefined : (v) => `${(v / 1000000).toFixed(1)}M`} />
+              <Tooltip contentStyle={{ background: "#fff", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 8, fontSize: 12 }}
+                formatter={(v: number) => [axe === "membres" ? v : `${fmt(v)} FCFA`]} />
+              <Bar
+                dataKey={
+                  axe === "membres"
+                    ? "Membres"
+                    : axe === "cotisations"
+                      ? "Cotisations"
+                      : axe === "zaimu-ordinaire"
+                        ? "Zaimu ordinaire"
+                        : "Zaimu spécial"
+                }
+                fill={axe === "zaimu-special" ? "#C23A2B" : axe === "zaimu-ordinaire" ? "#C4920E" : "#1A3470"}
+                radius={[4, 4, 0, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       {/* Trend area charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-card rounded-xl border border-border p-5">
-          <div className="text-sm font-semibold text-foreground mb-0.5" style={{ fontFamily: "var(--font-display)" }}>Cotisations vs Dons Zaimu</div>
-          <div className="text-xs text-muted-foreground mb-4">Évolution sur 6 mois (CDF)</div>
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={trendData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="gradBlue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#1A3470" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#1A3470" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="gradGold" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#C4920E" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#C4920E" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
-              <XAxis dataKey="mois" tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
-              <Tooltip contentStyle={{ background: "#fff", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 8, fontSize: 12 }}
-                formatter={(v: number, name: string) => [`${fmt(v)} CDF`, name]} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Area type="monotone" dataKey="montant" name="Cotisations" stroke="#1A3470" fill="url(#gradBlue)" strokeWidth={2} dot={{ r: 2.5, fill: "#1A3470" }} />
-              <Area type="monotone" dataKey="donsMontant" name="Dons Zaimu" stroke="#C4920E" fill="url(#gradGold)" strokeWidth={2} dot={{ r: 2.5, fill: "#C4920E" }} />
-            </AreaChart>
-          </ResponsiveContainer>
+          <div className="text-sm font-semibold text-foreground mb-0.5" style={{ fontFamily: "var(--font-display)" }}>
+            Vague de Paix, Zaimu ordinaire & spécial
+          </div>
+          <div className="text-xs text-muted-foreground mb-4">Évolution sur la période (FCFA)</div>
+          {trendData.length === 0 ? (
+            <div className="flex h-[200px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-4 text-center text-sm text-muted-foreground">
+              —
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={trendData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="gradBlue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#1A3470" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="#1A3470" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gradGold" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#C4920E" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="#C4920E" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gradRed" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#C23A2B" stopOpacity={0.18} />
+                    <stop offset="95%" stopColor="#C23A2B" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+                <XAxis dataKey="mois" tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
+                <Tooltip contentStyle={{ background: "#fff", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 8, fontSize: 12 }}
+                  formatter={(v: number, name: string) => [`${fmt(v)} FCFA`, name]} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Area type="monotone" dataKey="montant" name="Vague de Paix" stroke="#1A3470" fill="url(#gradBlue)" strokeWidth={2} dot={{ r: 2.5, fill: "#1A3470" }} />
+                <Area type="monotone" dataKey="zaimuOrdinaire" name="Zaimu ordinaire" stroke="#C4920E" fill="url(#gradGold)" strokeWidth={2} dot={{ r: 2.5, fill: "#C4920E" }} />
+                <Area type="monotone" dataKey="zaimuSpecial" name="Zaimu spécial" stroke="#C23A2B" fill="url(#gradRed)" strokeWidth={2} dot={{ r: 2.5, fill: "#C23A2B" }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         <div className="bg-card rounded-xl border border-border p-5">
           <div className="text-sm font-semibold text-foreground mb-0.5" style={{ fontFamily: "var(--font-display)" }}>Membres vs Abonnements Vague de Paix</div>
           <div className="text-xs text-muted-foreground mb-4">Évolution sur 6 mois</div>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={trendData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
-              <XAxis dataKey="mois" tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ background: "#fff", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 8, fontSize: 12 }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="membres" name="Membres actifs" stroke="#1A3470" strokeWidth={2} dot={{ r: 3, fill: "#1A3470" }} />
-              <Line type="monotone" dataKey="abonnements" name="Abonnements VP" stroke="#2E7D52" strokeWidth={2} strokeDasharray="4 2" dot={{ r: 3, fill: "#2E7D52" }} />
-            </LineChart>
-          </ResponsiveContainer>
+          {trendData.length === 0 ? (
+            <div className="flex h-[200px] items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-4 text-center text-sm text-muted-foreground">
+              —
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={trendData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+                <XAxis dataKey="mois" tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#6478A0" }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ background: "#fff", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 8, fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="membres" name="Membres actifs" stroke="#1A3470" strokeWidth={2} dot={{ r: 3, fill: "#1A3470" }} />
+                <Line type="monotone" dataKey="abonnements" name="Abonnements VP" stroke="#2E7D52" strokeWidth={2} strokeDasharray="4 2" dot={{ r: 3, fill: "#2E7D52" }} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 
       {/* Summary table */}
       <div className="bg-card rounded-xl border border-border p-5">
-        <div className="text-sm font-semibold text-foreground mb-4" style={{ fontFamily: "var(--font-display)" }}>Tableau de synthèse par chapitre</div>
+        <div className="mb-1 text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+          Tableau de synthèse par {breakdownLabel.toLowerCase()}
+        </div>
+        <div className="mb-4 text-xs text-muted-foreground">
+          Les totaux de ce périmètre alimentent le cumul supérieur jusqu’au Centre.
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
-                {["Chapitre", "Membres", "Cotisations (CDF)", "Dons (CDF)", "Abonnements VP", "Ratio VP"].map((h) => (
+                {[
+                  breakdownLabel,
+                  "Membres",
+                  "Zaimu ordinaire",
+                  "Zaimu spécial",
+                  "Abonnements VP",
+                  "Ratio VP",
+                ].map((h) => (
                   <th key={h} className="text-left pb-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide pr-4">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {membresByChap.map((c, i) => {
-                const vp = Math.round(c.membres * 0.43);
-                const ratio = Math.round((vp / c.membres) * 100);
-                return (
-                  <tr key={i} className={`border-b border-border hover:bg-muted/20 transition-colors ${i === membresByChap.length - 1 ? "border-b-0" : ""}`}>
-                    <td className="py-3 font-medium text-foreground pr-4">{c.chapitre.replace("\n", " ")}</td>
-                    <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{c.membres}</td>
-                    <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{fmt(c.cotisations)}</td>
-                    <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{fmt(c.dons)}</td>
-                    <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{vp}</td>
-                    <td className="py-3 pr-4">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 bg-muted rounded-full h-1.5 min-w-16">
-                          <div className="bg-[#2E7D52] h-1.5 rounded-full" style={{ width: `${ratio}%` }} />
+              {breakdownRows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-2 py-10 text-center text-sm text-muted-foreground">
+                    —
+                  </td>
+                </tr>
+              ) : (
+                breakdownRows.map((row, i) => {
+                  const ratio = row.membres > 0 ? Math.round((row.abonnementsVp / row.membres) * 100) : 0;
+                  return (
+                    <tr key={row.key} className={`border-b border-border hover:bg-muted/20 transition-colors ${i === breakdownRows.length - 1 ? "border-b-0" : ""}`}>
+                      <td className="py-3 font-medium text-foreground pr-4">{row.label.replace("\n", " ")}</td>
+                      <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{row.membres}</td>
+                      <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{fmt(row.zaimuOrdinaire)}</td>
+                      <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{fmt(row.zaimuSpecial)}</td>
+                      <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{row.abonnementsVp}</td>
+                      <td className="py-3 pr-4">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-muted rounded-full h-1.5 min-w-16">
+                            <div className="bg-[#2E7D52] h-1.5 rounded-full" style={{ width: `${ratio}%` }} />
+                          </div>
+                          <span className="text-xs font-medium text-muted-foreground" style={{ fontFamily: "var(--font-mono)" }}>{ratio}%</span>
                         </div>
-                        <span className="text-xs font-medium text-muted-foreground" style={{ fontFamily: "var(--font-mono)" }}>{ratio}%</span>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
+            {breakdownRows.length > 1 && (
+              <tfoot>
+                <tr className="border-t border-border bg-muted/30">
+                  <td className="py-3 font-semibold text-foreground pr-4">Total périmètre</td>
+                  <td className="py-3 font-semibold pr-4" style={{ fontFamily: "var(--font-mono)" }}>
+                    {breakdownRows.reduce((s, r) => s + r.membres, 0)}
+                  </td>
+                  <td className="py-3 font-semibold pr-4" style={{ fontFamily: "var(--font-mono)" }}>
+                    {fmt(breakdownRows.reduce((s, r) => s + r.zaimuOrdinaire, 0))}
+                  </td>
+                  <td className="py-3 font-semibold pr-4" style={{ fontFamily: "var(--font-mono)" }}>
+                    {fmt(breakdownRows.reduce((s, r) => s + r.zaimuSpecial, 0))}
+                  </td>
+                  <td className="py-3 font-semibold pr-4" style={{ fontFamily: "var(--font-mono)" }}>
+                    {breakdownRows.reduce((s, r) => s + r.abonnementsVp, 0)}
+                  </td>
+                  <td className="py-3 pr-4 text-xs text-muted-foreground">Cumul</td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>
-    </div>
-  );
-}
-
-// ─── Settings Module ───────────────────────────────────────────────────────
-
-type SettingsTab = "users" | "rbac" | "general";
-
-function SettingsModule({ currentUserRole }: { currentUserRole: PlatformRole }) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("users");
-  const [profiles, setProfiles] = useState(INITIAL_PROFILES);
-  const [selectedRole, setSelectedRole] = useState<PlatformRole>("admin");
-  const [selectedProfile, setSelectedProfile] = useState<Profile | null>(INITIAL_PROFILES[0]);
-  const [rbacMatrix, setRbacMatrix] = useState(RBAC_MATRIX);
-  const [appSettings, setAppSettings] = useState({ darkMode: false, emailAlerts: true, autoUpdates: false });
-
-  const updateProfile = (id: number, patch: Partial<Profile>) => {
-    setProfiles((current) => current.map((profile) => profile.id === id ? { ...profile, ...patch } : profile));
-    setSelectedProfile((current) => current && current.id === id ? { ...current, ...patch } : current);
-  };
-
-  const visibleProfiles = useMemo(() => {
-    if (!selectedRole) return profiles;
-    return profiles.filter((profile) => profile.role === selectedRole);
-  }, [profiles, selectedRole]);
-
-  const addNewProfile = () => {
-    const nextId = Math.max(...profiles.map((profile) => profile.id)) + 1;
-    const newProfile: Profile = {
-      id: nextId,
-      name: "Nouvel utilisateur",
-      email: "nouveau.utilisateur@sgi.org",
-      role: "groupe",
-      status: "En attente",
-      chapitre: defaultChapitre(),
-      department: "Administration",
-      telephone: "",
-      quartier: "",
-      bio: "",
-    };
-    setProfiles((current) => [...current, newProfile]);
-    setSelectedProfile(newProfile);
-    setSelectedRole("groupe");
-  };
-
-  const toggleRbacPermission = (module: string, role: PlatformRole) => {
-    setRbacMatrix((current) => current.map((row) => row.module === module ? {
-      ...row,
-      roles: { ...row.roles, [role]: !row.roles[role] },
-    } : row));
-  };
-
-  const renderTabContent = () => {
-    switch (activeTab) {
-      case "users":
-        return (
-          <div className="grid grid-cols-1 xl:grid-cols-[1.3fr_0.7fr] gap-4">
-            <div className="bg-card rounded-2xl border border-border overflow-hidden">
-              <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-                <div>
-                  <div className="text-sm font-semibold text-foreground">Gestion des utilisateurs</div>
-                  <div className="text-xs text-muted-foreground">Ajouter, modifier et gérer les profils</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={addNewProfile}
-                  className="rounded-lg bg-[var(--sgi-blue)] px-3 py-2 text-xs font-medium text-white sm:py-1.5"
-                >
-                  Ajouter un utilisateur
-                </button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/40">
-                      <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Profil</th>
-                      <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rôle</th>
-                      <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Statut</th>
-                      <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleProfiles.map((profile) => (
-                      <tr key={profile.id} className="border-b border-border last:border-b-0 hover:bg-muted/20">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-semibold flex items-center justify-center">
-                              {profile.name.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase()}
-                            </div>
-                            <div>
-                              <div className="font-medium text-foreground">{profile.name}</div>
-                              <div className="text-xs text-muted-foreground">{profile.email}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={profile.role}
-                            onChange={(e) => updateProfile(profile.id, { role: e.target.value as PlatformRole })}
-                            className="rounded-lg border border-border bg-input-background px-2 py-1.5 text-xs outline-none"
-                          >
-                            {ALLOWED_ROLES.map((role) => (
-                              <option key={role} value={role}>{ROLE_LABELS[role]}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          <select
-                            value={profile.status}
-                            onChange={(e) => updateProfile(profile.id, { status: e.target.value as ProfileStatus })}
-                            className="rounded-lg border border-border bg-input-background px-2 py-1.5 text-xs outline-none"
-                          >
-                            {(["Actif", "En attente", "Suspendu"] as ProfileStatus[]).map((status) => (
-                              <option key={status} value={status}>{status}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          <RowActionsMenu
-                            actions={[
-                              {
-                                label: "Voir",
-                                icon: <Eye size={14} />,
-                                onClick: () => setSelectedProfile(profile),
-                              },
-                              {
-                                label: "Supprimer",
-                                icon: <UserX size={14} />,
-                                tone: "danger",
-                                onClick: () => {
-                                  if (window.confirm(`Supprimer ${profile.name} ?`)) {
-                                    setProfiles((current) => current.filter((item) => item.id !== profile.id));
-                                  }
-                                },
-                              },
-                            ]}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <div className="bg-card rounded-2xl border border-border p-5">
-              <div className="text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>Informations sélection</div>
-              {selectedProfile ? (
-                <div className="mt-4 space-y-3">
-                  <div className="rounded-xl border border-border bg-muted/30 p-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Nom</div>
-                    <div className="font-medium text-foreground">{selectedProfile.name}</div>
-                  </div>
-                  <div className="rounded-xl border border-border bg-muted/30 p-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Email</div>
-                    <div className="font-medium text-foreground">{selectedProfile.email}</div>
-                  </div>
-                  <div className="rounded-xl border border-border bg-muted/30 p-4">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Rôle</div>
-                    <div className="font-medium text-foreground">{ROLE_LABELS[selectedProfile.role]}</div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-sm text-muted-foreground">Sélectionnez un utilisateur pour afficher ses détails.</div>
-              )}
-            </div>
-          </div>
-        );
-      case "rbac":
-        return (
-          <div className="bg-card rounded-2xl border border-border p-5">
-            <div className="text-sm font-semibold text-foreground mb-4" style={{ fontFamily: "var(--font-display)" }}>Configuration RBAC</div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/40">
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Module</th>
-                    {ALLOWED_ROLES.map((role) => (
-                      <th key={role} className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">{ROLE_LABELS[role]}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rbacMatrix.map((row) => (
-                    <tr key={row.module} className="border-b border-border last:border-b-0 hover:bg-muted/20">
-                      <td className="px-3 py-2.5 font-medium text-foreground">{row.module}</td>
-                      {ALLOWED_ROLES.map((role) => (
-                        <td key={`${row.module}-${role}`} className="px-3 py-2.5">
-                          <button
-                            onClick={() => toggleRbacPermission(row.module, role)}
-                            className={`rounded-full px-3 py-1 text-xs font-medium transition ${row.roles[role] ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"}`}
-                          >
-                            {row.roles[role] ? "Oui" : "Non"}
-                          </button>
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        );
-      case "general":
-        return (
-          <div className="bg-card rounded-2xl border border-border p-5">
-            <div className="text-sm font-semibold text-foreground mb-4" style={{ fontFamily: "var(--font-display)" }}>Paramètres généraux</div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {[
-                { label: "Mode sombre", key: "darkMode" },
-                { label: "Notifications par email", key: "emailAlerts" },
-                { label: "Mises à jour automatiques", key: "autoUpdates" },
-              ].map((setting) => (
-                <label key={setting.key} className="flex items-center justify-between rounded-2xl border border-border bg-muted/30 px-4 py-4">
-                  <div>
-                    <div className="text-sm font-medium text-foreground">{setting.label}</div>
-                    <div className="text-xs text-muted-foreground">Activez ou désactivez cette option</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={appSettings[setting.key as keyof typeof appSettings]}
-                    onChange={(e) => setAppSettings((current) => ({ ...current, [setting.key]: e.target.checked }))}
-                    className="h-5 w-5 rounded border border-border bg-input-background text-primary"
-                  />
-                </label>
-              ))}
-            </div>
-          </div>
-        );
-      default:
-        return null;
-    }
-  };
-
-  return (
-    <div className="dash-page">
-      <div className="bg-card rounded-2xl border border-border p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div>
-            <div className="text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>Paramètres</div>
-            <div className="text-xs text-muted-foreground">Utilisateurs, RBAC et options générales (admin / centre).</div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {([
-              { key: "users", label: "Utilisateurs" },
-              { key: "rbac", label: "RBAC" },
-              { key: "general", label: "Paramètres" },
-            ] as const).map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`rounded-full px-3 py-2 text-xs font-medium transition ${activeTab === tab.key ? "bg-primary text-primary-foreground" : "border border-border bg-transparent text-muted-foreground hover:bg-muted/70"}`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-      {renderTabContent()}
     </div>
   );
 }
@@ -2283,9 +2423,11 @@ const MODULE_TITLES: Record<string, string> = {
   contenu: "Gestion du contenu — Landing page",
   membres: "Gestion des membres",
   collectes: "Collectes — Vague de Paix & Zaimu",
-  finances: "Module Finances",
   directives: "Directives & Communications",
   statistiques: "Statistiques & Analyses",
+  chapitres: "Organisation — Chapitres",
+  districts: "Organisation — Districts",
+  groupes: "Organisation — Groupes",
   profil: "Mon profil",
   settings: "Paramètres & RBAC",
 };
@@ -2325,6 +2467,13 @@ export default function App() {
     resolveInitialRole(typeof window !== "undefined" ? window.location.pathname : location.pathname),
   );
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [moduleAccess, setModuleAccess] = useState(() => loadModuleAccess());
+  const orgTree = useOrgTree();
+  const [sessionProfile, setSessionProfile] = useState<SessionProfile>({
+    name: "",
+    photo: "",
+    orgScope: DEMO_ORG_SCOPE.centre,
+  });
 
   useEffect(() => {
     const resolved = readStoredRole() ?? roleFromPath(location.pathname);
@@ -2341,9 +2490,83 @@ export default function App() {
     window.localStorage.setItem("sgi-current-role", currentUserRole);
   }, [currentUserRole]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSessionProfile() {
+      if (!currentUserRole) return;
+      if (!hasRemoteProfiles()) {
+        if (!cancelled) {
+          setSessionProfile({
+            name: "",
+            photo: "",
+            orgScope: DEMO_ORG_SCOPE[currentUserRole],
+          });
+        }
+        return;
+      }
+      const { data } = await fetchMyProfile();
+      if (cancelled) return;
+      if (!data) {
+        setSessionProfile({
+          name: "",
+          photo: "",
+          orgScope: orgScopeFromProfile(currentUserRole, {}),
+        });
+        return;
+      }
+      let chapitre = data.chapitre_name || "";
+      let district = data.district_name || "";
+      let groupe = data.groupe_name || "";
+      if ((!chapitre || !district || !groupe) && (data.chapitre_id || data.district_id || data.groupe_id)) {
+        const names = orgTree.nameOf({
+          chapitreId: data.chapitre_id || "",
+          districtId: data.district_id || "",
+          groupeId: data.groupe_id || "",
+        });
+        chapitre = chapitre || names.chapitre;
+        district = district || names.district;
+        groupe = groupe || names.groupe;
+      }
+      setSessionProfile({
+        name: data.full_name || data.email || "",
+        photo: data.photo_url || "",
+        orgScope: orgScopeFromProfile(currentUserRole, { chapitre, district, groupe }),
+      });
+    }
+    void loadSessionProfile();
+    const onProfileUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<Partial<SessionProfile>>).detail;
+      if (!detail) {
+        void loadSessionProfile();
+        return;
+      }
+      setSessionProfile((prev) => ({
+        name: detail.name ?? prev.name,
+        photo: detail.photo ?? prev.photo,
+        orgScope: detail.orgScope ?? prev.orgScope,
+      }));
+    };
+    window.addEventListener(PROFILE_UPDATED_EVENT, onProfileUpdated);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(PROFILE_UPDATED_EVENT, onProfileUpdated);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserRole, orgTree.chapitres.length]);
+
+  useEffect(() => {
+    const onRbacChanged = () => setModuleAccess(loadModuleAccess());
+    window.addEventListener(RBAC_CHANGED_EVENT, onRbacChanged);
+    window.addEventListener("storage", onRbacChanged);
+    return () => {
+      window.removeEventListener(RBAC_CHANGED_EVENT, onRbacChanged);
+      window.removeEventListener("storage", onRbacChanged);
+    };
+  }, []);
+
   const allowedModules = useMemo(
-    () => (currentUserRole ? MODULE_ACCESS[currentUserRole] : []),
-    [currentUserRole],
+    () => (currentUserRole ? moduleAccess[currentUserRole] ?? [] : []),
+    [currentUserRole, moduleAccess],
   );
 
   useEffect(() => {
@@ -2366,6 +2589,13 @@ export default function App() {
   };
 
   const handleOpenSettings = () => {
+    if (
+      currentUserRole !== "admin" &&
+      currentUserRole !== "centre" &&
+      currentUserRole !== "chapitre"
+    ) {
+      return;
+    }
     switchModule("settings");
     setProfileMenuOpen(false);
     setSidebarOpen(false);
@@ -2383,6 +2613,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    void signOut();
     window.localStorage.removeItem("sgi-current-role");
     setProfileMenuOpen(false);
     setCurrentUserRole(null);
@@ -2398,6 +2629,7 @@ export default function App() {
   }
 
   return (
+    <OpsDataProvider>
     <div className="flex h-screen overflow-hidden bg-background" style={{ fontFamily: "var(--font-sans)" }}>
       <Sidebar
         active={activeModule}
@@ -2406,6 +2638,7 @@ export default function App() {
         setCollapsed={setCollapsed}
         allowedModules={allowedModules}
         role={currentUserRole}
+        sessionProfile={sessionProfile}
         onOpenSettings={handleOpenSettings}
         onLogout={handleLogout}
       />
@@ -2432,6 +2665,7 @@ export default function App() {
               onNavigate={handleNavigate}
               allowedModules={allowedModules}
               role={currentUserRole}
+              sessionProfile={sessionProfile}
               onLogout={handleLogout}
               onClose={() => setSidebarOpen(false)}
             />
@@ -2443,6 +2677,7 @@ export default function App() {
         <Topbar
           title={MODULE_TITLES[activeModule]}
           role={currentUserRole}
+          sessionProfile={sessionProfile}
           onOpenProfile={handleOpenProfile}
           onOpenSettings={handleOpenSettings}
           onOpenContent={handleOpenContent}
@@ -2459,17 +2694,32 @@ export default function App() {
             scrollbarColor: "rgba(0,0,0,0.1) transparent",
           }}
         >
-          {activeModule === "dashboard" && <Dashboard role={currentUserRole} />}
+          {activeModule === "dashboard" && (
+            <Dashboard role={currentUserRole} orgScope={sessionProfile.orgScope} />
+          )}
           {activeModule === "contenu" && (currentUserRole === "admin" || currentUserRole === "centre") && (
             <AdminEditLanding />
           )}
           {activeModule === "membres" && <Membres role={currentUserRole} />}
           {activeModule === "collectes" && <CollectesModule role={currentUserRole} />}
-          {activeModule === "finances" && <Finances />}
           {activeModule === "directives" && <Directives />}
-          {activeModule === "statistiques" && <Statistiques />}
+          {activeModule === "statistiques" && <Statistiques role={currentUserRole} />}
+          {activeModule === "chapitres" && (currentUserRole === "admin" || currentUserRole === "centre") && (
+            <ChapitresModule />
+          )}
+          {activeModule === "districts" && (currentUserRole === "admin" || currentUserRole === "centre") && (
+            <DistrictsModule />
+          )}
+          {activeModule === "groupes" && (currentUserRole === "admin" || currentUserRole === "centre") && (
+            <GroupesModule />
+          )}
           {activeModule === "profil" && <ProfilePage role={currentUserRole} />}
-          {activeModule === "settings" && <SettingsModule currentUserRole={currentUserRole} />}
+          {activeModule === "settings" &&
+            (currentUserRole === "admin" ||
+              currentUserRole === "centre" ||
+              currentUserRole === "chapitre") && (
+              <SettingsModule currentUserRole={currentUserRole} />
+            )}
           <footer className="border-t border-border px-4 py-3 sm:px-6">
             <DeveloperCredit variant="muted" className="text-center sm:text-left" />
           </footer>
@@ -2478,5 +2728,6 @@ export default function App() {
 
       <DashboardAiAssistant role={currentUserRole} />
     </div>
+    </OpsDataProvider>
   );
 }
