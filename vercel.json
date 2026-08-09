@@ -51,7 +51,7 @@
   ],
   "rewrites": [
     {
-      "source": "/((?!api/|assets/).*)",
+      "source": "/((?!api/|assets/|sw\\.js|registerSW\\.js|manifest\\.webmanifest|.*\\..*).*)",
       "destination": "/index.html"
     }
   ]

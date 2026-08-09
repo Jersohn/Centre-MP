@@ -21,6 +21,46 @@
         } catch (e) {}
       })();
     </script>
+    <script>
+      (function () {
+        var KEY = "sgi-cache-bust-v17";
+        try {
+          if (localStorage.getItem(KEY) === "done") return;
+          var hadController = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
+          var tasks = [];
+          if ("serviceWorker" in navigator) {
+            tasks.push(
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                return Promise.all(
+                  regs.map(function (reg) {
+                    return reg.unregister();
+                  }),
+                );
+              }),
+            );
+          }
+          if ("caches" in window) {
+            tasks.push(
+              caches.keys().then(function (keys) {
+                return Promise.all(
+                  keys.map(function (key) {
+                    return caches.delete(key);
+                  }),
+                );
+              }),
+            );
+          }
+          Promise.all(tasks)
+            .then(function () {
+              localStorage.setItem(KEY, "done");
+              if (hadController) location.reload();
+            })
+            .catch(function () {
+              localStorage.setItem(KEY, "done");
+            });
+        } catch (e) {}
+      })();
+    </script>
     <title>Centre Miroir Parfait — SGI Côte d’Ivoire</title>
     <meta
       name="description"
