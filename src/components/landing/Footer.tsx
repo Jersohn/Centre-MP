@@ -92,12 +92,9 @@ export function Footer() {
           </div>
         </div>
         <Reveal delay={0.1} y={10}>
-          <div className="space-y-3 border-t border-white/10 pt-6 text-xs text-slate-500 sm:text-sm">
-            <div className="sm:flex sm:items-center sm:justify-between">
-              <p>© 2026 Soka Gakkai International — Centre Miroir Parfait, Côte d’Ivoire.</p>
-              <p className="mt-3 sm:mt-0">Application installable sur votre appareil</p>
-            </div>
-            <DeveloperCredit variant="dark" />
+          <div className="border-t border-white/10 pt-6 text-xs text-slate-500 sm:flex sm:items-center sm:justify-between sm:text-sm">
+            <p>© 2026 Soka Gakkai International — Centre Miroir Parfait, Côte d’Ivoire.</p>
+            <DeveloperCredit variant="dark" className="mt-3 sm:mt-0" />
           </div>
         </Reveal>
       </div>
