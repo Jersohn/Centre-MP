@@ -140,8 +140,9 @@ export async function sendAiChat(input: GroqChatRequest): Promise<string> {
     mode: input.mode,
     model: resolveModel(),
     messages,
-    temperature: input.mode === "site" ? 0.75 : 0.35,
-    max_tokens: 900,
+    // Plus bas = réponses plus factuelles / moins génériques
+    temperature: input.mode === "site" ? 0.35 : 0.2,
+    max_tokens: 1200,
   };
 
   try {

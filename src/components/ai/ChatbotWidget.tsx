@@ -9,7 +9,8 @@ export type ChatbotWidgetProps = {
   subtitle: string;
   welcome: string;
   suggestions: string[];
-  buildContext: () => string;
+  /** Reçoit la question courante pour rechercher dans les pages / données. */
+  buildContext: (question: string) => string;
   /** Décalage bas (mobile nav site, etc.) */
   fabOffsetClass?: string;
   accent?: "blue" | "gold";
@@ -80,7 +81,7 @@ export function ChatbotWidget({
       const reply = await sendAiChat({
         mode,
         messages: conversation,
-        context: buildContext(),
+        context: buildContext(content),
       });
 
       setMessages((prev) => [...prev, { id: uid(), role: "assistant", content: reply }]);

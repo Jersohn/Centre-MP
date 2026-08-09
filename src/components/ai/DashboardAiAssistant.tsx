@@ -12,10 +12,10 @@ export function DashboardAiAssistant({ role }: Props) {
     <ChatbotWidget
       mode="dashboard"
       title="Assistant pilotage"
-      subtitle={`${ROLE_LABELS[role]} · points clés rapides`}
-      welcome={`Bonjour. Je suis votre assistant de pilotage (${ROLE_LABELS[role]}). Demandez-moi un résumé d’indicateurs, un point Vague de Paix / Zaimu, ou les alertes de votre périmètre.`}
+      subtitle={`${ROLE_LABELS[role]} · réponses précises sur votre périmètre`}
+      welcome={`Bonjour. Je suis votre assistant de pilotage (${ROLE_LABELS[role]}). Je m’appuie sur les indicateurs, membres et collectes de votre périmètre pour répondre précisément. Que souhaitez-vous savoir ?`}
       suggestions={DASHBOARD_SUGGESTIONS}
-      buildContext={() => buildDashboardContext(role)}
+      buildContext={(question) => buildDashboardContext(role, question)}
       fabOffsetClass="bottom-6"
       accent="gold"
     />

@@ -9,10 +9,10 @@ export function PublicSiteChatbot() {
     <ChatbotWidget
       mode="site"
       title="Assistant du centre"
-      subtitle="Questions des visiteurs · réponses naturelles"
-      welcome="Bonjour et bienvenue au Centre Miroir Parfait. Je peux vous parler du centre, des activités, de l’agenda ou des contacts. Que souhaitez-vous savoir ?"
+      subtitle="Réponses précises à partir des pages du site"
+      welcome="Bonjour et bienvenue au Centre Miroir Parfait. Je parcours le contenu du site (accueil, agenda, actualités, lecture du jour, témoignages, contacts…) pour vous répondre précisément. Que souhaitez-vous savoir ?"
       suggestions={SITE_SUGGESTIONS}
-      buildContext={buildSiteContext}
+      buildContext={(question) => buildSiteContext(question)}
       fabOffsetClass="bottom-24 lg:bottom-6"
       accent="blue"
     />
