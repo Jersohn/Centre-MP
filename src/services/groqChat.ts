@@ -10,6 +10,10 @@ export type GroqChatRequest = {
   context?: string;
 };
 
+/** Message affiché à l’utilisateur (jamais de jargon .env / clés). */
+export const FRIENDLY_CHAT_ERROR =
+  "Je suis temporairement indisponible. Merci de réessayer dans un instant.";
+
 function resolveModel() {
   return import.meta.env.VITE_GROQ_MODEL?.trim() || DEFAULT_MODEL;
 }
@@ -23,6 +27,55 @@ function aiChatEndpoint() {
   return `${base}/api/ai-chat`;
 }
 
+/** Convertit n’importe quelle erreur API en chaîne lisible. */
+export function stringifyError(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (value instanceof Error) return value.message.trim();
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.message === "string" && obj.message.trim()) return obj.message.trim();
+    if (typeof obj.error === "string" && obj.error.trim()) return obj.error.trim();
+    if (obj.error && typeof obj.error === "object") {
+      const nested = stringifyError(obj.error);
+      if (nested) return nested;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
+  }
+  return String(value);
+}
+
+/** Message utilisateur selon le contexte (prod = neutre). */
+export function toUserFacingChatError(error: unknown): string {
+  const raw = stringifyError(error);
+  if (!raw || raw === "[object Object]") return FRIENDLY_CHAT_ERROR;
+
+  // Ne jamais exposer la config / les clés aux visiteurs
+  if (
+    /GROQ_API_KEY|\.env|Vercel|clé Groq|gsk_|Authorization|api key/i.test(raw)
+  ) {
+    return FRIENDLY_CHAT_ERROR;
+  }
+
+  if (/network|failed to fetch|load failed|timeout/i.test(raw)) {
+    return "La connexion a échoué. Vérifiez votre réseau puis réessayez.";
+  }
+
+  if (/rate limit|429|quota|capacity/i.test(raw)) {
+    return "L’assistant est très sollicité pour le moment. Réessayez dans quelques instants.";
+  }
+
+  // En production, rester générique ; en local, un peu plus précis
+  if (import.meta.env.PROD) return FRIENDLY_CHAT_ERROR;
+
+  if (raw.length > 180) return FRIENDLY_CHAT_ERROR;
+  return raw;
+}
+
 async function callGroqDirect(payload: {
   model: string;
   messages: AiChatMessage[];
@@ -31,9 +84,7 @@ async function callGroqDirect(payload: {
 }): Promise<string> {
   const key = clientApiKey();
   if (!key) {
-    throw new Error(
-      "Clé Groq manquante. En production, définissez GROQ_API_KEY sur Vercel. En local, ajoutez-la dans Centre-MP/.env."
-    );
+    throw new Error(FRIENDLY_CHAT_ERROR);
   }
 
   const response = await fetch(GROQ_URL, {
@@ -46,14 +97,15 @@ async function callGroqDirect(payload: {
   });
 
   if (!response.ok) {
-    throw new Error(`Impossible de joindre Groq (${response.status}).`);
+    const payloadErr = await response.json().catch(() => null);
+    throw new Error(stringifyError(payloadErr?.error) || FRIENDLY_CHAT_ERROR);
   }
 
   const data = (await response.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
   };
   const content = data.choices?.[0]?.message?.content?.trim();
-  if (!content) throw new Error("Réponse vide de l’assistant.");
+  if (!content) throw new Error(FRIENDLY_CHAT_ERROR);
   return content;
 }
 
@@ -69,11 +121,13 @@ function buildMessages(input: GroqChatRequest): AiChatMessage[] {
   ];
 }
 
-async function readApiPayload(response: Response): Promise<{ content?: string; error?: string } | null> {
+async function readApiPayload(
+  response: Response
+): Promise<{ content?: string; error?: unknown } | null> {
   const type = response.headers.get("content-type") || "";
   if (!type.includes("application/json")) return null;
   try {
-    return (await response.json()) as { content?: string; error?: string };
+    return (await response.json()) as { content?: string; error?: unknown };
   } catch {
     return null;
   }
@@ -103,8 +157,9 @@ export async function sendAiChat(input: GroqChatRequest): Promise<string> {
       return data.content.trim();
     }
 
-    if (data?.error) {
-      throw new Error(data.error);
+    const apiError = stringifyError(data?.error);
+    if (apiError) {
+      throw new Error(apiError);
     }
 
     // API absente (HTML SPA / 404) → repli client si clé VITE présente
@@ -112,7 +167,7 @@ export async function sendAiChat(input: GroqChatRequest): Promise<string> {
       return callGroqDirect(body);
     }
 
-    throw new Error(`Erreur assistant (${response.status}).`);
+    throw new Error(FRIENDLY_CHAT_ERROR);
   } catch (error) {
     if (clientApiKey()) {
       try {
@@ -121,9 +176,7 @@ export async function sendAiChat(input: GroqChatRequest): Promise<string> {
         /* keep original */
       }
     }
-    throw error instanceof Error
-      ? error
-      : new Error("Impossible de contacter l’assistant pour le moment.");
+    throw new Error(toUserFacingChatError(error));
   }
 }
 

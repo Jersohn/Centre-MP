@@ -28,6 +28,19 @@ function parseBody(req) {
   return req.body;
 }
 
+function asErrorMessage(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "object") {
+    if (typeof value.message === "string") return value.message.trim();
+    if (typeof value.error === "string") return value.error.trim();
+    if (value.error && typeof value.error.message === "string") {
+      return value.error.message.trim();
+    }
+  }
+  return "";
+}
+
 module.exports = async function handler(req, res) {
   if (req.method === "OPTIONS") {
     sendJson(res, 204, {});
@@ -41,9 +54,10 @@ module.exports = async function handler(req, res) {
 
   const apiKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY;
   if (!apiKey) {
-    sendJson(res, 501, {
-      error:
-        "Clé Groq absente côté serveur. Ajoutez GROQ_API_KEY dans les variables d’environnement Vercel, puis redéployez.",
+    // Message neutre côté client ; le détail reste dans les logs Vercel
+    console.error("[ai-chat] GROQ_API_KEY manquante dans les variables d’environnement.");
+    sendJson(res, 503, {
+      error: "L’assistant est temporairement indisponible. Merci de réessayer dans un instant.",
     });
     return;
   }
@@ -72,23 +86,30 @@ module.exports = async function handler(req, res) {
 
     const payload = await groqResponse.json().catch(() => ({}));
     if (!groqResponse.ok) {
-      sendJson(res, groqResponse.status, {
-        error: payload?.error?.message || `Erreur Groq (${groqResponse.status})`,
+      const detail = asErrorMessage(payload?.error) || asErrorMessage(payload);
+      console.error("[ai-chat] Groq error", groqResponse.status, detail || payload);
+      sendJson(res, groqResponse.status >= 500 ? 503 : groqResponse.status, {
+        error:
+          groqResponse.status === 429
+            ? "L’assistant est très sollicité pour le moment. Réessayez dans quelques instants."
+            : "L’assistant est temporairement indisponible. Merci de réessayer dans un instant.",
       });
       return;
     }
 
     const content = payload?.choices?.[0]?.message?.content?.trim() || "";
     if (!content) {
-      sendJson(res, 502, { error: "Réponse vide de Groq." });
+      sendJson(res, 503, {
+        error: "L’assistant est temporairement indisponible. Merci de réessayer dans un instant.",
+      });
       return;
     }
 
     sendJson(res, 200, { content });
   } catch (error) {
-    sendJson(res, 500, {
-      error: "Impossible de joindre Groq.",
-      details: String(error),
+    console.error("[ai-chat] unexpected", error);
+    sendJson(res, 503, {
+      error: "L’assistant est temporairement indisponible. Merci de réessayer dans un instant.",
     });
   }
 };

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Bot, Loader2, MessageCircle, Send, Sparkles, X } from "lucide-react";
 import type { AiChatMessage, AiChatMode } from "../../services/aiAssistants";
-import { sendAiChat } from "../../services/groqChat";
+import { FRIENDLY_CHAT_ERROR, sendAiChat, toUserFacingChatError } from "../../services/groqChat";
 
 export type ChatbotWidgetProps = {
   mode: AiChatMode;
@@ -85,18 +85,14 @@ export function ChatbotWidget({
 
       setMessages((prev) => [...prev, { id: uid(), role: "assistant", content: reply }]);
     } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "L’assistant est temporairement indisponible.";
-      setError(message);
+      const message = toUserFacingChatError(err) || FRIENDLY_CHAT_ERROR;
+      setError(null);
       setMessages((prev) => [
         ...prev,
         {
           id: uid(),
           role: "assistant",
-          content:
-            "Je n’ai pas pu répondre pour le moment. Vérifiez la clé Groq dans `.env`, puis réessayez.",
+          content: message,
         },
       ]);
     } finally {
