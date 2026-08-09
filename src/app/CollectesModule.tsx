@@ -16,6 +16,7 @@ import {
   Users,
   Wallet,
   X,
+  Hash,
 } from "lucide-react";
 import { RowActionsMenu } from "./RowActionsMenu";
 import { MemberAvatar } from "./MemberAvatar";
@@ -39,6 +40,8 @@ export interface CollecteRecord {
   groupe: string;
   periode: string;
   motif: string;
+  /** Référence du reçu (optionnelle). */
+  referenceRecu: string;
   note: string;
 }
 
@@ -97,6 +100,7 @@ export const COLLECTES_SEED: CollecteRecord[] = [
     groupe: "Groupe A",
     periode: "Août 2026",
     motif: "",
+    referenceRecu: "RC-VP-260801",
     note: "Abonnement annuel en cours",
   },
   {
@@ -111,6 +115,7 @@ export const COLLECTES_SEED: CollecteRecord[] = [
     groupe: "Groupe B",
     periode: "Août 2026",
     motif: "",
+    referenceRecu: "",
     note: "",
   },
   {
@@ -125,6 +130,7 @@ export const COLLECTES_SEED: CollecteRecord[] = [
     groupe: "Groupe C",
     periode: "Juillet 2026",
     motif: "",
+    referenceRecu: "RC-VP-260728",
     note: "",
   },
   {
@@ -139,6 +145,7 @@ export const COLLECTES_SEED: CollecteRecord[] = [
     groupe: "Groupe A",
     periode: "Août 2026",
     motif: "",
+    referenceRecu: "RC-ZO-260802",
     note: "Don mensuel",
   },
   {
@@ -153,6 +160,7 @@ export const COLLECTES_SEED: CollecteRecord[] = [
     groupe: "Groupe D",
     periode: "Août 2026",
     motif: "",
+    referenceRecu: "RC-ZO-260804",
     note: "",
   },
   {
@@ -167,6 +175,7 @@ export const COLLECTES_SEED: CollecteRecord[] = [
     groupe: "Groupe B",
     periode: "Juillet 2026",
     motif: "",
+    referenceRecu: "",
     note: "Paiement non abouti",
   },
   {
@@ -181,6 +190,7 @@ export const COLLECTES_SEED: CollecteRecord[] = [
     groupe: "Groupe C",
     periode: "Campagne 2026",
     motif: "Construction du centre",
+    referenceRecu: "RC-ZS-260805",
     note: "Don exceptionnel",
   },
   {
@@ -195,6 +205,7 @@ export const COLLECTES_SEED: CollecteRecord[] = [
     groupe: "Groupe A",
     periode: "Campagne 2026",
     motif: "Solidarité jeunesse",
+    referenceRecu: "",
     note: "",
   },
   {
@@ -209,6 +220,7 @@ export const COLLECTES_SEED: CollecteRecord[] = [
     groupe: "Groupe D",
     periode: "Campagne 2026",
     motif: "Équipement butsudan",
+    referenceRecu: "RC-ZS-260720",
     note: "",
   },
 ];
@@ -224,6 +236,7 @@ const emptyForm = (type: CollecteTab): Omit<CollecteRecord, "id"> => ({
   groupe: GROUPE_OPTIONS[0],
   periode: type === "zaimu-special" ? "Campagne 2026" : "Août 2026",
   motif: "",
+  referenceRecu: "",
   note: "",
 });
 
@@ -349,6 +362,11 @@ function DetailModal({
           <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Informations</p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <DetailField icon={CalendarDays} label="Période / campagne" value={record.periode || "—"} />
+            <DetailField
+              icon={Hash}
+              label="Référence du reçu"
+              value={record.referenceRecu?.trim() ? record.referenceRecu : "Non renseignée"}
+            />
             <DetailField icon={Building2} label="Chapitre" value={record.chapitre} />
             <DetailField icon={MapPinned} label="District" value={record.district} />
             <DetailField icon={Users} label="Groupe" value={record.groupe} />
@@ -370,7 +388,14 @@ function DetailModal({
             <p className="mt-2 text-sm leading-relaxed text-foreground/85">
               {meta.label} pour <strong>{record.membre}</strong>
               {record.motif ? ` — ${record.motif}` : ""}. Montant de{" "}
-              <strong>{fmt(record.montant)} CDF</strong>, statut <strong>{record.statut}</strong>.
+              <strong>{fmt(record.montant)} CDF</strong>, statut <strong>{record.statut}</strong>
+              {record.referenceRecu?.trim() ? (
+                <>
+                  {" "}
+                  · reçu <strong>{record.referenceRecu}</strong>
+                </>
+              ) : null}
+              .
             </p>
           </div>
         </div>
@@ -438,6 +463,7 @@ function CollecteFormModal({
       groupe: values.groupe,
       periode: values.periode,
       motif: values.motif,
+      referenceRecu: (values.referenceRecu || "").trim(),
       note: values.note,
     });
   };
@@ -564,6 +590,17 @@ function CollecteFormModal({
               </div>
             )}
             <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                Référence du reçu <span className="font-normal text-muted-foreground/80">(optionnel)</span>
+              </label>
+              <input
+                className="dash-field"
+                value={values.referenceRecu || ""}
+                onChange={(e) => set("referenceRecu", e.target.value)}
+                placeholder="Ex. RC-2026-0812"
+              />
+            </div>
+            <div className="sm:col-span-2">
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Note</label>
               <textarea
                 rows={3}
@@ -616,7 +653,8 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
           item.membre.toLowerCase().includes(q) ||
           item.id.toLowerCase().includes(q) ||
           item.groupe.toLowerCase().includes(q) ||
-          item.motif.toLowerCase().includes(q)
+          item.motif.toLowerCase().includes(q) ||
+          (item.referenceRecu || "").toLowerCase().includes(q)
         );
       })
       .sort((a, b) => b.date.localeCompare(a.date));
@@ -879,6 +917,9 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
                   {fmt(item.montant)} CDF
                 </span>
                 <span>{item.groupe}</span>
+                {item.referenceRecu?.trim() && (
+                  <span className="font-mono text-foreground/80">Reçu {item.referenceRecu}</span>
+                )}
                 {item.motif && <span>{item.motif}</span>}
               </div>
             </article>
@@ -890,22 +931,30 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                {["Référence", "Date", "Membre", "Montant", tab === "zaimu-special" ? "Motif" : "Période", "Groupe", "Statut", "Actions"].map(
-                  (header) => (
+                {[
+                  "N°",
+                  "Réf. reçu",
+                  "Date",
+                  "Membre",
+                  "Montant",
+                  tab === "zaimu-special" ? "Motif" : "Période",
+                  "Groupe",
+                  "Statut",
+                  "Actions",
+                ].map((header) => (
                     <th
                       key={header}
                       className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                     >
                       {header}
                     </th>
-                  ),
-                )}
+                  ))}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-muted-foreground">
                     Aucun enregistrement pour cet onglet.
                   </td>
                 </tr>
@@ -913,6 +962,9 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
               {filtered.map((item) => (
                 <tr key={item.id} className="border-b border-border last:border-b-0 hover:bg-muted/20">
                   <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{item.id}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-foreground">
+                    {item.referenceRecu?.trim() ? item.referenceRecu : "—"}
+                  </td>
                   <td className="px-4 py-3 text-xs text-muted-foreground">{item.date}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">

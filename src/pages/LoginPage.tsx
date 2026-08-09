@@ -17,6 +17,7 @@ import {
 import sgiLogo from "../../image/logo-sgi.jpg";
 import { landingImages } from "../assets/landing/images";
 import { hasSupabaseAuth, signInWithEmail } from "../services/authService";
+import { DeveloperCredit } from "../components/DeveloperCredit";
 import { easeOutSoft } from "../components/landing/motion";
 
 const profiles = [
@@ -377,6 +378,10 @@ export function LoginPage() {
               <Link to="/" className="text-sm font-semibold text-[var(--sgi-blue)] hover:underline">
                 Retour au site public
               </Link>
+            </div>
+
+            <div className="mt-6 flex justify-center border-t border-border pt-4">
+              <DeveloperCredit variant="light" className="text-center" />
             </div>
           </div>
         </motion.main>

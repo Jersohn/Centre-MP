@@ -19,13 +19,15 @@ export const COLLECTE_IMPORT_COLUMNS = [
   "Groupe",
   "Periode",
   "Motif",
+  "ReferenceRecu",
   "Note",
 ] as const;
 
 export type CollecteImportColumn = (typeof COLLECTE_IMPORT_COLUMNS)[number];
 
 export const COLLECTE_EXPORT_FIELDS: ExportFieldOption[] = [
-  { key: "Référence", label: "Référence" },
+  { key: "N° enregistrement", label: "N° enregistrement" },
+  { key: "Référence reçu", label: "Référence reçu" },
   { key: "Membre", label: "Membre" },
   { key: "Montant (CDF)", label: "Montant" },
   { key: "Date", label: "Date" },
@@ -39,7 +41,8 @@ export const COLLECTE_EXPORT_FIELDS: ExportFieldOption[] = [
 ];
 
 export const COLLECTE_EXPORT_DEFAULT_FIELDS = [
-  "Référence",
+  "N° enregistrement",
+  "Référence reçu",
   "Membre",
   "Montant (CDF)",
   "Date",
@@ -61,6 +64,7 @@ const EXAMPLE_ROW: Record<CollecteImportColumn, string> = {
   Groupe: "Groupe A",
   Periode: "Août 2026",
   Motif: "",
+  ReferenceRecu: "RC-VP-260801",
   Note: "Exemple — à remplacer",
 };
 
@@ -69,6 +73,7 @@ const GUIDE_ROWS = [
   { Champ: "Montant", Regle: "Nombre entier (CDF), sans séparateur" },
   { Champ: "Date", Regle: "Format AAAA-MM-JJ" },
   { Champ: "Statut", Regle: "En attente | Validé | Annulé" },
+  { Champ: "ReferenceRecu", Regle: "Optionnel — référence du reçu papier / mobile money" },
   { Champ: "Motif", Regle: "Recommandé pour Zaimu spécial" },
   { Champ: "Type", Regle: "Défini automatiquement par l’onglet actif à l’import" },
 ];
@@ -91,7 +96,8 @@ function ensureLeadingMember(fields: string[]) {
 
 export function collecteToExportRow(record: CollecteRecord): Record<string, string | number> {
   return {
-    Référence: record.id,
+    "N° enregistrement": record.id,
+    "Référence reçu": record.referenceRecu || "",
     Membre: record.membre,
     "Montant (CDF)": record.montant,
     Date: record.date,
@@ -181,6 +187,11 @@ export function parseCollectesImportWorkbook(
       groupe: cell(row, "Groupe") || "Groupe A",
       periode: cell(row, "Periode") || cell(row, "Période") || "",
       motif: cell(row, "Motif"),
+      referenceRecu:
+        cell(row, "ReferenceRecu") ||
+        cell(row, "Référence reçu") ||
+        cell(row, "Reference reçu") ||
+        "",
       note: cell(row, "Note"),
     });
   });

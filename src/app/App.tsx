@@ -21,6 +21,7 @@ import {
 import sgiLogo from "../../image/logo-sgi.jpg";
 import { createMemberFromForm, readImageAsDataUrl } from "./memberFormUtils";
 import { DashboardAiAssistant } from "../components/ai/DashboardAiAssistant";
+import { DeveloperCredit } from "../components/DeveloperCredit";
 import { MEMBERS_SEED } from "./membersData";
 import { MemberAvatar } from "./MemberAvatar";
 import AdminEditLanding from "../pages/AdminEditLanding";
@@ -457,6 +458,11 @@ function SidebarShell({
           </span>
           {!collapsed && <span>Déconnexion</span>}
         </button>
+        {!collapsed && (
+          <div className="mt-2 px-1">
+            <DeveloperCredit variant="muted" />
+          </div>
+        )}
       </div>
     </>
   );
@@ -2312,6 +2318,9 @@ export default function App() {
           {activeModule === "statistiques" && <Statistiques />}
           {activeModule === "profil" && <ProfilePage role={currentUserRole} />}
           {activeModule === "settings" && <SettingsModule currentUserRole={currentUserRole} />}
+          <footer className="border-t border-border px-4 py-3 sm:px-6">
+            <DeveloperCredit variant="muted" className="text-center sm:text-left" />
+          </footer>
         </main>
       </div>
 

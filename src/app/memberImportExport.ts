@@ -14,6 +14,7 @@ export type ZaimuSpecialPaymentRow = CollectePayment & {
   motif?: string;
   periode?: string;
   date?: string;
+  referenceRecu?: string;
 };
 
 export const MEMBER_IMPORT_COLUMNS = [
@@ -90,7 +91,8 @@ export const ZAIMU_BILAN_EXPORT_FIELDS: ExportFieldOption[] = [
 ];
 
 export const ZAIMU_PAYMENT_EXPORT_FIELDS: ExportFieldOption[] = [
-  { key: "Référence", label: "Référence", group: "Paiements" },
+  { key: "Référence", label: "N° enregistrement", group: "Paiements" },
+  { key: "Référence reçu", label: "Référence reçu", group: "Paiements" },
   { key: "Date", label: "Date", group: "Paiements" },
   { key: "Membre", label: "Membre", group: "Paiements" },
   { key: "Montant (CDF)", label: "Montant", group: "Paiements" },
@@ -117,6 +119,7 @@ export const ZAIMU_EXPORT_DEFAULT_FIELDS = [
   "Reste (CDF)",
   "Statut cota",
   "Référence",
+  "Référence reçu",
   "Date",
   "Montant (CDF)",
   "Statut",
@@ -430,6 +433,7 @@ function buildZaimuSpecialPaymentRows(members: MemberRecord[], collectes: ZaimuS
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
     .map((c) => ({
       Référence: c.id || "—",
+      "Référence reçu": c.referenceRecu || "—",
       Date: c.date || "—",
       Membre: c.membre,
       "Montant (CDF)": c.montant,
