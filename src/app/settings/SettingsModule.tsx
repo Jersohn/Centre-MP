@@ -154,6 +154,11 @@ export default function SettingsModule({ currentUserRole }: { currentUserRole: P
   const [usersLoading, setUsersLoading] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const [actorOrg, setActorOrg] = useState<{
+    chapitre: string;
+    district: string;
+    groupe: string;
+  }>({ chapitre: "", district: "", groupe: "" });
   const orgTree = useOrgTree();
   const [orgDraft, setOrgDraft] = useState<OrgSelectionIds & { unassigned: boolean }>({
     chapitreId: "",
@@ -220,6 +225,7 @@ export default function SettingsModule({ currentUserRole }: { currentUserRole: P
         if (!cancelled) {
           setCurrentUserId(null);
           setCurrentUserEmail(null);
+          setActorOrg({ chapitre: "", district: "", groupe: "" });
         }
         return;
       }
@@ -227,12 +233,22 @@ export default function SettingsModule({ currentUserRole }: { currentUserRole: P
       if (cancelled || !data) return;
       setCurrentUserId(data.id);
       setCurrentUserEmail((data.email || "").toLowerCase());
+      const names = orgTree.nameOf({
+        chapitreId: data.chapitre_id || "",
+        districtId: data.district_id || "",
+        groupeId: data.groupe_id || "",
+      });
+      setActorOrg({
+        chapitre: data.chapitre_name || names.chapitre || "",
+        district: data.district_name || names.district || "",
+        groupe: data.groupe_name || names.groupe || "",
+      });
     }
     void loadSelf();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [orgTree.loading, orgTree.chapitres.length, orgTree.nameOf]);
 
   useEffect(() => {
     if (!toast) return;
@@ -527,7 +543,7 @@ export default function SettingsModule({ currentUserRole }: { currentUserRole: P
   };
 
   const toggleRbacPermission = (moduleKey: string, role: PlatformRole) => {
-    // Paramètres verrouillés : oui admin/centre/chapitre, non district/groupe
+    // Paramètres verrouillés : oui admin/centre/chapitre/district, non groupe
     if (moduleKey === "settings") return;
     setRbacMatrix((current) =>
       current.map((row) =>
@@ -1192,6 +1208,15 @@ export default function SettingsModule({ currentUserRole }: { currentUserRole: P
         actorRole={currentUserRole}
         variant="modal"
         open={addUserOpen}
+        initialOrg={
+          currentUserRole === "chapitre" || currentUserRole === "district"
+            ? {
+                chapitre: actorOrg.chapitre,
+                district: actorOrg.district,
+                groupe: actorOrg.groupe,
+              }
+            : undefined
+        }
         onCancel={() => setAddUserOpen(false)}
         onSuccess={({ user, temporaryPassword, message }) => {
           if (user) {

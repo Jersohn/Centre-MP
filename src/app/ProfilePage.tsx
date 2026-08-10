@@ -913,7 +913,10 @@ export default function ProfilePage({ role }: Props) {
                   <div>
                     <p className="font-medium text-foreground">{item.campaign.label}</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      {item.orgLabel} · à répartir vers le niveau suivant
+                      {item.orgLabel} ·{" "}
+                      {item.level === "groupe"
+                        ? "à répartir entre les membres"
+                        : "à répartir vers le niveau suivant"}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">

@@ -15,8 +15,11 @@ import { ROLE_LABELS } from "./roles";
 import { useOrgTree } from "./useOrgTree";
 import type { CollectePayment } from "./zaimuQuota";
 import { formatFcfa } from "./zaimuQuota";
+import { memberFullName } from "./membersData";
+import { useOpsData } from "./opsDataStore";
 import { fetchMyProfile } from "../services/profileService";
 import { RowActionsMenu } from "./RowActionsMenu";
+import { useConfirm } from "./ConfirmDialog";
 import {
   createSpecialCampaign,
   deleteSpecialCampaign,
@@ -38,6 +41,7 @@ type Props = {
   /** Ouvre directement une campagne (ex. depuis le profil). */
   initialCampaignId?: string | null;
   compact?: boolean;
+  onCampaignChange?: (campaignId: string | null) => void;
 };
 
 type DraftRow = {
@@ -46,6 +50,7 @@ type DraftRow = {
   chapitre_id: string | null;
   district_id: string | null;
   groupe_id: string | null;
+  member_id: string | null;
   assigne: number;
   date_echeance: string;
   paye: number;
@@ -54,14 +59,40 @@ type DraftRow = {
 function paidForScope(
   collectes: CollectePayment[],
   scope: { chapitre?: string; district?: string; groupe?: string },
+  campaignLabel?: string,
 ) {
+  const label = (campaignLabel || "").trim().toLowerCase();
   return collectes
     .filter((c) => c.type === "zaimu-special" && c.statut === "Validé")
     .filter((c) => {
       if (scope.chapitre && c.chapitre !== scope.chapitre) return false;
       if (scope.district && c.district !== scope.district) return false;
       if (scope.groupe && c.groupe !== scope.groupe) return false;
+      if (label) {
+        const periode = (c.periode || "").trim().toLowerCase();
+        const motif = (c.motif || "").trim().toLowerCase();
+        if (periode !== label && motif !== label) return false;
+      }
       return true;
+    })
+    .reduce((sum, c) => sum + c.montant, 0);
+}
+
+function paidForMember(
+  collectes: CollectePayment[],
+  memberName: string,
+  campaignLabel?: string,
+) {
+  const name = memberName.trim().toLowerCase();
+  const label = (campaignLabel || "").trim().toLowerCase();
+  return collectes
+    .filter((c) => c.type === "zaimu-special" && c.statut === "Validé")
+    .filter((c) => c.membre.trim().toLowerCase() === name)
+    .filter((c) => {
+      if (!label) return true;
+      const periode = (c.periode || "").trim().toLowerCase();
+      const motif = (c.motif || "").trim().toLowerCase();
+      return periode === label || motif === label;
     })
     .reduce((sum, c) => sum + c.montant, 0);
 }
@@ -84,8 +115,11 @@ export default function ZaimuSpecialCampaignsPanel({
   collectes,
   initialCampaignId = null,
   compact = false,
+  onCampaignChange,
 }: Props) {
+  const { confirm } = useConfirm();
   const orgTree = useOrgTree();
+  const { members } = useOpsData();
   const canEdit = editableChildLevel(role);
   const canCreate = role === "admin" || role === "centre";
 
@@ -96,7 +130,8 @@ export default function ZaimuSpecialCampaignsPanel({
   const [profileScope, setProfileScope] = useState<{
     chapitre_id: string | null;
     district_id: string | null;
-  }>({ chapitre_id: null, district_id: null });
+    groupe_id: string | null;
+  }>({ chapitre_id: null, district_id: null, groupe_id: null });
   const [objectif, setObjectif] = useState(0);
   const [echeanceCampagne, setEcheanceCampagne] = useState("");
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
@@ -124,7 +159,7 @@ export default function ZaimuSpecialCampaignsPanel({
     const chapitre_id = profileRes.data?.chapitre_id ?? null;
     const district_id = profileRes.data?.district_id ?? null;
     const groupe_id = profileRes.data?.groupe_id ?? null;
-    setProfileScope({ chapitre_id, district_id });
+    setProfileScope({ chapitre_id, district_id, groupe_id });
 
     if (canCreate) {
       const listRes = await listSpecialCampaigns();
@@ -181,6 +216,10 @@ export default function ZaimuSpecialCampaignsPanel({
   }, [initialCampaignId]);
 
   useEffect(() => {
+    onCampaignChange?.(selectedId);
+  }, [selectedId, onCampaignChange]);
+
+  useEffect(() => {
     if (!selectedId) {
       setCampaign(null);
       setDrafts([]);
@@ -192,6 +231,7 @@ export default function ZaimuSpecialCampaignsPanel({
   useEffect(() => {
     if (!campaign || orgTree.loading) return;
 
+    const campaignLabel = campaign.label;
     const findRow = (
       level: "chapitre" | "district" | "groupe",
       ids: { chapitre_id?: string | null; district_id?: string | null; groupe_id?: string | null },
@@ -221,9 +261,10 @@ export default function ZaimuSpecialCampaignsPanel({
             chapitre_id: c.id,
             district_id: null,
             groupe_id: null,
+            member_id: null,
             assigne: Number(existing?.assigne || 0),
             date_echeance: existing?.date_echeance || fallbackDate,
-            paye: paidForScope(collectes, { chapitre: c.name }),
+            paye: paidForScope(collectes, { chapitre: c.name }, campaignLabel),
           };
         }),
       );
@@ -247,12 +288,17 @@ export default function ZaimuSpecialCampaignsPanel({
             chapitre_id: d.chapitre_id,
             district_id: d.id,
             groupe_id: null,
+            member_id: null,
             assigne: Number(existing?.assigne || 0),
             date_echeance: existing?.date_echeance || fallbackDate,
-            paye: paidForScope(collectes, {
-              chapitre: d.chapitre_name || undefined,
-              district: d.name,
-            }),
+            paye: paidForScope(
+              collectes,
+              {
+                chapitre: d.chapitre_name || undefined,
+                district: d.name,
+              },
+              campaignLabel,
+            ),
           };
         }),
       );
@@ -266,24 +312,70 @@ export default function ZaimuSpecialCampaignsPanel({
       );
       setDrafts(
         groupes.map((g) => {
+          const parentDistrict = orgTree.districts.find((d) => d.id === g.district_id);
+          const chapitreId = g.chapitre_id || parentDistrict?.chapitre_id || null;
           const existing = findRow("groupe", {
-            chapitre_id: g.chapitre_id,
+            chapitre_id: chapitreId,
             district_id: g.district_id,
             groupe_id: g.id,
           });
           return {
             key: g.id,
             label: g.name,
-            chapitre_id: g.chapitre_id || null,
+            chapitre_id: chapitreId,
             district_id: g.district_id,
             groupe_id: g.id,
+            member_id: null,
             assigne: Number(existing?.assigne || 0),
             date_echeance: existing?.date_echeance || fallbackDate,
-            paye: paidForScope(collectes, {
-              chapitre: g.chapitre_name || undefined,
-              district: g.district_name || undefined,
-              groupe: g.name,
-            }),
+            paye: paidForScope(
+              collectes,
+              {
+                chapitre: g.chapitre_name || parentDistrict?.chapitre_name || undefined,
+                district: g.district_name || parentDistrict?.name || undefined,
+                groupe: g.name,
+              },
+              campaignLabel,
+            ),
+          };
+        }),
+      );
+      return;
+    }
+
+    if (canEdit === "membre") {
+      const groupeId = profileScope.groupe_id;
+      const groupe = orgTree.groupes.find((g) => g.id === groupeId);
+      const districtId = profileScope.district_id || groupe?.district_id || null;
+      const district = orgTree.districts.find((d) => d.id === districtId);
+      const chapitreId =
+        profileScope.chapitre_id || district?.chapitre_id || groupe?.chapitre_id || null;
+
+      const groupMembers = members.filter((m) => {
+        if (m.source === "profile") return false;
+        if (!m.remoteId) return false;
+        if (groupeId && m.groupeId) return m.groupeId === groupeId;
+        if (groupe?.name) {
+          return m.groupe.trim().toLowerCase() === groupe.name.trim().toLowerCase();
+        }
+        return false;
+      });
+
+      setDrafts(
+        groupMembers.map((m) => {
+          const existing = assignments.find(
+            (a) => a.level === "membre" && a.member_id === m.remoteId,
+          );
+          return {
+            key: m.remoteId!,
+            label: memberFullName(m),
+            chapitre_id: chapitreId || m.chapitreId || null,
+            district_id: districtId || m.districtId || null,
+            groupe_id: groupeId || m.groupeId || null,
+            member_id: m.remoteId!,
+            assigne: Number(existing?.assigne || 0),
+            date_echeance: existing?.date_echeance || fallbackDate,
+            paye: paidForMember(collectes, memberFullName(m), campaignLabel),
           };
         }),
       );
@@ -301,7 +393,9 @@ export default function ZaimuSpecialCampaignsPanel({
     canEdit,
     profileScope.chapitre_id,
     profileScope.district_id,
+    profileScope.groupe_id,
     collectes,
+    members,
   ]);
 
   const parentAssigned = useMemo(() => {
@@ -320,6 +414,13 @@ export default function ZaimuSpecialCampaignsPanel({
         )?.assigne || 0
       );
     }
+    if (canEdit === "membre" && profileScope.groupe_id) {
+      return (
+        assignments.find(
+          (a) => a.level === "groupe" && a.groupe_id === profileScope.groupe_id,
+        )?.assigne || 0
+      );
+    }
     return 0;
   }, [canCreate, canEdit, objectif, assignments, profileScope]);
 
@@ -332,7 +433,13 @@ export default function ZaimuSpecialCampaignsPanel({
   );
   const resteGlobal = Math.max(0, parentAssigned - totalPaye);
   const childLabel =
-    canEdit === "chapitre" ? "Chapitre" : canEdit === "district" ? "District" : "Groupe";
+    canEdit === "chapitre"
+      ? "Chapitre"
+      : canEdit === "district"
+        ? "District"
+        : canEdit === "groupe"
+          ? "Groupe"
+          : "Membre";
 
   const handleCreate = async () => {
     setSaving(true);
@@ -392,9 +499,12 @@ export default function ZaimuSpecialCampaignsPanel({
   };
 
   const handleDelete = async (item: ZaimuCampaign) => {
-    const confirmed = window.confirm(
-      `Supprimer la campagne « ${item.label} » ?\n\nLes cotas associées seront également supprimées. Cette action est irréversible.`,
-    );
+    const confirmed = await confirm({
+      title: "Supprimer cette campagne ?",
+      description: `« ${item.label} »\nLes cotas associées seront également supprimées. Cette action est irréversible.`,
+      confirmLabel: "Supprimer",
+      tone: "danger",
+    });
     if (!confirmed) return;
 
     setSaving(true);
@@ -434,6 +544,7 @@ export default function ZaimuSpecialCampaignsPanel({
           chapitre_id: row.chapitre_id,
           district_id: row.district_id,
           groupe_id: row.groupe_id,
+          member_id: row.member_id,
           assigne: Number(row.assigne) || 0,
           date_echeance: row.date_echeance || null,
         })),
@@ -442,7 +553,9 @@ export default function ZaimuSpecialCampaignsPanel({
       setToast(
         canEdit === "chapitre"
           ? "Répartition enregistrée. Les responsables chapitre la reçoivent dans leur profil."
-          : "Cotas enregistrées pour le niveau suivant.",
+          : canEdit === "membre"
+            ? "Cotas membres enregistrées. Chaque membre voit son engagement, le payé et le reste."
+            : "Cotas enregistrées pour le niveau suivant.",
       );
       await reloadDetail(campaign.id);
       await reloadList();
@@ -475,7 +588,9 @@ export default function ZaimuSpecialCampaignsPanel({
               <p className="mt-1 text-sm text-muted-foreground">
                 {canCreate
                   ? "Créez une campagne, puis répartissez les cotas par chapitre. Les responsables les reçoivent ensuite dans leur profil."
-                  : "Campagnes publiées pour votre périmètre — ouvrez-en une pour répartir vers le niveau suivant."}
+                  : role === "groupe"
+                    ? "Campagnes assignées à votre groupe — ouvrez-en une pour répartir les cotas entre vos membres."
+                    : "Campagnes publiées pour votre périmètre — ouvrez-en une pour répartir vers le niveau suivant."}
               </p>
             </div>
             {canCreate && (
@@ -720,7 +835,7 @@ export default function ZaimuSpecialCampaignsPanel({
           <ArrowLeft size={14} /> Retour aux campagnes
         </button>
         <div className="rounded-2xl border border-border bg-card p-5 text-sm text-muted-foreground">
-          La répartition des cotas est réservée au centre, aux chapitres et aux districts.
+          La répartition des cotas est réservée au centre, aux chapitres, districts et groupes.
           Votre rôle ({ROLE_LABELS[role]}) consulte les montants reçus dans le profil.
         </div>
       </div>
@@ -752,7 +867,9 @@ export default function ZaimuSpecialCampaignsPanel({
                 ? "Répartissez le montant par chapitre et fixez les échéances, puis soumettez."
                 : canEdit === "district"
                   ? "Répartissez la cota de votre chapitre entre les districts."
-                  : "Répartissez la cota de votre district entre les groupes."}
+                  : canEdit === "groupe"
+                    ? "Répartissez la cota de votre district entre les groupes."
+                    : "Répartissez la cota de votre groupe entre les membres (engagement, payé, reste)."}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -885,9 +1002,16 @@ export default function ZaimuSpecialCampaignsPanel({
                 ? "Enregistrement…"
                 : canEdit === "chapitre"
                   ? "Soumettre aux chapitres"
-                  : "Enregistrer les cotas"}
+                  : canEdit === "membre"
+                    ? "Enregistrer les cotas membres"
+                    : "Enregistrer les cotas"}
             </button>
           </div>
+          {canEdit === "membre" && drafts.length === 0 && (
+            <p className="mb-3 rounded-xl border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              Aucun membre du groupe à qui assigner une cota. Ajoutez des membres dans l’onglet Membres.
+            </p>
+          )}
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">

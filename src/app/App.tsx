@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import { parseISO, format } from "date-fns";
 import {
   LayoutDashboard, Users, FileText, BarChart3,
-  Bell, Search, Plus, Filter, Eye, Edit2, UserX,
+  Bell, Search, Plus, Filter, Eye, Edit2, UserX, Trash2,
   Download, ChevronRight, ChevronDown, ChevronUp,
   ArrowUpRight, ArrowDownRight, TrendingUp,
   CheckCircle, Clock, XCircle, Send, Globe, BookOpen,
@@ -26,7 +26,15 @@ import { DashboardAiAssistant } from "../components/ai/DashboardAiAssistant";
 import { DeveloperCredit } from "../components/DeveloperCredit";
 import { MemberAvatar } from "./MemberAvatar";
 import AdminEditLanding from "../pages/AdminEditLanding";
-import CollectesModule, { type CollecteRecord } from "./CollectesModule";
+import CollectesModule, { type CollecteRecord, type CollecteTab } from "./CollectesModule";
+import {
+  buildPendingPaymentNotifications,
+  canReceivePendingPaymentNotifications,
+  loadReadNotificationIds,
+  markNotificationsRead,
+  type CollecteNavFocus,
+} from "./pendingCollecteNotifications";
+import { useConfirm } from "./ConfirmDialog";
 import RoleDashboard from "./RoleDashboard";
 import MembersKpiPanel from "./MembersKpiPanel";
 import MembersImportExportBar from "./MembersImportExportBar";
@@ -47,9 +55,7 @@ import {
 import { exportStatisticsPdf } from "./statsExport";
 import {
   formatFcfa,
-  getMemberSpecialAssignment,
   getMemberZaimuPaid,
-  ZAIMU_SPECIAL_CAMPAIGN,
 } from "./zaimuQuota";
 import {
   listQuotaAssignments,
@@ -69,7 +75,10 @@ import { assignableRoles } from "./settings/usersStore";
 import {
   canChangeMemberResponsabilite,
   canDeactivateMember,
+  canDeleteMember,
+  canEditMember,
 } from "./orgAccess";
+import { deleteMemberRemote, hasRemoteMembers, setMemberStatusRemote } from "../services/memberService";
 import { signOut } from "../services/authService";
 import { fetchMyProfile, hasRemoteProfiles, inviteUserRemote } from "../services/profileService";
 import { resolveOrgIds } from "../services/orgService";
@@ -507,6 +516,7 @@ function Topbar({
   onOpenProfile,
   onOpenSettings,
   onOpenContent,
+  onOpenCollectes,
   onLogout,
   profileMenuOpen,
   setProfileMenuOpen,
@@ -519,6 +529,7 @@ function Topbar({
   onOpenProfile: () => void;
   onOpenSettings: () => void;
   onOpenContent: () => void;
+  onOpenCollectes: (focus?: CollecteNavFocus) => void;
   onLogout: () => void;
   profileMenuOpen: boolean;
   setProfileMenuOpen: (value: boolean) => void;
@@ -526,11 +537,22 @@ function Topbar({
   setSidebarOpen: (value: boolean) => void;
 }) {
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const notifMenuRef = useRef<HTMLDivElement | null>(null);
   const { theme, toggleTheme } = useTheme();
+  const { collectes } = useOpsData();
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [readIds, setReadIds] = useState<Set<string>>(() => loadReadNotificationIds());
   const space = ROLE_SPACE[role];
   const displayName = sessionProfile.name || ROLE_LABELS[role];
   const unitKind = primaryOrgUnitKind(role);
   const unitName = primaryOrgUnitLabel(role, sessionProfile.orgScope);
+
+  const notifications = useMemo(
+    () => buildPendingPaymentNotifications(collectes, role, sessionProfile.orgScope),
+    [collectes, role, sessionProfile.orgScope],
+  );
+  const unreadCount = notifications.filter((item) => !readIds.has(item.id)).length;
+  const showNotifBell = canReceivePendingPaymentNotifications(role);
 
   useEffect(() => {
     if (!profileMenuOpen) return;
@@ -555,6 +577,50 @@ function Topbar({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [profileMenuOpen, setProfileMenuOpen]);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (notifMenuRef.current && !notifMenuRef.current.contains(event.target as Node)) {
+        setNotifOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNotifOpen(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [notifOpen]);
+
+  const openNotification = (item: { id: string; tab: CollecteTab }) => {
+    markNotificationsRead([item.id]);
+    setReadIds(loadReadNotificationIds());
+    setNotifOpen(false);
+    onOpenCollectes({ tab: item.tab, statut: "En attente", nonce: Date.now() });
+  };
+
+  const markAllRead = () => {
+    if (notifications.length === 0) return;
+    markNotificationsRead(notifications.map((item) => item.id));
+    setReadIds(loadReadNotificationIds());
+  };
+
+  const toggleNotifOpen = () => {
+    setProfileMenuOpen(false);
+    if (!notifOpen && notifications.length > 0) {
+      // Ouvrir le panneau = notifications consultées → badge décrémenté.
+      markNotificationsRead(notifications.map((item) => item.id));
+      setReadIds(loadReadNotificationIds());
+    }
+    setNotifOpen((open) => !open);
+  };
+
+  const badgeCount = unreadCount;
 
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-card/90 backdrop-blur-md">
@@ -613,17 +679,101 @@ function Topbar({
             placeholder="Rechercher..."
           />
         </div>
-        <button
-          type="button"
-          className="relative hidden h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition hover:bg-secondary sm:inline-flex"
-        >
-          <Bell size={15} />
-          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-[var(--sgi-red)]" />
-        </button>
+        {showNotifBell && (
+          <div ref={notifMenuRef} className="relative">
+            <button
+              type="button"
+              onClick={toggleNotifOpen}
+              className="relative inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground transition hover:bg-secondary"
+              aria-label="Notifications"
+              title="Notifications"
+            >
+              <Bell size={15} />
+              {badgeCount > 0 && (
+                <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--sgi-red)] px-1 text-[10px] font-bold text-white">
+                  {badgeCount > 9 ? "9+" : badgeCount}
+                </span>
+              )}
+            </button>
+            {notifOpen && (
+              <div className="absolute right-0 top-full z-30 mt-2 w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-lift)]">
+                <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Notifications</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Paiements en attente de validation
+                    </p>
+                  </div>
+                  {notifications.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={markAllRead}
+                      className="text-[11px] font-semibold text-[var(--sgi-blue)] hover:underline"
+                    >
+                      Tout lu
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-80 overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      Aucun paiement en attente dans votre périmètre.
+                    </p>
+                  ) : (
+                    notifications.slice(0, 12).map((item) => {
+                      const unread = !readIds.has(item.id);
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => openNotification(item)}
+                          className={`flex w-full flex-col gap-0.5 border-b border-border px-4 py-3 text-left transition last:border-b-0 hover:bg-secondary/50 ${
+                            unread ? "bg-[var(--sgi-gold)]/5" : ""
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm font-semibold text-foreground">{item.title}</p>
+                            {unread && (
+                              <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[var(--sgi-red)]" />
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">{item.body}</p>
+                          <p className="text-[11px] text-muted-foreground">{item.date}</p>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+                {notifications.length > 0 && (
+                  <div className="border-t border-border p-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        markAllRead();
+                        setNotifOpen(false);
+                        onOpenCollectes({
+                          tab: notifications[0]?.tab || "vague-paix",
+                          statut: "En attente",
+                          nonce: Date.now(),
+                        });
+                      }}
+                      className="w-full rounded-xl px-3 py-2.5 text-center text-sm font-semibold text-[var(--sgi-blue)] hover:bg-secondary"
+                    >
+                      Voir tous les paiements en attente
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div ref={profileMenuRef} className="relative border-l border-border pl-2">
           <button
             type="button"
-            onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+            onClick={() => {
+              setNotifOpen(false);
+              setProfileMenuOpen(!profileMenuOpen);
+            }}
             className="flex items-center gap-2 rounded-xl px-1.5 py-1.5 transition hover:bg-secondary sm:px-2"
           >
             <MemberAvatar
@@ -780,7 +930,17 @@ function sumValidated(rows: CollecteRecord[]) {
   return rows.filter((c) => c.statut === "Validé").reduce((sum, c) => sum + c.montant, 0);
 }
 
-function MembreDetail({ membre, onClose }: { membre: MemberRecord; onClose: () => void }) {
+function MembreDetail({
+  membre,
+  canEdit = false,
+  onClose,
+  onEdit,
+}: {
+  membre: MemberRecord;
+  canEdit?: boolean;
+  onClose: () => void;
+  onEdit?: () => void;
+}) {
   const { collectes } = useOpsData();
   const fullName = memberFullName(membre);
   const [engagements, setEngagements] = useState<SpecialEngagementRow[]>([]);
@@ -806,7 +966,6 @@ function MembreDetail({ membre, onClose }: { membre: MemberRecord; onClose: () =
   const vpPaye = sumValidated(vpRows);
   const zoPaye = sumValidated(zoRows);
   const zsPaye = sumValidated(zsRows);
-  const zsFallbackAssigne = getMemberSpecialAssignment(ZAIMU_SPECIAL_CAMPAIGN, membre);
 
   useEffect(() => {
     let cancelled = false;
@@ -817,33 +976,11 @@ function MembreDetail({ membre, onClose }: { membre: MemberRecord; onClose: () =
       const rows: SpecialEngagementRow[] = [];
       for (const campaign of active) {
         const { data: assignments } = await listQuotaAssignments(campaign.id);
-        const groupeRow = (assignments || []).find(
-          (a) =>
-            a.level === "groupe" &&
-            (a.groupe_name || "").trim().toLowerCase() === membre.groupe.trim().toLowerCase() &&
-            (!membre.district ||
-              (a.district_name || "").trim().toLowerCase() === membre.district.trim().toLowerCase()),
-        );
-        const districtRow = (assignments || []).find(
-          (a) =>
-            a.level === "district" &&
-            (a.district_name || "").trim().toLowerCase() === membre.district.trim().toLowerCase(),
-        );
-        const chapitreRow = (assignments || []).find(
-          (a) =>
-            a.level === "chapitre" &&
-            (a.chapitre_name || "").trim().toLowerCase() === membre.chapitre.trim().toLowerCase(),
-        );
         const membreRow = (assignments || []).find(
           (a) => a.level === "membre" && a.member_id && a.member_id === membre.remoteId,
         );
-        const engagement = Number(
-          membreRow?.assigne ||
-            groupeRow?.assigne ||
-            districtRow?.assigne ||
-            chapitreRow?.assigne ||
-            0,
-        );
+        // Engagement = cota individuelle uniquement (pas la cota du groupe / district).
+        const engagement = Number(membreRow?.assigne || 0);
         const paye = zsRows
           .filter((c) => c.statut === "Validé")
           .filter((c) => {
@@ -874,8 +1011,7 @@ function MembreDetail({ membre, onClose }: { membre: MemberRecord; onClose: () =
     };
   }, [membre.chapitre, membre.district, membre.groupe, membre.remoteId, zsRows]);
 
-  const zsEngagementTotal =
-    engagements.reduce((sum, row) => sum + row.engagement, 0) || zsFallbackAssigne;
+  const zsEngagementTotal = engagements.reduce((sum, row) => sum + row.engagement, 0);
   const zsResteTotal = Math.max(0, zsEngagementTotal - zsPaye);
 
   return (
@@ -1181,11 +1317,20 @@ function MembreDetail({ membre, onClose }: { membre: MemberRecord; onClose: () =
           )}
         </div>
 
-        <div className="border-t border-border px-5 py-4 sm:px-6">
+        <div className="flex flex-col gap-2 border-t border-border px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+          {canEdit && onEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-muted sm:w-auto"
+            >
+              <Edit2 size={14} /> Modifier les informations
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
-            className="w-full rounded-xl bg-[var(--sgi-blue)] px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 sm:ml-auto sm:w-auto"
+            className="w-full rounded-xl bg-[var(--sgi-blue)] px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 sm:w-auto"
           >
             Fermer
           </button>
@@ -1219,6 +1364,7 @@ function platformRoleToResponsabilite(role: PlatformRole): string {
 }
 
 function Membres({ role }: { role: PlatformRole }) {
+  const { confirm } = useConfirm();
   const orgTree = useOrgTree();
   const {
     members,
@@ -1237,6 +1383,7 @@ function Membres({ role }: { role: PlatformRole }) {
   const [responsabiliteFilter, setResponsabiliteFilter] = useState("Tous");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<MemberRecord | null>(null);
+  const [editingMember, setEditingMember] = useState<MemberRecord | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [promoteTarget, setPromoteTarget] = useState<MemberRecord | null>(null);
   const [promoteRole, setPromoteRole] = useState<PlatformRole>("groupe");
@@ -1245,6 +1392,7 @@ function Membres({ role }: { role: PlatformRole }) {
   const [promoteInfo, setPromoteInfo] = useState<string | null>(null);
   const [memberToast, setMemberToast] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [memberZsAssigneById, setMemberZsAssigneById] = useState<Record<string, number>>({});
   const MEMBERS_PAGE_SIZE = 10;
   // Centre / admin : aucun filtre de périmètre → tous les membres + responsables rattachés.
   const scopedMembers = useMemo(() => filterMembersByScope(members, orgScope), [members, orgScope]);
@@ -1308,6 +1456,27 @@ function Membres({ role }: { role: PlatformRole }) {
     return () => window.clearTimeout(timer);
   }, [memberToast]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMemberQuotas() {
+      const { data: campaigns } = await listSpecialCampaigns();
+      const active = (campaigns || []).filter((c) => c.is_active);
+      const totals: Record<string, number> = {};
+      for (const campaign of active) {
+        const { data: assignments } = await listQuotaAssignments(campaign.id);
+        for (const row of assignments || []) {
+          if (row.level !== "membre" || !row.member_id) continue;
+          totals[row.member_id] = (totals[row.member_id] || 0) + Number(row.assigne || 0);
+        }
+      }
+      if (!cancelled) setMemberZsAssigneById(totals);
+    }
+    void loadMemberQuotas();
+    return () => {
+      cancelled = true;
+    };
+  }, [members]);
+
   const filtered = useMemo(() => scopedMembers.filter((m) => {
     if (chapitreFilter !== "Tous" && m.chapitre !== chapitreFilter) return false;
     if (districtFilter !== "Tous" && m.district !== districtFilter) return false;
@@ -1332,6 +1501,28 @@ function Membres({ role }: { role: PlatformRole }) {
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
+
+  const handleDeleteMember = async (m: MemberRecord) => {
+    if (!canDeleteMember(role, m)) return;
+    const ok = await confirm({
+      title: "Supprimer définitivement ?",
+      description: `${m.prenom} ${m.nom}\nCette action est irréversible. Utile pour corriger une erreur de saisie ou retirer un membre qui n’existe plus.`,
+      confirmLabel: "Supprimer",
+      tone: "danger",
+    });
+    if (!ok) return;
+    if (hasRemoteMembers() && m.remoteId) {
+      const { error } = await deleteMemberRemote(m.remoteId);
+      if (error) {
+        setMemberToast(error.message);
+        return;
+      }
+    }
+    setMembers((prev) => prev.filter((member) => member.id !== m.id));
+    if (selected?.id === m.id) setSelected(null);
+    setMemberToast(`${m.prenom} ${m.nom} a été supprimé.`);
+    void reloadMembers();
+  };
 
   const handlePromoteMember = async () => {
     if (!promoteTarget) return;
@@ -1405,7 +1596,35 @@ function Membres({ role }: { role: PlatformRole }) {
 
   return (
     <div className="dash-page gap-5 sm:gap-6">
-      {selected && <MembreDetail membre={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <MembreDetail
+          membre={selected}
+          canEdit={canEditMember(role, selected)}
+          onClose={() => setSelected(null)}
+          onEdit={() => {
+            setEditingMember(selected);
+            setSelected(null);
+          }}
+        />
+      )}
+
+      {editingMember && (
+        <PersonCreateForm
+          mode="member"
+          actorRole={role}
+          variant="modal"
+          open
+          editMember={editingMember}
+          existingMembers={members}
+          onCancel={() => setEditingMember(null)}
+          onSuccess={({ member, message }) => {
+            setMembers((prev) => prev.map((item) => (item.id === member.id ? member : item)));
+            setEditingMember(null);
+            setMemberToast(message);
+            void reloadMembers();
+          }}
+        />
+      )}
 
       {promoteTarget && (
         <div
@@ -1512,6 +1731,8 @@ function Membres({ role }: { role: PlatformRole }) {
           members={members}
           filteredMembers={filtered}
           collectes={collectes}
+          role={role}
+          orgScope={orgScope}
           onImport={(imported) => {
             setMembers((prev) => [...imported, ...prev]);
             void reloadMembers();
@@ -1657,13 +1878,24 @@ function Membres({ role }: { role: PlatformRole }) {
           </button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[72rem] text-sm">
+          <table className="w-full min-w-[64rem] text-[12px]">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                {["Membre", "Responsabilité", "Chapitre", "District", "Statut", "Zaimu ord.", "Zaimu sp. (payé/cota)", "Vague de Paix", "Sokahan", "Actions"].map((h) => (
+                {[
+                  "Membre",
+                  "Rôle",
+                  "Chapitre",
+                  "District",
+                  "Statut",
+                  "Z. ord.",
+                  "Z. sp. payé/cota",
+                  "VP",
+                  "Sokahan",
+                  "Actions",
+                ].map((h) => (
                   <th
                     key={h}
-                    className={`px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground ${
+                    className={`whitespace-nowrap px-2.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${
                       h === "Actions"
                         ? "sticky right-0 z-20 bg-muted/95 shadow-[-6px_0_12px_-8px_rgba(0,0,0,0.25)]"
                         : ""
@@ -1693,61 +1925,82 @@ function Membres({ role }: { role: PlatformRole }) {
                 paginatedMembers.map((m, i) => {
                 const zoPaye = getMemberZaimuPaid(collectes, m, "zaimu-ordinaire");
                 const zsPaye = getMemberZaimuPaid(collectes, m, "zaimu-special");
-                const zsAssigne = getMemberSpecialAssignment(ZAIMU_SPECIAL_CAMPAIGN, m);
+                const zsAssigne = m.remoteId ? memberZsAssigneById[m.remoteId] || 0 : 0;
                 const zsReste = Math.max(0, zsAssigne - zsPaye);
                 return (
                 <tr key={m.id} className={`group border-b border-border transition-colors hover:bg-muted/30 ${i === paginatedMembers.length - 1 ? "border-b-0" : ""}`}>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5">
+                  <td className="px-2.5 py-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       <MemberAvatar photo={m.photo} prenom={m.prenom} nom={m.nom} size="sm" />
-                      <div>
-                        <div className="font-medium text-foreground">{m.prenom} {m.nom}</div>
-                        <div className="text-xs text-muted-foreground">{m.email}</div>
+                      <div className="min-w-0">
+                        <div className="truncate font-medium text-foreground">
+                          {m.prenom} {m.nom}
+                        </div>
+                        <div className="truncate text-[10px] text-muted-foreground">{m.email}</div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-2.5 py-2">
                     <span
-                      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                      className={`inline-flex max-w-[7.5rem] truncate rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                         (m.responsabilite === "Membre" || m.responsabilite === "Membre simple")
                           ? "bg-muted text-muted-foreground"
                           : "bg-[var(--sgi-gold)]/15 text-[var(--sgi-gold)]"
                       }`}
+                      title={m.responsabilite === "Membre" ? "Membre simple" : m.responsabilite}
                     >
                       {m.responsabilite === "Membre" ? "Membre simple" : m.responsabilite}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{m.chapitre.includes("–") ? m.chapitre.split("–")[1]?.trim() : m.chapitre}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{m.district}</td>
-                  <td className="px-4 py-3"><StatutBadge statut={m.statut} /></td>
-                  <td className="px-4 py-3 font-mono text-xs text-foreground">{formatFcfa(zoPaye)}</td>
-                  <td className="px-4 py-3">
-                    <div className="font-mono text-xs text-foreground">{formatFcfa(zsPaye)} / {formatFcfa(zsAssigne)}</div>
-                    <div className="text-[10px] text-muted-foreground">Reste {formatFcfa(zsReste)}</div>
+                  <td className="max-w-[7rem] truncate px-2.5 py-2 text-[11px] text-muted-foreground" title={m.chapitre}>
+                    {m.chapitre.includes("–") ? m.chapitre.split("–")[1]?.trim() : m.chapitre}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="max-w-[6.5rem] truncate px-2.5 py-2 text-[11px] text-muted-foreground" title={m.district}>
+                    {m.district}
+                  </td>
+                  <td className="px-2.5 py-2"><StatutBadge statut={m.statut} /></td>
+                  <td className="whitespace-nowrap px-2.5 py-2 font-mono text-[11px] text-foreground">{formatFcfa(zoPaye)}</td>
+                  <td className="px-2.5 py-2">
+                    <div className="whitespace-nowrap font-mono text-[11px] text-foreground">{formatFcfa(zsPaye)} / {formatFcfa(zsAssigne)}</div>
+                    <div className="text-[9px] text-muted-foreground">Reste {formatFcfa(zsReste)}</div>
+                  </td>
+                  <td className="px-2.5 py-2">
                     {m.abonnementVaguePaix
                       ? <CheckCircle size={14} className="text-emerald-500" />
                       : <span className="text-xs text-muted-foreground">—</span>}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-2.5 py-2">
                     {m.sokahan
                       ? <CheckCircle size={14} className="text-emerald-500" />
                       : <span className="text-xs text-muted-foreground">—</span>}
                   </td>
-                  <td className="sticky right-0 z-10 bg-card px-4 py-3 shadow-[-6px_0_12px_-8px_rgba(0,0,0,0.18)] group-hover:bg-muted/30">
-                    <RowActionsMenu
+                  <td className="sticky right-0 z-10 bg-card px-2.5 py-2 shadow-[-6px_0_12px_-8px_rgba(0,0,0,0.18)] group-hover:bg-muted/30">
+                    <div className="flex items-center justify-end gap-1.5">
+                      {canDeleteMember(role, m) && (
+                        <button
+                          type="button"
+                          title="Supprimer le membre"
+                          aria-label={`Supprimer ${m.prenom} ${m.nom}`}
+                          onClick={() => void handleDeleteMember(m)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--sgi-red)]/25 bg-[var(--sgi-red)]/10 text-[var(--sgi-red)] transition hover:bg-[var(--sgi-red)]/20"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                      <RowActionsMenu
                       actions={[
                         {
                           label: "Voir le détail",
                           icon: <Eye size={14} />,
                           onClick: () => setSelected(m),
                         },
-                        {
-                          label: "Modifier",
-                          icon: <Edit2 size={14} />,
-                          onClick: () => setSelected(m),
-                        },
+                        ...(canEditMember(role, m)
+                          ? [{
+                              label: "Modifier",
+                              icon: <Edit2 size={14} />,
+                              onClick: () => setEditingMember(m),
+                            }]
+                          : []),
                         ...(canPromote && canChangeMemberResponsabilite(role, m.responsabilite)
                           ? [{
                               label: "Promouvoir responsable",
@@ -1768,18 +2021,43 @@ function Membres({ role }: { role: PlatformRole }) {
                               icon: <UserX size={14} />,
                               tone: "danger" as const,
                               onClick: () => {
-                                if (window.confirm(`Désactiver ${m.prenom} ${m.nom} ?`)) {
+                                void (async () => {
+                                  const ok = await confirm({
+                                    title: "Désactiver ce membre ?",
+                                    description: `${m.prenom} ${m.nom} passera au statut Suspendu.`,
+                                    confirmLabel: "Désactiver",
+                                    tone: "danger",
+                                  });
+                                  if (!ok) return;
+                                  if (hasRemoteMembers() && m.remoteId && m.source !== "profile") {
+                                    const { error } = await setMemberStatusRemote(m.remoteId, "Suspendu");
+                                    if (error) {
+                                      setMemberToast(error.message);
+                                      return;
+                                    }
+                                  }
                                   setMembers((prev) =>
                                     prev.map((member) =>
                                       member.id === m.id ? { ...member, statut: "Suspendu" } : member,
                                     ),
                                   );
-                                }
+                                  setMemberToast(`${m.prenom} ${m.nom} a été désactivé.`);
+                                  void reloadMembers();
+                                })();
                               },
+                            }]
+                          : []),
+                        ...(canDeleteMember(role, m)
+                          ? [{
+                              label: "Supprimer",
+                              icon: <Trash2 size={14} />,
+                              tone: "danger" as const,
+                              onClick: () => void handleDeleteMember(m),
                             }]
                           : []),
                       ]}
                     />
+                    </div>
                   </td>
                 </tr>
                 );
@@ -2467,6 +2745,7 @@ export default function App() {
     resolveInitialRole(typeof window !== "undefined" ? window.location.pathname : location.pathname),
   );
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [collectesFocus, setCollectesFocus] = useState<CollecteNavFocus | null>(null);
   const [moduleAccess, setModuleAccess] = useState(() => loadModuleAccess());
   const orgTree = useOrgTree();
   const [sessionProfile, setSessionProfile] = useState<SessionProfile>({
@@ -2607,6 +2886,15 @@ export default function App() {
     setSidebarOpen(false);
   };
 
+  const handleOpenCollectes = (focus?: CollecteNavFocus) => {
+    if (focus) {
+      setCollectesFocus({ ...focus, nonce: focus.nonce ?? Date.now() });
+    }
+    switchModule("collectes");
+    setProfileMenuOpen(false);
+    setSidebarOpen(false);
+  };
+
   const handleNavigate = (module: ModuleKey) => {
     switchModule(module);
     setSidebarOpen(false);
@@ -2681,6 +2969,7 @@ export default function App() {
           onOpenProfile={handleOpenProfile}
           onOpenSettings={handleOpenSettings}
           onOpenContent={handleOpenContent}
+          onOpenCollectes={handleOpenCollectes}
           onLogout={handleLogout}
           profileMenuOpen={profileMenuOpen}
           setProfileMenuOpen={setProfileMenuOpen}
@@ -2701,7 +2990,13 @@ export default function App() {
             <AdminEditLanding />
           )}
           {activeModule === "membres" && <Membres role={currentUserRole} />}
-          {activeModule === "collectes" && <CollectesModule role={currentUserRole} />}
+          {activeModule === "collectes" && (
+            <CollectesModule
+              role={currentUserRole}
+              focus={collectesFocus}
+              onFocusApplied={() => setCollectesFocus(null)}
+            />
+          )}
           {activeModule === "directives" && <Directives />}
           {activeModule === "statistiques" && <Statistiques role={currentUserRole} />}
           {activeModule === "chapitres" && (currentUserRole === "admin" || currentUserRole === "centre") && (
@@ -2717,7 +3012,8 @@ export default function App() {
           {activeModule === "settings" &&
             (currentUserRole === "admin" ||
               currentUserRole === "centre" ||
-              currentUserRole === "chapitre") && (
+              currentUserRole === "chapitre" ||
+              currentUserRole === "district") && (
               <SettingsModule currentUserRole={currentUserRole} />
             )}
           <footer className="border-t border-border px-4 py-3 sm:px-6">

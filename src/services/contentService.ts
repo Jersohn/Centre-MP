@@ -13,6 +13,101 @@ import {
 import { fetchLandingContentFromSupabase, saveLandingContentToSupabase } from "./supabaseService";
 
 const STORAGE_KEY = "cmf_landing_content_v21";
+const LEGACY_STORAGE_KEYS = [
+  "cmf_landing_content_v20",
+  "cmf_landing_content_v19",
+  "cmf_landing_content_v18",
+  "cmf_landing_content_v17",
+  "cmf_landing_content_v16",
+  "cmf_landing_content_v15",
+  "cmf_landing_content_v14",
+  "cmf_landing_content_v13",
+  "cmf_landing_content_v12",
+  "cmf_landing_content_v11",
+  "cmf_landing_content_v10",
+  "cmf_landing_content_v9",
+  "cmf_landing_content_v8",
+  "cmf_landing_content_v7",
+  "cmf_landing_content_v6",
+];
+
+/** Cache mémoire : évite de recharger un localStorage déjà saturé. */
+let memoryContent: LandingContent | null = null;
+
+function isDataUrl(value?: string) {
+  return typeof value === "string" && value.startsWith("data:");
+}
+
+function keepHttpOrEmpty(value: string | undefined, fallback = "") {
+  if (!value) return fallback;
+  if (isDataUrl(value)) return fallback;
+  return value;
+}
+
+/** Version légère pour localStorage (jamais de data URL base64). */
+function slimContentForLocalStorage(content: LandingContent): LandingContent {
+  return {
+    ...content,
+    heroImage: keepHttpOrEmpty(content.heroImage),
+    aboutImage: keepHttpOrEmpty(content.aboutImage),
+    heroImages: (content.heroImages || []).map((slide) => ({
+      ...slide,
+      src: keepHttpOrEmpty(slide.src),
+    })),
+    centreCommittee: (content.centreCommittee || []).map((item) => ({
+      ...item,
+      image: keepHttpOrEmpty(item.image),
+    })),
+    chapterLeaders: (content.chapterLeaders || []).map((item) => ({
+      ...item,
+      responsibleImage: keepHttpOrEmpty(item.responsibleImage),
+    })),
+    galleryItems: (content.galleryItems || []).map((item) => ({
+      ...item,
+      image: keepHttpOrEmpty(item.image),
+    })),
+    newsItems: (content.newsItems || []).map((item) => ({
+      ...item,
+      image: keepHttpOrEmpty(item.image),
+    })),
+    testimonials: (content.testimonials || []).map((item) => ({
+      ...item,
+      image: keepHttpOrEmpty(item.image),
+    })),
+  };
+}
+
+function clearLegacyLandingStorage() {
+  for (const key of LEGACY_STORAGE_KEYS) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function persistLocalContent(content: LandingContent) {
+  if (typeof window === "undefined") return;
+  const slim = slimContentForLocalStorage(content);
+  const payload = JSON.stringify(slim);
+  try {
+    localStorage.setItem(STORAGE_KEY, payload);
+    clearLegacyLandingStorage();
+  } catch {
+    // Quota dépassé : libère l’ancien cache et réessaie une fois.
+    try {
+      clearLegacyLandingStorage();
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.setItem(STORAGE_KEY, payload);
+    } catch (err) {
+      console.warn(
+        "[landing-content] Impossible d’écrire dans localStorage (quota). Le contenu reste en mémoire / Supabase.",
+        err,
+      );
+    }
+  }
+}
 
 /** Détecte un texte UTF-8 corrompu (mojibake / caractères de remplacement). */
 function isBrokenEncoding(value?: string) {
@@ -462,28 +557,32 @@ function normalizeContent(raw: Partial<LandingContent>): LandingContent {
 }
 
 export function getContent(): LandingContent {
+  if (memoryContent) return memoryContent;
   try {
     const raw =
       localStorage.getItem(STORAGE_KEY) ||
-      localStorage.getItem("cmf_landing_content_v20") ||
-      localStorage.getItem("cmf_landing_content_v19") ||
-      localStorage.getItem("cmf_landing_content_v18") ||
-      localStorage.getItem("cmf_landing_content_v17") ||
-      localStorage.getItem("cmf_landing_content_v16") ||
-      localStorage.getItem("cmf_landing_content_v15") ||
-      localStorage.getItem("cmf_landing_content_v14") ||
-      localStorage.getItem("cmf_landing_content_v13") ||
-      localStorage.getItem("cmf_landing_content_v12") ||
-      localStorage.getItem("cmf_landing_content_v11") ||
-      localStorage.getItem("cmf_landing_content_v10") ||
-      localStorage.getItem("cmf_landing_content_v9") ||
-      localStorage.getItem("cmf_landing_content_v8") ||
-      localStorage.getItem("cmf_landing_content_v7") ||
-      localStorage.getItem("cmf_landing_content_v6");
-    if (!raw) return defaultContent;
-    const parsed = JSON.parse(raw);
-    return normalizeContent(parsed);
+      LEGACY_STORAGE_KEYS.map((key) => localStorage.getItem(key)).find(Boolean);
+    if (!raw) {
+      memoryContent = defaultContent;
+      return defaultContent;
+    }
+    // Cache saturé (souvent d’anciennes images base64) → on le purge.
+    if (raw.length > 1_500_000 || raw.includes("data:image")) {
+      const parsed = normalizeContent(JSON.parse(raw));
+      memoryContent = slimContentForLocalStorage(parsed);
+      persistLocalContent(memoryContent);
+      return memoryContent;
+    }
+    memoryContent = normalizeContent(JSON.parse(raw));
+    return memoryContent;
   } catch {
+    try {
+      clearLegacyLandingStorage();
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    memoryContent = defaultContent;
     return defaultContent;
   }
 }
@@ -513,7 +612,8 @@ export async function loadContent(): Promise<LandingContent> {
     const remoteContent = await fetchLandingContentFromSupabase();
     if (remoteContent) {
       const merged = normalizeContent(remoteContent);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+      memoryContent = merged;
+      persistLocalContent(merged);
       window.dispatchEvent(new CustomEvent("landing-content-updated", { detail: merged }));
       return merged;
     }
@@ -527,13 +627,23 @@ export async function loadContent(): Promise<LandingContent> {
 export function setContent(partial: Partial<LandingContent>) {
   const current = getContent();
   const next = normalizeContent({ ...current, ...partial });
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  memoryContent = next;
+  persistLocalContent(next);
   window.dispatchEvent(new CustomEvent("landing-content-updated", { detail: next }));
   return next;
 }
 
 export async function saveContent(partial: Partial<LandingContent>) {
   const next = setContent(partial);
+  const hasEmbedded =
+    JSON.stringify(next).includes("data:image") ||
+    (next.galleryItems || []).some((item) => isDataUrl(item.image)) ||
+    (next.heroImages || []).some((slide) => isDataUrl(slide.src));
+  if (hasEmbedded) {
+    throw new Error(
+      "Des images locales (base64) bloquent la publication. Retéléversez-les pour obtenir une URL Storage, puis republiez.",
+    );
+  }
   const result = await saveLandingContentToSupabase(next);
   if (result?.error) {
     throw new Error(result.error.message || "Échec de la sauvegarde.");
@@ -542,7 +652,13 @@ export async function saveContent(partial: Partial<LandingContent>) {
 }
 
 export function resetContent() {
-  localStorage.removeItem(STORAGE_KEY);
+  memoryContent = null;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    clearLegacyLandingStorage();
+  } catch {
+    // ignore
+  }
   window.dispatchEvent(new CustomEvent("landing-content-updated", { detail: defaultContent }));
 }
 

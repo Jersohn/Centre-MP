@@ -345,5 +345,6 @@ export function assignableRoles(actor: PlatformRole): PlatformRole[] {
   if (actor === "admin") return ["admin", "centre", "chapitre", "district", "groupe"];
   if (actor === "centre") return ["chapitre", "district", "groupe", "centre"];
   if (actor === "chapitre") return ["district", "groupe"];
+  if (actor === "district") return ["groupe"];
   return [];
 }

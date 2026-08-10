@@ -109,6 +109,11 @@ export function mapCollecteRow(row: CollecteEnrichedRow): CollecteRecord {
     motif: row.motif || "",
     referenceRecu: row.reference_recu || "",
     note: row.note || "",
+    orgIds: {
+      chapitre_id: row.chapitre_id,
+      district_id: row.district_id,
+      groupe_id: row.groupe_id,
+    },
   };
 }
 
@@ -142,12 +147,20 @@ export async function createCollecteRemote(
     return { data: null, error: new Error("Service indisponible.") };
   }
 
-  const { data: orgIds, error: orgError } = await resolveOrgIds({
-    chapitre: values.chapitre,
-    district: values.district,
-    groupe: values.groupe,
-  });
-  if (orgError) return { data: null, error: orgError };
+  let orgIds = {
+    chapitre_id: values.orgIds?.chapitre_id || null,
+    district_id: values.orgIds?.district_id || null,
+    groupe_id: values.orgIds?.groupe_id || null,
+  };
+  if (!orgIds.chapitre_id || !orgIds.district_id || !orgIds.groupe_id) {
+    const resolved = await resolveOrgIds({
+      chapitre: values.chapitre,
+      district: values.district,
+      groupe: values.groupe,
+    });
+    if (resolved.error) return { data: null, error: resolved.error };
+    orgIds = resolved.data;
+  }
   if (!orgIds.chapitre_id || !orgIds.district_id || !orgIds.groupe_id) {
     return { data: null, error: new Error("Chapitre, district et groupe sont requis.") };
   }
@@ -176,7 +189,24 @@ export async function createCollecteRemote(
     .select("id, numero")
     .single();
   if (error || !data) {
-    return { data: null, error: new Error(error?.message || "Création impossible.") };
+    const message = error?.message || "Création impossible.";
+    if (/row-level security|rls/i.test(message)) {
+      return {
+        data: null,
+        error: new Error(
+          "Enregistrement refusé (périmètre organisationnel). Vérifiez que le membre appartient à votre chapitre / district / groupe.",
+        ),
+      };
+    }
+    return { data: null, error: new Error(message) };
+  }
+
+  // Abonnement Vague de Paix : marquer le membre comme abonné dès qu’un paiement VP est saisi.
+  if (values.type === "vague-paix" && validMemberId && values.statut !== "Annulé") {
+    await supabase
+      .from("members")
+      .update({ abonnement_vague_paix: true })
+      .eq("id", validMemberId);
   }
 
   const { data: enriched } = await supabase
@@ -210,12 +240,20 @@ export async function updateCollecteRemote(
     return { data: null, error: new Error("Service indisponible.") };
   }
 
-  const { data: orgIds, error: orgError } = await resolveOrgIds({
-    chapitre: values.chapitre,
-    district: values.district,
-    groupe: values.groupe,
-  });
-  if (orgError) return { data: null, error: orgError };
+  let orgIds = {
+    chapitre_id: values.orgIds?.chapitre_id || null,
+    district_id: values.orgIds?.district_id || null,
+    groupe_id: values.orgIds?.groupe_id || null,
+  };
+  if (!orgIds.chapitre_id || !orgIds.district_id || !orgIds.groupe_id) {
+    const resolved = await resolveOrgIds({
+      chapitre: values.chapitre,
+      district: values.district,
+      groupe: values.groupe,
+    });
+    if (resolved.error) return { data: null, error: resolved.error };
+    orgIds = resolved.data;
+  }
   if (!orgIds.chapitre_id || !orgIds.district_id || !orgIds.groupe_id) {
     return { data: null, error: new Error("Chapitre, district et groupe sont requis.") };
   }
@@ -241,7 +279,28 @@ export async function updateCollecteRemote(
     })
     .eq("id", id);
 
-  if (error) return { data: null, error: new Error(error.message) };
+
+  if (error) {
+    const message = error.message || "Mise à jour impossible.";
+    if (/row-level security|rls/i.test(message)) {
+      return {
+        data: null,
+        error: new Error(
+          "Modification refusée (périmètre organisationnel). Vérifiez le rattachement chapitre / district / groupe.",
+        ),
+      };
+    }
+    return { data: null, error: new Error(message) };
+  }
+
+  if (values.type === "vague-paix" && validMemberId && values.statut !== "Annulé") {
+    await supabase
+      .from("members")
+      .update({ abonnement_vague_paix: true })
+      .eq("id", validMemberId);
+  } else if (values.type === "vague-paix" && validMemberId && values.statut === "Annulé") {
+    // Ne retire pas automatiquement l’abonnement : d’autres paiements VP peuvent exister.
+  }
 
   const { data: enriched } = await supabase
     .from("v_collectes_enriched")

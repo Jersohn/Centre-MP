@@ -109,6 +109,9 @@ export function mapMemberRow(row: MemberDbRow): MemberRecord {
     chapitre: row.chapitres?.name || "",
     district: row.districts?.name || "",
     groupe: row.groupes?.name || "",
+    chapitreId: row.chapitre_id || null,
+    districtId: row.district_id || null,
+    groupeId: row.groupe_id || null,
     statut: STATUT_FROM_DB[row.statut] || "Actif",
     abonnement: Boolean(row.abonnement),
     photo: row.photo_url || "",
@@ -149,6 +152,9 @@ function mapProfileAsMember(row: ProfileRow): MemberRecord | null {
     chapitre: row.chapitre_name || "",
     district: row.district_name || "",
     groupe: row.groupe_name || "",
+    chapitreId: row.chapitre_id || null,
+    districtId: row.district_id || null,
+    groupeId: row.groupe_id || null,
     statut: STATUT_FROM_DB[row.status] || "Actif",
     abonnement: Boolean(row.abonnement),
     photo: row.photo_url || "",
@@ -266,4 +272,96 @@ export async function createMemberRemote(
   const { data, error } = await supabase.from("members").insert(payload).select("id").single();
   if (error) return { data: null, error: new Error(error.message) };
   return { data: data as { id: string }, error: null };
+}
+
+export async function updateMemberRemote(
+  memberId: string,
+  values: MemberFormValues,
+  orgIdsOverride?: { chapitre_id: string; district_id: string; groupe_id: string } | null,
+): Promise<{ data: { id: string } | null; error: Error | null }> {
+  if (!isSupabaseEnabled() || !supabase) {
+    return { data: null, error: new Error("Service indisponible.") };
+  }
+  if (!memberId.trim()) {
+    return { data: null, error: new Error("Identifiant membre manquant.") };
+  }
+
+  let orgIds = orgIdsOverride || null;
+  if (!orgIds?.chapitre_id || !orgIds?.district_id || !orgIds?.groupe_id) {
+    const resolved = await resolveOrgIds({
+      chapitre: values.chapitre,
+      district: values.district,
+      groupe: values.groupe,
+    });
+    if (resolved.error) return { data: null, error: resolved.error };
+    orgIds = resolved.data;
+  }
+  if (!orgIds.chapitre_id || !orgIds.district_id || !orgIds.groupe_id) {
+    return { data: null, error: new Error("Chapitre, district et groupe sont requis.") };
+  }
+
+  const payload = {
+    prenom: values.prenom.trim(),
+    nom: values.nom.trim(),
+    email: values.email.trim().toLowerCase() || null,
+    telephone: values.telephone.trim(),
+    date_naissance: values.dateNaissance || null,
+    departement: values.departement.trim() || values.categorie.trim() || "Homme",
+    categorie:
+      CATEGORIE_TO_DB[values.departement] ||
+      CATEGORIE_TO_DB[values.categorie] ||
+      "homme",
+    responsabilite: RESPONSABILITE_TO_DB[values.responsabilite] || "membre_simple",
+    date_debut_pratique: values.dateDebutPratique || null,
+    abonnement_vague_paix: Boolean(values.abonnementVaguePaix),
+    sokahan: Boolean(values.sokahan),
+    abonnement: Boolean(values.abonnement),
+    quartier: values.quartier.trim(),
+    chapitre_id: orgIds.chapitre_id,
+    district_id: orgIds.district_id,
+    groupe_id: orgIds.groupe_id,
+    statut: STATUT_TO_DB[values.statut] || "actif",
+    photo_url: values.photo?.startsWith("http") ? values.photo : "",
+  };
+
+  const { data, error } = await supabase
+    .from("members")
+    .update(payload)
+    .eq("id", memberId)
+    .select("id")
+    .single();
+  if (error) return { data: null, error: new Error(error.message) };
+  return { data: data as { id: string }, error: null };
+}
+
+export async function deleteMemberRemote(
+  memberId: string,
+): Promise<{ error: Error | null }> {
+  if (!isSupabaseEnabled() || !supabase) {
+    return { error: new Error("Service indisponible.") };
+  }
+  if (!memberId.trim()) {
+    return { error: new Error("Identifiant membre manquant.") };
+  }
+  const { error } = await supabase.from("members").delete().eq("id", memberId);
+  if (error) return { error: new Error(error.message) };
+  return { error: null };
+}
+
+export async function setMemberStatusRemote(
+  memberId: string,
+  statut: string,
+): Promise<{ error: Error | null }> {
+  if (!isSupabaseEnabled() || !supabase) {
+    return { error: new Error("Service indisponible.") };
+  }
+  if (!memberId.trim()) {
+    return { error: new Error("Identifiant membre manquant.") };
+  }
+  const { error } = await supabase
+    .from("members")
+    .update({ statut: STATUT_TO_DB[statut] || "suspendu" })
+    .eq("id", memberId);
+  if (error) return { error: new Error(error.message) };
+  return { error: null };
 }

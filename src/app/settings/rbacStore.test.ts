@@ -49,14 +49,14 @@ describe("rbacStore", () => {
     expect(access.admin).toContain("settings");
     expect(access.centre).toContain("settings");
     expect(access.chapitre).toContain("settings");
-    expect(access.district).not.toContain("settings");
+    expect(access.district).toContain("settings");
     expect(access.groupe).not.toContain("settings");
     expect(access.centre).toContain("statistiques");
     expect(access.groupe).toContain("statistiques");
     expect(access.groupe).toContain("profil");
   });
 
-  it("persists toggles and keeps settings for admin/centre/chapitre", () => {
+  it("persists toggles and keeps settings for admin/centre/chapitre/district", () => {
     const matrix = accessToMatrix(defaultModuleAccess()).map((row) =>
       row.moduleKey === "statistiques"
         ? { ...row, roles: { ...row.roles, groupe: false } }
@@ -68,7 +68,7 @@ describe("rbacStore", () => {
                 admin: false,
                 centre: false,
                 chapitre: false,
-                district: true,
+                district: false,
               },
             }
           : row,
@@ -78,7 +78,7 @@ describe("rbacStore", () => {
     expect(saved.admin).toContain("settings");
     expect(saved.centre).toContain("settings");
     expect(saved.chapitre).toContain("settings");
-    expect(saved.district).not.toContain("settings");
+    expect(saved.district).toContain("settings");
     expect(loadModuleAccess().groupe).not.toContain("statistiques");
   });
 

@@ -15,7 +15,7 @@ function extensionFor(file: File) {
   return "jpg";
 }
 
-/** Téléverse une image vers le bucket public `landing-media` (ou data URL en secours). */
+/** Téléverse une image vers le bucket public `landing-media`. */
 export async function uploadLandingMedia(file: File, folder = "misc"): Promise<string> {
   if (!file.type.startsWith("image/")) {
     throw new Error("Veuillez sélectionner une image (JPG, PNG ou WEBP).");
@@ -24,15 +24,17 @@ export async function uploadLandingMedia(file: File, folder = "misc"): Promise<s
     throw new Error("L’image ne doit pas dépasser 5 Mo.");
   }
 
+  // Hors Supabase (démo locale uniquement) : data URL acceptable.
   if (!isSupabaseEnabled() || !supabase) {
     return dataUrlFromFile(file);
   }
 
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
-  if (!user) {
-    return dataUrlFromFile(file);
+  if (userError || !user) {
+    throw new Error("Session expirée. Reconnectez-vous pour téléverser des images.");
   }
 
   const ext = extensionFor(file);
@@ -45,9 +47,11 @@ export async function uploadLandingMedia(file: File, folder = "misc"): Promise<s
   });
 
   if (error) {
-    // Secours local si Storage refuse (RLS / session)
-    console.warn("[landing-media]", error.message);
-    return dataUrlFromFile(file);
+    throw new Error(
+      error.message.includes("row-level security") || error.message.includes("policy")
+        ? "Téléversement refusé (droits Storage). Vérifiez que votre compte admin/centre est actif."
+        : `Échec du téléversement : ${error.message}`,
+    );
   }
 
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);

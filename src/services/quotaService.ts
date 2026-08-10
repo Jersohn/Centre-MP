@@ -323,11 +323,12 @@ export async function setCentreObjective(input: {
 
 export async function upsertChildQuotas(input: {
   campaignId: string;
-  level: "chapitre" | "district" | "groupe";
+  level: "chapitre" | "district" | "groupe" | "membre";
   rows: Array<{
     chapitre_id: string | null;
     district_id: string | null;
     groupe_id: string | null;
+    member_id?: string | null;
     assigne: number;
     date_echeance?: string | null;
   }>;
@@ -354,6 +355,9 @@ export async function upsertChildQuotas(input: {
         .eq("district_id", row.district_id!)
         .eq("groupe_id", row.groupe_id!);
     }
+    if (input.level === "membre") {
+      query = query.eq("member_id", row.member_id!);
+    }
 
     const { data: existing, error: findError } = await query.maybeSingle();
     if (findError) return { error: new Error(findError.message) };
@@ -376,6 +380,7 @@ export async function upsertChildQuotas(input: {
         chapitre_id: row.chapitre_id,
         district_id: row.district_id,
         groupe_id: row.groupe_id,
+        member_id: input.level === "membre" ? row.member_id : null,
         ...payload,
       });
       if (error) return { error: new Error(error.message) };
@@ -394,10 +399,13 @@ export async function upsertChildQuotas(input: {
 }
 
 /** Niveau enfant éditable selon le rôle (zaimu spécial). */
-export function editableChildLevel(role: PlatformRole): "chapitre" | "district" | "groupe" | null {
+export function editableChildLevel(
+  role: PlatformRole,
+): "chapitre" | "district" | "groupe" | "membre" | null {
   if (role === "admin" || role === "centre") return "chapitre";
   if (role === "chapitre") return "district";
   if (role === "district") return "groupe";
+  if (role === "groupe") return "membre";
   return null;
 }
 

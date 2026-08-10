@@ -10,9 +10,11 @@ import {
 } from "../../services/orgService";
 import type { ChapitreRow, DistrictRow, GroupeRow } from "../../types/supabase";
 import { RowActionsMenu } from "../RowActionsMenu";
+import { useConfirm } from "../ConfirmDialog";
 import { OrgDetailEmpty, OrgEmptyState, OrgPageShell } from "./OrgPageShell";
 
 export default function GroupesModule() {
+  const { confirm } = useConfirm();
   const [items, setItems] = useState<GroupeRow[]>([]);
   const [chapitres, setChapitres] = useState<ChapitreRow[]>([]);
   const [districts, setDistricts] = useState<DistrictRow[]>([]);
@@ -149,9 +151,12 @@ export default function GroupesModule() {
   };
 
   const handleDelete = async (item: GroupeRow) => {
-    const ok = window.confirm(
-      `Supprimer le groupe « ${item.name} » ? Impossible s’il reste des membres ou collectes rattachés.`,
-    );
+    const ok = await confirm({
+      title: "Supprimer ce groupe ?",
+      description: `« ${item.name} »\nImpossible s’il reste des membres ou collectes rattachés.`,
+      confirmLabel: "Supprimer",
+      tone: "danger",
+    });
     if (!ok) return;
     const { error: deleteError } = await deleteGroupe(item.id);
     if (deleteError) {

@@ -11,7 +11,12 @@ export type CallerProfile = {
 };
 
 export function canInvite(callerRole: AppRole) {
-  return callerRole === "admin" || callerRole === "centre" || callerRole === "chapitre";
+  return (
+    callerRole === "admin" ||
+    callerRole === "centre" ||
+    callerRole === "chapitre" ||
+    callerRole === "district"
+  );
 }
 
 /** Qui peut mettre à jour un profil (rôle / périmètre) via l’edge function. */
@@ -90,6 +95,14 @@ export function normalizeScopeForRole(
       throw new Error("Votre profil chapitre n’a pas de chapitre rattaché.");
     }
     chapitre_id = caller.chapitre_id;
+  }
+
+  if (caller.role === "district") {
+    if (!caller.chapitre_id || !caller.district_id) {
+      throw new Error("Votre profil district n’a pas de périmètre rattaché.");
+    }
+    chapitre_id = caller.chapitre_id;
+    district_id = caller.district_id;
   }
 
   if (role === "admin") {

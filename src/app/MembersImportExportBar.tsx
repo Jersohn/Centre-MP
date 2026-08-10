@@ -1,4 +1,4 @@
-﻿import { useRef, useState, type ChangeEvent } from "react";
+﻿import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
   Download,
   FileUp,
@@ -7,6 +7,7 @@ import {
   Users,
 } from "lucide-react";
 import type { MemberRecord } from "./memberFormUtils";
+import type { PlatformRole } from "./roles";
 import ExportFieldsDialog from "./ExportFieldsDialog";
 import {
   createMembersFromImport,
@@ -22,11 +23,19 @@ import {
   ZAIMU_EXPORT_FIELDS,
   type ZaimuSpecialPaymentRow,
 } from "./memberImportExport";
+import {
+  listMyAssignedSpecialCampaigns,
+  listQuotaAssignments,
+  listSpecialCampaigns,
+} from "../services/quotaService";
+import { fetchMyProfile } from "../services/profileService";
 
 type Props = {
   members: MemberRecord[];
   filteredMembers: MemberRecord[];
   collectes: ZaimuSpecialPaymentRow[];
+  role: PlatformRole;
+  orgScope?: { chapitre?: string; district?: string; groupe?: string; label?: string } | null;
   onImport: (members: MemberRecord[]) => void;
 };
 
@@ -36,12 +45,16 @@ export default function MembersImportExportBar({
   members,
   filteredMembers,
   collectes,
+  role,
+  orgScope = null,
   onImport,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [exportKind, setExportKind] = useState<ExportKind>(null);
+  const [zsAssigneById, setZsAssigneById] = useState<Record<string, number>>({});
+  const [zsPerimeterCota, setZsPerimeterCota] = useState(0);
 
   const stamp = new Date().toISOString().slice(0, 10);
   const zaimuSpecialCount = collectes.filter((c) => {
@@ -49,6 +62,48 @@ export default function MembersImportExportBar({
     const names = new Set(filteredMembers.map((m) => `${m.prenom} ${m.nom}`.trim().toLowerCase()));
     return names.has(c.membre.trim().toLowerCase());
   }).length;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMemberQuotas() {
+      const { data: profile } = await fetchMyProfile();
+      const scope = {
+        chapitre_id: profile?.chapitre_id || null,
+        district_id: profile?.district_id || null,
+        groupe_id: profile?.groupe_id || null,
+      };
+
+      const assigned = await listMyAssignedSpecialCampaigns({
+        role,
+        ...scope,
+      });
+      const perimeter = (assigned.data || [])
+        .filter((item) => item.campaign.is_active)
+        .reduce((sum, item) => sum + Number(item.assigne || 0), 0);
+
+      const { data: campaigns } = await listSpecialCampaigns();
+      const active = (campaigns || []).filter((c) => c.is_active);
+      const totals: Record<string, number> = {};
+      for (const campaign of active) {
+        const { data: assignments } = await listQuotaAssignments(campaign.id);
+        for (const row of assignments || []) {
+          if (row.level !== "membre" || !row.member_id) continue;
+          totals[row.member_id] = (totals[row.member_id] || 0) + Number(row.assigne || 0);
+        }
+      }
+
+      if (!cancelled) {
+        setZsPerimeterCota(perimeter);
+        setZsAssigneById(totals);
+      }
+    }
+    void loadMemberQuotas();
+    return () => {
+      cancelled = true;
+    };
+  }, [members, role]);
+
+  const finance = { collectes, zsAssigneById, zsPerimeterCota };
 
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -199,9 +254,17 @@ export default function MembersImportExportBar({
             exportMembersPdf(filteredMembers, {
               filename: `membres_${stamp}.pdf`,
               fields,
+              finance,
+              scope: orgScope,
             });
           } else {
-            exportMembersExcel(filteredMembers, `membres_${stamp}.xlsx`, fields);
+            exportMembersExcel(
+              filteredMembers,
+              `membres_${stamp}.xlsx`,
+              fields,
+              finance,
+              orgScope,
+            );
           }
           setExportKind(null);
           setMessage({

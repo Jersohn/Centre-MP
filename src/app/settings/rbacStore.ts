@@ -5,7 +5,7 @@ import {
   type PlatformRole,
 } from "../roles";
 
-export const RBAC_STORAGE_KEY = "sgi-rbac-module-access-v4";
+export const RBAC_STORAGE_KEY = "sgi-rbac-module-access-v5";
 export const RBAC_CHANGED_EVENT = "sgi-rbac-changed";
 
 export type RbacMatrixRow = {
@@ -67,15 +67,15 @@ function sanitizeAccess(
     );
     // Profil toujours disponible pour tout responsable actif
     if (!cleaned.includes("profil")) cleaned.push("profil");
-    // Admin / centre / chapitre : accès Paramètres (gestion des responsables)
+    // Admin / centre / chapitre / district : accès Paramètres (gestion des responsables)
     if (
-      (role === "admin" || role === "centre" || role === "chapitre") &&
+      (role === "admin" || role === "centre" || role === "chapitre" || role === "district") &&
       !cleaned.includes("settings")
     ) {
       cleaned.push("settings");
     }
-    // District / groupe : pas d’accès Paramètres
-    if (role === "district" || role === "groupe") {
+    // Groupe : pas d’accès Paramètres
+    if (role === "groupe") {
       const settingsIdx = cleaned.indexOf("settings");
       if (settingsIdx >= 0) cleaned.splice(settingsIdx, 1);
     }

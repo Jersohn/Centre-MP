@@ -1,7 +1,9 @@
 import { ChangeEvent, useState } from "react";
 import contentService from "../services/contentService";
+import { useConfirm } from "../app/ConfirmDialog";
 
 export default function CentreEditLanding() {
+  const { confirm, alert } = useConfirm();
   const initial = contentService.getContent();
   const [aboutText, setAboutText] = useState(initial.aboutText);
   const [aboutImage, setAboutImage] = useState(initial.aboutImage);
@@ -22,17 +24,34 @@ export default function CentreEditLanding() {
     setAboutImage(url);
   }
 
-  function save() {
+  async function save() {
     contentService.setContent({ aboutText, aboutImage });
-    alert("Contenu enregistré.");
+    await alert({
+      title: "Contenu enregistré",
+      description: "Les modifications de la page publique ont bien été sauvegardées.",
+      tone: "success",
+      confirmLabel: "OK",
+    });
   }
 
-  function reset() {
+  async function reset() {
+    const ok = await confirm({
+      title: "Réinitialiser le contenu ?",
+      description: "Le texte et l’image À propos seront remis aux valeurs par défaut.",
+      confirmLabel: "Réinitialiser",
+      tone: "danger",
+    });
+    if (!ok) return;
     contentService.resetContent();
     const current = contentService.getContent();
     setAboutText(current.aboutText);
     setAboutImage(current.aboutImage);
-    alert("Contenu réinitialisé.");
+    await alert({
+      title: "Contenu réinitialisé",
+      description: "Les valeurs par défaut ont été restaurées.",
+      tone: "info",
+      confirmLabel: "OK",
+    });
   }
 
   return (
@@ -40,22 +59,40 @@ export default function CentreEditLanding() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold">Édition du contenu - Centre</h2>
-          <p className="mt-2 text-sm text-slate-600">Mettez à jour la présentation du centre et l’image de la section À propos.</p>
+          <p className="mt-2 text-sm text-slate-600">
+            Mettez à jour la présentation du centre et l’image de la section À propos.
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={reset} className="rounded-full border border-slate-300 px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-50">Réinitialiser</button>
-          <button type="button" onClick={save} className="rounded-full bg-[var(--sgi-blue)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0d3660]">Enregistrer</button>
+          <button
+            type="button"
+            onClick={() => void reset()}
+            className="rounded-full border border-slate-300 px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-50"
+          >
+            Réinitialiser
+          </button>
+          <button
+            type="button"
+            onClick={() => void save()}
+            className="rounded-full bg-[var(--sgi-blue)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0d3660]"
+          >
+            Enregistrer
+          </button>
         </div>
       </div>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-slate-900">Section À propos</h3>
-        <p className="mt-2 text-sm text-slate-600">Actualisez le texte et l’image présentés sur la page centrale.</p>
+        <p className="mt-2 text-sm text-slate-600">
+          Actualisez le texte et l’image présentés sur la page centrale.
+        </p>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700">Texte de présentation</label>
+              <label className="block text-sm font-medium text-slate-700">
+                Texte de présentation
+              </label>
               <textarea
                 value={aboutText}
                 onChange={(e) => setAboutText(e.target.value)}
@@ -64,17 +101,30 @@ export default function CentreEditLanding() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700">Image de la section</label>
-              <input type="file" accept="image/*" onChange={handleAboutUpload} className="mt-2 text-sm text-slate-700" />
+              <label className="block text-sm font-medium text-slate-700">
+                Image de la section
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => void handleAboutUpload(e)}
+                className="mt-2 text-sm text-slate-700"
+              />
             </div>
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
             <div className="text-sm font-semibold text-slate-800">Aperçu</div>
             {aboutImage ? (
-              <img src={aboutImage} alt="Aperçu image about" className="mt-4 h-64 w-full rounded-3xl object-cover" />
+              <img
+                src={aboutImage}
+                alt="Aperçu image about"
+                className="mt-4 h-64 w-full rounded-3xl object-cover"
+              />
             ) : (
-              <div className="mt-4 flex h-64 items-center justify-center rounded-3xl border border-dashed border-slate-300 text-sm text-slate-500">Aucune image sélectionnée</div>
+              <div className="mt-4 flex h-64 items-center justify-center rounded-3xl border border-dashed border-slate-300 text-sm text-slate-500">
+                Aucune image sélectionnée
+              </div>
             )}
           </div>
         </div>

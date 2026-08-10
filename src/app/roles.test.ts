@@ -28,7 +28,7 @@ describe("platform roles", () => {
     expect(MODULE_ACCESS.chapitre).toContain("profil");
     expect(MODULE_ACCESS.groupe).toContain("profil");
     expect(MODULE_ACCESS.chapitre).toContain("settings");
-    expect(MODULE_ACCESS.district).not.toContain("settings");
+    expect(MODULE_ACCESS.district).toContain("settings");
     expect(MODULE_ACCESS.groupe).not.toContain("settings");
     expect(MODULE_ACCESS.admin).not.toContain("directives");
     expect(MODULE_ACCESS.chapitre).not.toContain("directives");

@@ -3,6 +3,7 @@ import {
   BookOpen,
   Building2,
   CalendarDays,
+  CheckCircle,
   Eye,
   Edit2,
   HeartHandshake,
@@ -18,7 +19,7 @@ import {
   X,
   Hash,
 } from "lucide-react";
-import { RowActionsMenu } from "./RowActionsMenu";
+import { RowActionsMenu, type RowAction } from "./RowActionsMenu";
 import { MemberAvatar } from "./MemberAvatar";
 import { findMemberPhotoByName, memberFullName } from "./membersData";
 import CollectesImportExportBar from "./CollectesImportExportBar";
@@ -34,9 +35,14 @@ import {
   updateCollecteRemote,
 } from "../services/collecteService";
 import {
+  listMyAssignedSpecialCampaigns,
+  listQuotaAssignments,
   listSpecialCampaigns,
   type ZaimuCampaign,
 } from "../services/quotaService";
+import { fetchMyProfile } from "../services/profileService";
+import { useConfirm } from "./ConfirmDialog";
+import { orgScopeFromProfile } from "./memberListStats";
 
 export type CollecteTab = "vague-paix" | "zaimu-ordinaire" | "zaimu-special";
 export type CollecteStatut = "En attente" | "Validé" | "Annulé";
@@ -58,15 +64,202 @@ export interface CollecteRecord {
   /** Référence du reçu (optionnelle). */
   referenceRecu: string;
   note: string;
+  /** IDs org saisis dans le formulaire (évite une résolution ambiguë par nom). */
+  orgIds?: {
+    chapitre_id: string;
+    district_id: string;
+    groupe_id: string;
+  };
 }
 
 function displayCollecteNumero(record: Pick<CollecteRecord, "id" | "numero">) {
+  if (isVaguePaixPlaceholder(record)) return "Abonné";
   return record.numero?.trim() || record.id;
 }
 
 const STATUT_OPTIONS: CollecteStatut[] = ["En attente", "Validé", "Annulé"];
-/** Statuts proposés à la création d’un paiement (pas d’annulation à l’ajout). */
-const STATUT_OPTIONS_CREATE: CollecteStatut[] = ["En attente", "Validé"];
+
+const MONTH_OPTIONS = [
+  { value: 1, label: "Janvier" },
+  { value: 2, label: "Février" },
+  { value: 3, label: "Mars" },
+  { value: 4, label: "Avril" },
+  { value: 5, label: "Mai" },
+  { value: 6, label: "Juin" },
+  { value: 7, label: "Juillet" },
+  { value: 8, label: "Août" },
+  { value: 9, label: "Septembre" },
+  { value: 10, label: "Octobre" },
+  { value: 11, label: "Novembre" },
+  { value: 12, label: "Décembre" },
+] as const;
+
+function parseCollecteDateParts(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec((value || "").trim());
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    iso: `${match[1]}-${match[2]}-${match[3]}`,
+  };
+}
+
+function normalizeLabel(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function campaignLabelOf(record: Pick<CollecteRecord, "periode" | "motif">) {
+  return (record.periode || record.motif || "").trim();
+}
+
+function matchesCampaignLabel(
+  record: Pick<CollecteRecord, "periode" | "motif">,
+  campaignLabel: string | null | undefined,
+) {
+  const label = normalizeLabel(campaignLabel || "");
+  if (!label) return true;
+  return (
+    normalizeLabel(record.periode) === label || normalizeLabel(record.motif) === label
+  );
+}
+
+const VP_PLACEHOLDER_PREFIX = "vp-abonné:";
+
+function isVaguePaixPlaceholder(item: Pick<CollecteRecord, "id">) {
+  return item.id.startsWith(VP_PLACEHOLDER_PREFIX);
+}
+
+function vaguePaixPlaceholderFromMember(member: MemberRecord): CollecteRecord {
+  const name = memberFullName(member);
+  return {
+    id: `${VP_PLACEHOLDER_PREFIX}${member.remoteId || member.id}`,
+    numero: "",
+    type: "vague-paix",
+    membre: name,
+    montant: 0,
+    date: member.adhesion || new Date().toISOString().slice(0, 10),
+    statut: "En attente",
+    chapitre: member.chapitre,
+    district: member.district,
+    groupe: member.groupe,
+    periode: "",
+    motif: "",
+    referenceRecu: "",
+    note: "Montant à renseigner par le responsable groupe",
+    orgIds:
+      member.chapitreId && member.districtId && member.groupeId
+        ? {
+            chapitre_id: member.chapitreId,
+            district_id: member.districtId,
+            groupe_id: member.groupeId,
+          }
+        : undefined,
+  };
+}
+
+/** Liste VP = abonnés (case cochée) + paiements saisis ; les montants peuvent venir plus tard. */
+function buildVaguePaixRows(members: MemberRecord[], records: CollecteRecord[]): CollecteRecord[] {
+  const vpPayments = records.filter((item) => item.type === "vague-paix");
+  const paymentsByMember = new Map<string, CollecteRecord[]>();
+  for (const payment of vpPayments) {
+    const key = normalizeLabel(payment.membre);
+    const list = paymentsByMember.get(key) || [];
+    list.push(payment);
+    paymentsByMember.set(key, list);
+  }
+
+  const rows: CollecteRecord[] = [];
+  const covered = new Set<string>();
+
+  for (const member of members.filter((item) => item.abonnementVaguePaix)) {
+    const name = memberFullName(member);
+    const key = normalizeLabel(name);
+    covered.add(key);
+    const payments = (paymentsByMember.get(key) || []).sort((a, b) =>
+      b.date.localeCompare(a.date),
+    );
+    if (payments.length > 0) {
+      rows.push(...payments);
+    } else {
+      rows.push(vaguePaixPlaceholderFromMember(member));
+    }
+  }
+
+  // Paiements historiques non rattachés à un abonné flaggé (données anciennes)
+  for (const payment of vpPayments) {
+    const key = normalizeLabel(payment.membre);
+    if (covered.has(key)) continue;
+    rows.push(payment);
+    covered.add(key);
+  }
+
+  return rows.sort((a, b) => {
+    const byGroupe = a.groupe.localeCompare(b.groupe, "fr");
+    if (byGroupe !== 0) return byGroupe;
+    return a.membre.localeCompare(b.membre, "fr");
+  });
+}
+
+function paidZaimuSpecialForMember(
+  records: CollecteRecord[],
+  memberName: string,
+  campaignLabel: string,
+) {
+  const name = normalizeLabel(memberName);
+  const label = normalizeLabel(campaignLabel);
+  return records
+    .filter((item) => item.type === "zaimu-special" && item.statut === "Validé")
+    .filter((item) => normalizeLabel(item.membre) === name)
+    .filter((item) => {
+      if (!label) return true;
+      return (
+        normalizeLabel(item.periode) === label || normalizeLabel(item.motif) === label
+      );
+    })
+    .reduce((sum, item) => sum + item.montant, 0);
+}
+
+function perimeterLabelForRole(role: PlatformRole) {
+  if (role === "groupe") return "Groupe";
+  if (role === "district") return "District";
+  if (role === "chapitre") return "Chapitre";
+  return "Périmètre";
+}
+
+/** Cota assignée au niveau du rôle (pas la somme des enfants). */
+function assignedCotaForRole(
+  role: PlatformRole,
+  campaign: ZaimuCampaign,
+  assignments: Awaited<ReturnType<typeof listQuotaAssignments>>["data"],
+  scope: {
+    chapitre_id: string | null;
+    district_id: string | null;
+    groupe_id: string | null;
+  },
+) {
+  const rows = assignments || [];
+  if (role === "admin" || role === "centre") {
+    const centreRow = rows.find((row) => row.level === "centre");
+    return Number(centreRow?.assigne || campaign.montant_centre || 0);
+  }
+  if (role === "chapitre" && scope.chapitre_id) {
+    return rows
+      .filter((row) => row.level === "chapitre" && row.chapitre_id === scope.chapitre_id)
+      .reduce((sum, row) => sum + Number(row.assigne || 0), 0);
+  }
+  if (role === "district" && scope.district_id) {
+    return rows
+      .filter((row) => row.level === "district" && row.district_id === scope.district_id)
+      .reduce((sum, row) => sum + Number(row.assigne || 0), 0);
+  }
+  if (role === "groupe" && scope.groupe_id) {
+    return rows
+      .filter((row) => row.level === "groupe" && row.groupe_id === scope.groupe_id)
+      .reduce((sum, row) => sum + Number(row.assigne || 0), 0);
+  }
+  return 0;
+}
 
 const TAB_META: Record<
   CollecteTab,
@@ -103,18 +296,22 @@ export const COLLECTES_SEED: CollecteRecord[] = [];
 const emptyForm = (
   type: CollecteTab,
   memberOptions: string[] = [],
+  campaignLabel?: string | null,
 ): Omit<CollecteRecord, "id"> => ({
   numero: "",
   type,
   membre: memberOptions[0] || "",
-  montant: type === "vague-paix" ? 5000 : 0,
+  montant: 0,
   date: new Date().toISOString().slice(0, 10),
   statut: "En attente",
   chapitre: "",
   district: "",
   groupe: "",
-  periode: type === "zaimu-special" ? "Campagne 2026" : "Août 2026",
-  motif: "",
+  periode:
+    type === "zaimu-special"
+      ? campaignLabel?.trim() || "Campagne 2026"
+      : "Août 2026",
+  motif: type === "zaimu-special" ? campaignLabel?.trim() || "" : "",
   referenceRecu: "",
   note: "",
 });
@@ -159,18 +356,29 @@ function DetailField({
 function DetailModal({
   record,
   photo,
+  memberBalance,
+  canValidate = false,
+  canEdit = true,
+  canDelete = true,
   onClose,
   onEdit,
   onDelete,
+  onValidate,
 }: {
   record: CollecteRecord;
   photo?: string;
+  memberBalance?: { engagement: number; paye: number; reste: number } | null;
+  canValidate?: boolean;
+  canEdit?: boolean;
+  canDelete?: boolean;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onValidate?: () => void;
 }) {
   const meta = TAB_META[record.type];
   const Icon = meta.icon;
+  const lockedValidated = record.statut === "Validé" && !canEdit;
 
   return (
     <div
@@ -222,11 +430,22 @@ function DetailModal({
 
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-[1.2fr_0.8fr]">
             <div className="rounded-2xl border border-[var(--sgi-gold)]/25 bg-card/90 p-4 shadow-sm backdrop-blur">
-              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--sgi-gold)]">Montant</p>
-              <p className="mt-1 font-display text-3xl font-bold tracking-tight text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
-                {fmt(record.montant)}
-              </p>
-              <p className="mt-0.5 text-sm text-muted-foreground">FCFA</p>
+              <p className="mt-0 text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--sgi-gold)]">Montant</p>
+              {isVaguePaixPlaceholder(record) || record.montant <= 0 ? (
+                <>
+                  <p className="mt-1 font-display text-2xl font-bold tracking-tight text-muted-foreground">
+                    À renseigner
+                  </p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">par le responsable groupe</p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 font-display text-3xl font-bold tracking-tight text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
+                    {fmt(record.montant)}
+                  </p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">FCFA</p>
+                </>
+              )}
             </div>
             <div className="flex flex-col justify-between rounded-2xl border border-border bg-card/90 p-4 shadow-sm backdrop-blur">
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Statut</p>
@@ -279,25 +498,79 @@ function DetailModal({
               ) : null}
               .
             </p>
+            {record.type === "zaimu-special" && memberBalance && (
+              <div className="mt-3 grid grid-cols-3 gap-2 border-t border-border/70 pt-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Engagement
+                  </p>
+                  <p className="mt-0.5 font-mono text-sm font-semibold text-foreground">
+                    {fmt(memberBalance.engagement)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Payé
+                  </p>
+                  <p className="mt-0.5 font-mono text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+                    {fmt(memberBalance.paye)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Reste
+                  </p>
+                  <p className="mt-0.5 font-mono text-sm font-semibold text-[var(--sgi-red)]">
+                    {fmt(memberBalance.reste)}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2 border-t border-border bg-card/95 p-4 sm:flex sm:justify-end sm:gap-3 sm:px-6">
-          <button
-            type="button"
-            onClick={onDelete}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--sgi-red)]/30 px-4 py-3 text-sm font-medium text-[var(--sgi-red)] transition hover:bg-[var(--sgi-red)]/10"
-          >
-            <Trash2 size={14} /> Supprimer
-          </button>
-          <button
-            type="button"
-            onClick={onEdit}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--sgi-blue)] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
-          >
-            <Edit2 size={14} /> Modifier
-          </button>
+          {canDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--sgi-red)]/30 px-4 py-3 text-sm font-medium text-[var(--sgi-red)] transition hover:bg-[var(--sgi-red)]/10"
+            >
+              <Trash2 size={14} /> Supprimer
+            </button>
+          )}
+          {canValidate && record.statut === "En attente" && onValidate && (
+            <button
+              type="button"
+              onClick={onValidate}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+            >
+              <CheckCircle size={14} /> Valider
+            </button>
+          )}
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--sgi-blue)] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+            >
+              <Edit2 size={14} /> Modifier
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--sgi-blue)] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+            >
+              Fermer
+            </button>
+          )}
         </div>
+        {lockedValidated && (
+          <p className="border-t border-border px-4 py-2 text-center text-[11px] text-muted-foreground sm:px-6">
+            Paiement validé — modification réservée au centre ou à l’administrateur.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -308,6 +581,7 @@ function CollecteFormModal({
   initial,
   memberOptions,
   members,
+  actorRole,
   onClose,
   onSubmit,
 }: {
@@ -315,6 +589,7 @@ function CollecteFormModal({
   initial: Omit<CollecteRecord, "id"> & { id?: string };
   memberOptions: string[];
   members: MemberRecord[];
+  actorRole: PlatformRole;
   onClose: () => void;
   onSubmit: (values: Omit<CollecteRecord, "id">) => void | Promise<void>;
 }) {
@@ -330,33 +605,97 @@ function CollecteFormModal({
   const [campaigns, setCampaigns] = useState<ZaimuCampaign[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
-  const isEdit = Boolean(initial.id);
-  const statutOptions = isEdit ? STATUT_OPTIONS : STATUT_OPTIONS_CREATE;
+  const isEdit = Boolean(initial.id) && !isVaguePaixPlaceholder({ id: String(initial.id) });
   const meta = TAB_META[values.type];
   const Icon = meta.icon;
   const showMotif = values.type === "zaimu-special";
   const showCampaignSelect = values.type === "zaimu-special";
+  const lockChapitre =
+    actorRole === "chapitre" || actorRole === "district" || actorRole === "groupe";
+  const lockDistrict = actorRole === "district" || actorRole === "groupe";
+  const lockGroupe = actorRole === "groupe";
+  const isVpAmountEntry = values.type === "vague-paix" && !isEdit;
+
+  const applyOrgFromMember = (member: MemberRecord) => {
+    let chapitreId = member.chapitreId || "";
+    let districtId = member.districtId || "";
+    let groupeId = member.groupeId || "";
+
+    if (groupeId) {
+      const groupe = orgTree.groupes.find((item) => item.id === groupeId);
+      if (groupe) districtId = districtId || groupe.district_id;
+    }
+    if (districtId) {
+      const district = orgTree.districts.find((item) => item.id === districtId);
+      if (district) chapitreId = chapitreId || district.chapitre_id;
+    }
+
+    const fromIds =
+      chapitreId || districtId || groupeId
+        ? { chapitreId, districtId, groupeId }
+        : orgTree.findByNames({
+            chapitre: member.chapitre,
+            district: member.district,
+            groupe: member.groupe,
+          });
+    const next = orgTree.coerceSelection(fromIds);
+    setOrgIds(next);
+    setValues((prev) => ({
+      ...prev,
+      membre: memberFullName(member),
+      ...orgTree.nameOf(next),
+    }));
+    return next;
+  };
 
   useEffect(() => {
     if (orgTree.loading || orgTree.chapitres.length === 0) return;
-    const next = orgTree.coerceSelection(
-      orgTree.findByNames({
-        chapitre: initial.chapitre,
-        district: initial.district,
-        groupe: initial.groupe,
-      }),
-    );
-    setOrgIds(next);
-    setValues((prev) => ({ ...prev, ...orgTree.nameOf(next) }));
+
+    const memberName = (initial.membre || "").trim();
+    if (memberName) {
+      const member = members.find((item) => memberFullName(item) === memberName);
+      if (member) {
+        applyOrgFromMember(member);
+        return;
+      }
+    }
+
+    if (initial.orgIds?.chapitre_id) {
+      const next = orgTree.coerceSelection({
+        chapitreId: initial.orgIds.chapitre_id,
+        districtId: initial.orgIds.district_id,
+        groupeId: initial.orgIds.groupe_id,
+      });
+      setOrgIds(next);
+      setValues((prev) => ({ ...prev, ...orgTree.nameOf(next) }));
+      return;
+    }
+
+    if (initial.chapitre || initial.district || initial.groupe) {
+      const next = orgTree.coerceSelection(
+        orgTree.findByNames({
+          chapitre: initial.chapitre,
+          district: initial.district,
+          groupe: initial.groupe,
+        }),
+      );
+      setOrgIds(next);
+      setValues((prev) => ({ ...prev, ...orgTree.nameOf(next) }));
+    }
   }, [
     orgTree.loading,
     orgTree.chapitres,
     orgTree.coerceSelection,
     orgTree.findByNames,
     orgTree.nameOf,
+    initial.membre,
     initial.chapitre,
     initial.district,
     initial.groupe,
+    initial.orgIds?.chapitre_id,
+    initial.orgIds?.district_id,
+    initial.orgIds?.groupe_id,
+    members,
   ]);
 
   useEffect(() => {
@@ -415,9 +754,8 @@ function CollecteFormModal({
       return;
     }
     const names = orgTree.nameOf(orgIds);
-    // À l’ajout, on refuse « Annulé » — uniquement en modification.
-    const statut: CollecteStatut =
-      !isEdit && values.statut === "Annulé" ? "En attente" : values.statut;
+    // À l’ajout : statut forcé « En attente » (modifiable uniquement ensuite).
+    const statut: CollecteStatut = isEdit ? values.statut : "En attente";
     setSaving(true);
     setError("");
     try {
@@ -435,6 +773,11 @@ function CollecteFormModal({
         motif: values.motif,
         referenceRecu: (values.referenceRecu || "").trim(),
         note: values.note,
+        orgIds: {
+          chapitre_id: orgIds.chapitreId,
+          district_id: orgIds.districtId,
+          groupe_id: orgIds.groupeId,
+        },
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Enregistrement impossible.");
@@ -449,19 +792,7 @@ function CollecteFormModal({
       setValues((prev) => ({ ...prev, membre: fullName }));
       return;
     }
-    const next = orgTree.coerceSelection(
-      orgTree.findByNames({
-        chapitre: member.chapitre,
-        district: member.district,
-        groupe: member.groupe,
-      }),
-    );
-    setOrgIds(next);
-    setValues((prev) => ({
-      ...prev,
-      membre: fullName,
-      ...orgTree.nameOf(next),
-    }));
+    applyOrgFromMember(member);
   };
 
   const districtOptions = orgTree.districtsForChapitreId(orgIds.chapitreId);
@@ -540,6 +871,15 @@ function CollecteFormModal({
                   <option key={name}>{name}</option>
                 ))}
               </select>
+              {values.type === "vague-paix" && (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  {memberOptions.length === 0
+                    ? "Aucun abonné Vague de Paix dans votre périmètre. Cochez la case à la création du membre."
+                    : isVpAmountEntry
+                      ? "Abonnés Vague de Paix — renseignez le montant pour la période."
+                      : "Modification d’un paiement Vague de Paix."}
+                </p>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Montant (FCFA)</label>
@@ -549,33 +889,29 @@ function CollecteFormModal({
                 className="dash-field"
                 value={values.montant || ""}
                 onChange={(e) => set("montant", Number(e.target.value))}
+                placeholder={isVpAmountEntry ? "À renseigner" : undefined}
               />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Date</label>
               <input type="date" className="dash-field" value={values.date} onChange={(e) => set("date", e.target.value)} />
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Statut</label>
-              <select
-                className="dash-field"
-                value={
-                  !isEdit && values.statut === "Annulé" ? "En attente" : values.statut
-                }
-                onChange={(e) => set("statut", e.target.value as CollecteStatut)}
-              >
-                {statutOptions.map((statut) => (
-                  <option key={statut} value={statut}>
-                    {statut}
-                  </option>
-                ))}
-              </select>
-              {!isEdit && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  L’annulation d’un paiement se fait uniquement en modification.
-                </p>
-              )}
-            </div>
+            {isEdit && (
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">Statut</label>
+                <select
+                  className="dash-field"
+                  value={values.statut}
+                  onChange={(e) => set("statut", e.target.value as CollecteStatut)}
+                >
+                  {STATUT_OPTIONS.map((statut) => (
+                    <option key={statut} value={statut}>
+                      {statut}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className={showCampaignSelect ? "sm:col-span-2" : undefined}>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">
                 {showCampaignSelect ? "Campagne zaimu spécial" : "Période"}
@@ -631,12 +967,15 @@ function CollecteFormModal({
               <select
                 className="dash-field"
                 value={orgIds.chapitreId}
-                disabled={orgTree.loading || orgTree.chapitres.length === 0}
+                disabled={
+                  lockChapitre || orgTree.loading || orgTree.chapitres.length === 0
+                }
                 onChange={(e) =>
                   applyOrg({ chapitreId: e.target.value, districtId: "", groupeId: "" })
                 }
               >
                 {orgTree.loading && <option value="">Chargement…</option>}
+                {!orgIds.chapitreId && <option value="">Sélectionner…</option>}
                 {orgTree.chapitres.map((item) => (
                   <option key={item.id} value={item.id}>{item.name}</option>
                 ))}
@@ -647,7 +986,7 @@ function CollecteFormModal({
               <select
                 className="dash-field"
                 value={orgIds.districtId}
-                disabled={orgTree.loading || !orgIds.chapitreId}
+                disabled={lockDistrict || orgTree.loading || !orgIds.chapitreId}
                 onChange={(e) =>
                   applyOrg({
                     chapitreId: orgIds.chapitreId,
@@ -656,6 +995,7 @@ function CollecteFormModal({
                   })
                 }
               >
+                {!orgIds.districtId && <option value="">Sélectionner…</option>}
                 {districtOptions.map((item) => (
                   <option key={item.id} value={item.id}>{item.name}</option>
                 ))}
@@ -666,7 +1006,7 @@ function CollecteFormModal({
               <select
                 className="dash-field"
                 value={orgIds.groupeId}
-                disabled={orgTree.loading || !orgIds.districtId}
+                disabled={lockGroupe || orgTree.loading || !orgIds.districtId}
                 onChange={(e) =>
                   applyOrg({
                     chapitreId: orgIds.chapitreId,
@@ -675,6 +1015,7 @@ function CollecteFormModal({
                   })
                 }
               >
+                {!orgIds.groupeId && <option value="">Sélectionner…</option>}
                 {groupeOptions.map((item) => (
                   <option key={item.id} value={item.id}>{item.name}</option>
                 ))}
@@ -727,27 +1068,180 @@ function CollecteFormModal({
   );
 }
 
-export default function CollectesModule({ role }: { role: PlatformRole }) {
-  const { members, collectes: records, setCollectes: setRecords, reloadCollectes, loading } = useOpsData();
-  const [tab, setTab] = useState<CollecteTab>("vague-paix");
+export default function CollectesModule({
+  role,
+  focus = null,
+  onFocusApplied,
+}: {
+  role: PlatformRole;
+  focus?: { tab: CollecteTab; statut: "En attente" | "Validé" | "Annulé" } | null;
+  onFocusApplied?: () => void;
+}) {
+  const { members, collectes: records, setCollectes: setRecords, reloadCollectes, reloadMembers, loading } = useOpsData();
+  const { confirm } = useConfirm();
+  const orgTree = useOrgTree();
+  const [tab, setTab] = useState<CollecteTab>(focus?.tab || "vague-paix");
   const [pageView, setPageView] = useState<PageView>("liste");
   const [search, setSearch] = useState("");
-  const [statutFilter, setStatutFilter] = useState<"Tous" | CollecteStatut>("Tous");
+  const [statutFilter, setStatutFilter] = useState<"Tous" | CollecteStatut>(
+    focus?.statut || "Tous",
+  );
+  const [yearFilter, setYearFilter] = useState<"Tous" | number>("Tous");
+  const [monthFilter, setMonthFilter] = useState<"Tous" | number>("Tous");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [detailId, setDetailId] = useState<string | null>(null);
   const [editing, setEditing] = useState<CollecteRecord | null>(null);
   const [creating, setCreating] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [memberAssigneByKey, setMemberAssigneByKey] = useState<Record<string, number>>({});
+  const [perimeterCota, setPerimeterCota] = useState(0);
+  const [specialCampaigns, setSpecialCampaigns] = useState<ZaimuCampaign[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [profileScope, setProfileScope] = useState<{
+    chapitre_id: string | null;
+    district_id: string | null;
+    groupe_id: string | null;
+  }>({
+    chapitre_id: null,
+    district_id: null,
+    groupe_id: null,
+  });
 
-  const memberOptions = useMemo(
-    () => members.map((member) => memberFullName(member)).filter(Boolean),
-    [members],
-  );
+  useEffect(() => {
+    if (!focus) return;
+    setTab(focus.tab);
+    setStatutFilter(focus.statut);
+    setPageView("liste");
+    setCreating(false);
+    setSearch("");
+    setYearFilter("Tous");
+    setMonthFilter("Tous");
+    setDateFrom("");
+    setDateTo("");
+    onFocusApplied?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nonce force le re-focus
+  }, [focus, onFocusApplied]);
+
+  const exportOrgScope = useMemo(() => {
+    const chapitre = profileScope.chapitre_id
+      ? orgTree.chapitres.find((c) => c.id === profileScope.chapitre_id)?.name || ""
+      : "";
+    const district = profileScope.district_id
+      ? orgTree.districts.find((d) => d.id === profileScope.district_id)?.name || ""
+      : "";
+    const groupe = profileScope.groupe_id
+      ? orgTree.groupes.find((g) => g.id === profileScope.groupe_id)?.name || ""
+      : "";
+    return orgScopeFromProfile(role, { chapitre, district, groupe });
+  }, [role, profileScope, orgTree.chapitres, orgTree.districts, orgTree.groupes]);
+
+  const memberOptions = useMemo(() => {
+    // VP : renseigner un montant pour un abonné (case cochée). Autres onglets : tous les membres.
+    const source =
+      tab === "vague-paix"
+        ? members.filter((member) => member.abonnementVaguePaix)
+        : members;
+    const names = source.map((member) => memberFullName(member)).filter(Boolean);
+    if (editing?.membre && !names.includes(editing.membre)) {
+      return [editing.membre, ...names];
+    }
+    return names;
+  }, [members, tab, editing]);
 
   const meta = TAB_META[tab];
   const Icon = meta.icon;
   const showListPage = pageView === "liste";
   const showCotaSpecialPage = tab === "zaimu-special" && pageView === "cota";
   const showImportExportPage = pageView === "import-export";
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadProfileScope() {
+      const { data } = await fetchMyProfile();
+      if (cancelled || !data) return;
+      setProfileScope({
+        chapitre_id: data.chapitre_id || null,
+        district_id: data.district_id || null,
+        groupe_id: data.groupe_id || null,
+      });
+    }
+    void loadProfileScope();
+    return () => {
+      cancelled = true;
+    };
+  }, [role]);
+
+  useEffect(() => {
+    if (tab !== "zaimu-special") return;
+    let cancelled = false;
+    async function loadCampaigns() {
+      const assigned = await listMyAssignedSpecialCampaigns({
+        role,
+        chapitre_id: profileScope.chapitre_id,
+        district_id: profileScope.district_id,
+        groupe_id: profileScope.groupe_id,
+      });
+      let campaigns = (assigned.data || []).map((row) => row.campaign);
+      if (campaigns.length === 0 && (role === "admin" || role === "centre")) {
+        const all = await listSpecialCampaigns();
+        campaigns = all.data || [];
+      }
+      campaigns = [...campaigns].sort((a, b) => {
+        if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+        return (b.created_at || "").localeCompare(a.created_at || "");
+      });
+      if (cancelled) return;
+      setSpecialCampaigns(campaigns);
+      setSelectedCampaignId((prev) => {
+        if (prev && campaigns.some((c) => c.id === prev)) return prev;
+        return campaigns.find((c) => c.is_active)?.id || campaigns[0]?.id || null;
+      });
+    }
+    void loadCampaigns();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, role, profileScope]);
+
+  useEffect(() => {
+    if (tab !== "zaimu-special" || !selectedCampaignId) {
+      if (tab === "zaimu-special") {
+        setPerimeterCota(0);
+        setMemberAssigneByKey({});
+      }
+      return;
+    }
+    let cancelled = false;
+    async function loadSelectedCota() {
+      const campaign =
+        specialCampaigns.find((c) => c.id === selectedCampaignId) ||
+        (await listSpecialCampaigns()).data?.find((c) => c.id === selectedCampaignId);
+      if (!campaign || cancelled) return;
+      const labelKey = normalizeLabel(campaign.label);
+      const { data: assignments } = await listQuotaAssignments(campaign.id);
+      if (cancelled) return;
+      const memberMap: Record<string, number> = {};
+      for (const row of assignments || []) {
+        const assigne = Number(row.assigne || 0);
+        if (assigne <= 0) continue;
+        if (row.level === "membre" && row.member_id) {
+          const key = `${labelKey}::${row.member_id}`;
+          memberMap[key] = (memberMap[key] || 0) + assigne;
+        }
+      }
+      setMemberAssigneByKey(memberMap);
+      setPerimeterCota(assignedCotaForRole(role, campaign, assignments, profileScope));
+    }
+    void loadSelectedCota();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCampaignId, specialCampaigns, role, profileScope, tab, records]);
+
+  const selectedCampaign =
+    specialCampaigns.find((c) => c.id === selectedCampaignId) || null;
+  const selectedCampaignLabel = selectedCampaign?.label || null;
 
   const resolveMemberId = (fullName: string) => {
     const match = members.find((item) => memberFullName(item) === fullName);
@@ -756,10 +1250,64 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
     return match.remoteId || null;
   };
 
+  const memberBalanceFor = (item: CollecteRecord) => {
+    const campaignLabel = campaignLabelOf(item);
+    if (!campaignLabel) return null;
+    const member = members.find((m) => memberFullName(m) === item.membre);
+    const memberId = member?.source === "profile" ? null : member?.remoteId || null;
+    const engagement = memberId
+      ? memberAssigneByKey[`${normalizeLabel(campaignLabel)}::${memberId}`] || 0
+      : 0;
+    const paye = paidZaimuSpecialForMember(records, item.membre, campaignLabel);
+    if (engagement <= 0 && paye <= 0) return null;
+    return {
+      engagement,
+      paye,
+      reste: Math.max(0, engagement - paye),
+    };
+  };
+
+  const yearOptions = useMemo(() => {
+    const years = new Set<number>();
+    const currentYear = new Date().getFullYear();
+    years.add(currentYear);
+    for (const item of records) {
+      if (item.type !== tab) continue;
+      const parts = parseCollecteDateParts(item.date);
+      if (parts) years.add(parts.year);
+    }
+    if (tab === "vague-paix") {
+      for (const member of members.filter((m) => m.abonnementVaguePaix)) {
+        const parts = parseCollecteDateParts(member.adhesion || "");
+        if (parts) years.add(parts.year);
+      }
+    }
+    return [...years].sort((a, b) => b - a);
+  }, [records, members, tab]);
+
   const filtered = useMemo(() => {
-    return records
-      .filter((item) => item.type === tab)
+    const base =
+      tab === "vague-paix"
+        ? buildVaguePaixRows(members, records)
+        : records.filter((item) => item.type === tab);
+    return base
+      .filter((item) =>
+        tab === "zaimu-special" ? matchesCampaignLabel(item, selectedCampaignLabel) : true,
+      )
       .filter((item) => (statutFilter === "Tous" ? true : item.statut === statutFilter))
+      .filter((item) => {
+        const parts = parseCollecteDateParts(item.date);
+        const hasPeriod = Boolean(dateFrom.trim() || dateTo.trim());
+        if (hasPeriod) {
+          if (!parts) return false;
+          if (dateFrom.trim() && parts.iso < dateFrom.trim()) return false;
+          if (dateTo.trim() && parts.iso > dateTo.trim()) return false;
+          return true;
+        }
+        if (yearFilter !== "Tous" && parts?.year !== yearFilter) return false;
+        if (monthFilter !== "Tous" && parts?.month !== monthFilter) return false;
+        return true;
+      })
       .filter((item) => {
         if (!search.trim()) return true;
         const q = search.toLowerCase();
@@ -772,23 +1320,74 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
           (item.referenceRecu || "").toLowerCase().includes(q)
         );
       })
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [records, tab, search, statutFilter]);
+      .sort((a, b) => {
+        if (tab === "vague-paix") {
+          const byGroupe = a.groupe.localeCompare(b.groupe, "fr");
+          if (byGroupe !== 0) return byGroupe;
+          return a.membre.localeCompare(b.membre, "fr");
+        }
+        return b.date.localeCompare(a.date);
+      });
+  }, [
+    records,
+    members,
+    tab,
+    search,
+    statutFilter,
+    selectedCampaignLabel,
+    yearFilter,
+    monthFilter,
+    dateFrom,
+    dateTo,
+  ]);
 
+  /** KPI branchés sur la liste filtrée (année / mois / période / statut / recherche). */
   const kpis = useMemo(() => {
-    const ofType = records.filter((item) => item.type === tab);
-    const validated = ofType.filter((item) => item.statut === "Validé");
-    const pending = ofType.filter((item) => item.statut === "En attente");
-    const total = validated.reduce((sum, item) => sum + item.montant, 0);
+    if (tab === "vague-paix") {
+      const placeholders = filtered.filter((item) => isVaguePaixPlaceholder(item));
+      const payments = filtered.filter((item) => !isVaguePaixPlaceholder(item));
+      const validated = payments.filter((item) => item.statut === "Validé");
+      const uniqueMembers = new Set(filtered.map((item) => normalizeLabel(item.membre)));
+      return {
+        count: uniqueMembers.size,
+        validated: validated.length,
+        pending: payments.filter((item) => item.statut === "En attente").length + placeholders.length,
+        total: validated.reduce((sum, item) => sum + item.montant, 0),
+        aRenseigner: placeholders.length,
+      };
+    }
+    const validated = filtered.filter((item) => item.statut === "Validé");
+    const pending = filtered.filter((item) => item.statut === "En attente");
     return {
-      count: ofType.length,
+      count: filtered.length,
       validated: validated.length,
       pending: pending.length,
-      total,
+      total: validated.reduce((sum, item) => sum + item.montant, 0),
+      aRenseigner: 0,
     };
-  }, [records, tab]);
+  }, [filtered, tab]);
 
-  const detail = detailId ? records.find((item) => item.id === detailId) ?? null : null;
+  /** KPI Zaimu spécial : payé / reste / paiements selon les filtres actifs. */
+  const zaimuGroupBalance = useMemo(() => {
+    if (tab !== "zaimu-special") return null;
+    const paye = filtered
+      .filter((item) => item.statut === "Validé")
+      .reduce((sum, item) => sum + item.montant, 0);
+    return {
+      engagement: perimeterCota,
+      paye,
+      reste: Math.max(0, perimeterCota - paye),
+      label: perimeterLabelForRole(role),
+    };
+  }, [tab, filtered, perimeterCota, role]);
+
+  const detail =
+    detailId
+      ? filtered.find((item) => item.id === detailId) ||
+        records.find((item) => item.id === detailId) ||
+        null
+      : null;
+  const detailBalance = detail && detail.type === "zaimu-special" ? memberBalanceFor(detail) : null;
 
   const nextLocalId = (type: CollecteTab) => {
     const prefix = type === "vague-paix" ? "VP" : type === "zaimu-ordinaire" ? "ZO" : "ZS";
@@ -805,6 +1404,7 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
       setRecords((prev) => [data, ...prev]);
       setCreating(false);
       void reloadCollectes();
+      if (values.type === "vague-paix") void reloadMembers();
       return;
     }
     const localNumero = nextLocalId(values.type);
@@ -815,8 +1415,106 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
     setCreating(false);
   };
 
+  /** Aligné sur le garde-fou DB : admin / centre / chapitre. */
+  const canValidate = role === "admin" || role === "centre" || role === "chapitre";
+  /** Paiements validés : modifiables uniquement par admin / centre. */
+  const canEditValidated = role === "admin" || role === "centre";
+  const canEditCollecte = (item: CollecteRecord) =>
+    item.statut !== "Validé" || canEditValidated;
+  const canDeleteCollecte = (item: CollecteRecord) =>
+    item.statut !== "Validé" || canEditValidated;
+
+  const handleDelete = async (id: string) => {
+    if (id.startsWith(VP_PLACEHOLDER_PREFIX)) {
+      setActionError(
+        "Cet abonné n’a pas encore de paiement. Renseignez un montant plutôt que de supprimer la ligne.",
+      );
+      return;
+    }
+    const target = records.find((item) => item.id === id);
+    if (!target) return;
+    if (!canDeleteCollecte(target)) {
+      setActionError(
+        "Ce paiement est validé. Seuls le responsable centre ou l’administrateur peuvent le supprimer.",
+      );
+      return;
+    }
+    const ok = await confirm({
+      title: "Supprimer ce paiement ?",
+      description: `L’enregistrement de ${target.membre} (${fmt(target.montant)} FCFA) sera définitivement retiré.`,
+      confirmLabel: "Supprimer",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setActionError(null);
+    if (hasRemoteCollectes()) {
+      const { error } = await deleteCollecteRemote(id);
+      if (error) {
+        setActionError(error.message);
+        return;
+      }
+    }
+    setRecords((prev) => prev.filter((item) => item.id !== id));
+    setDetailId(null);
+    void reloadCollectes();
+  };
+
+  const handleValidate = async (item: CollecteRecord) => {
+    if (isVaguePaixPlaceholder(item)) {
+      setActionError("Renseignez d’abord le montant avant de valider ce paiement Vague de Paix.");
+      setEditing(item);
+      return;
+    }
+    if (!canValidate || item.statut !== "En attente") return;
+    const ok = await confirm({
+      title: "Valider ce paiement ?",
+      description: `${item.membre}\nMontant : ${fmt(item.montant)} FCFA\nUne fois validé, seuls le centre ou l’administrateur pourront encore le modifier.`,
+      confirmLabel: "Valider",
+      tone: "success",
+    });
+    if (!ok) return;
+    setActionError(null);
+    const values: Omit<CollecteRecord, "id"> = { ...item, statut: "Validé" };
+    if (hasRemoteCollectes()) {
+      const { data, error } = await updateCollecteRemote(
+        item.id,
+        values,
+        resolveMemberId(item.membre),
+      );
+      if (error || !data) {
+        setActionError(
+          error?.message ||
+            "Validation impossible. Seuls admin, centre ou chapitre peuvent valider.",
+        );
+        return;
+      }
+      setRecords((prev) => prev.map((row) => (row.id === item.id ? data : row)));
+      if (detailId === item.id) setDetailId(null);
+      void reloadCollectes();
+      if (item.type === "vague-paix") void reloadMembers();
+      return;
+    }
+    setRecords((prev) =>
+      prev.map((row) => (row.id === item.id ? { ...row, statut: "Validé" } : row)),
+    );
+    if (detailId === item.id) setDetailId(null);
+  };
+
   const handleUpdate = async (values: Omit<CollecteRecord, "id">) => {
     if (!editing) return;
+    // Placeholder abonné VP → créer le premier paiement (montant renseigné).
+    if (isVaguePaixPlaceholder(editing)) {
+      await handleCreate(values);
+      setEditing(null);
+      return;
+    }
+    if (!canEditCollecte(editing)) {
+      setActionError(
+        "Ce paiement est validé. Seuls le responsable centre ou l’administrateur peuvent le modifier.",
+      );
+      setEditing(null);
+      return;
+    }
     setActionError(null);
     if (hasRemoteCollectes()) {
       const { data, error } = await updateCollecteRemote(
@@ -829,6 +1527,7 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
       setEditing(null);
       setDetailId(null);
       void reloadCollectes();
+      if (values.type === "vague-paix") void reloadMembers();
       return;
     }
     setRecords((prev) => prev.map((item) => (item.id === editing.id ? { ...item, ...values } : item)));
@@ -836,23 +1535,41 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
     setDetailId(null);
   };
 
-  const handleDelete = async (id: string) => {
-    const target = records.find((item) => item.id === id);
-    if (!target) return;
-    const ok = window.confirm(`Supprimer l’enregistrement de ${target.membre} ?`);
-    if (!ok) return;
-    setActionError(null);
-    if (hasRemoteCollectes()) {
-      const { error } = await deleteCollecteRemote(id);
-      if (error) {
-        setActionError(error.message);
-        return;
-      }
-    }
-    setRecords((prev) => prev.filter((item) => item.id !== id));
-    setDetailId(null);
-    setEditing(null);
-  };
+  const rowActionsFor = (item: CollecteRecord): RowAction[] => [
+    ...(canValidate && item.statut === "En attente" && !isVaguePaixPlaceholder(item)
+      ? [
+          {
+            label: "Valider",
+            icon: <CheckCircle size={14} />,
+            onClick: () => void handleValidate(item),
+          },
+        ]
+      : []),
+    {
+      label: "Voir le détail",
+      icon: <Eye size={14} />,
+      onClick: () => setDetailId(item.id),
+    },
+    ...(canEditCollecte(item) || isVaguePaixPlaceholder(item)
+      ? [
+          {
+            label: isVaguePaixPlaceholder(item) ? "Renseigner montant" : "Modifier",
+            icon: <Edit2 size={14} />,
+            onClick: () => setEditing(item),
+          },
+        ]
+      : []),
+    ...(canDeleteCollecte(item) && !isVaguePaixPlaceholder(item)
+      ? [
+          {
+            label: "Supprimer",
+            icon: <Trash2 size={14} />,
+            tone: "danger" as const,
+            onClick: () => void handleDelete(item.id),
+          },
+        ]
+      : []),
+  ];
 
   const handleImportRecords = async (imported: CollecteRecord[]) => {
     if (hasRemoteCollectes()) {
@@ -896,7 +1613,8 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
               onClick={() => setCreating(true)}
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--sgi-blue)] px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 sm:w-auto"
             >
-              <Plus size={15} /> Ajouter
+              <Plus size={15} />{" "}
+              {tab === "vague-paix" ? "Renseigner un montant" : "Ajouter"}
             </button>
           )}
         </div>
@@ -914,6 +1632,10 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
                   setTab(key);
                   setSearch("");
                   setStatutFilter("Tous");
+                  setYearFilter("Tous");
+                  setMonthFilter("Tous");
+                  setDateFrom("");
+                  setDateTo("");
                   setCreating(false);
                   setPageView("liste");
                 }}
@@ -970,7 +1692,14 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
       )}
 
       {showCotaSpecialPage && (
-        <ZaimuSpecialCampaignsPanel role={role} collectes={records} />
+        <ZaimuSpecialCampaignsPanel
+          role={role}
+          collectes={records}
+          initialCampaignId={selectedCampaignId}
+          onCampaignChange={(id) => {
+            if (id) setSelectedCampaignId(id);
+          }}
+        />
       )}
 
       {showImportExportPage && (
@@ -978,6 +1707,14 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
           type={tab}
           records={records}
           filteredRecords={filtered}
+          orgScope={exportOrgScope}
+          balancesById={
+            tab === "zaimu-special"
+              ? Object.fromEntries(
+                  filtered.map((item) => [item.id, memberBalanceFor(item)]),
+                )
+              : undefined
+          }
           onImport={handleImportRecords}
         />
       )}
@@ -985,12 +1722,71 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
       {showListPage && (
       <>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          { label: "Enregistrements", value: String(kpis.count), tone: "text-[var(--sgi-blue)]", bg: "bg-[var(--sgi-blue)]/10" },
-          { label: "Validés", value: String(kpis.validated), tone: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-500/12" },
-          { label: "En attente", value: String(kpis.pending), tone: "text-[var(--sgi-gold)]", bg: "bg-[var(--sgi-gold)]/15" },
-          { label: "Montant validé", value: `${fmt(kpis.total)}`, tone: "text-[var(--sgi-red)]", bg: "bg-[var(--sgi-red)]/10", suffix: "FCFA" },
-        ].map((kpi) => (
+        {(tab === "zaimu-special" && zaimuGroupBalance
+          ? [
+              {
+                label: `Cota ${zaimuGroupBalance.label.toLowerCase()}`,
+                value: fmt(zaimuGroupBalance.engagement),
+                tone: "text-[var(--sgi-blue)]",
+                bg: "bg-[var(--sgi-blue)]/10",
+                suffix: "FCFA",
+              },
+              {
+                label: "Payé (validé)",
+                value: fmt(zaimuGroupBalance.paye),
+                tone: "text-emerald-700 dark:text-emerald-400",
+                bg: "bg-emerald-500/12",
+                suffix: "FCFA",
+              },
+              {
+                label: `Reste ${zaimuGroupBalance.label.toLowerCase()}`,
+                value: fmt(zaimuGroupBalance.reste),
+                tone: "text-[var(--sgi-red)]",
+                bg: "bg-[var(--sgi-red)]/10",
+                suffix: "FCFA",
+              },
+              {
+                label: "Paiements",
+                value: String(kpis.count),
+                tone: "text-[var(--sgi-gold)]",
+                bg: "bg-[var(--sgi-gold)]/15",
+              },
+            ]
+          : tab === "vague-paix"
+            ? [
+                {
+                  label: "Abonnés",
+                  value: String(kpis.count),
+                  tone: "text-[var(--sgi-blue)]",
+                  bg: "bg-[var(--sgi-blue)]/10",
+                },
+                {
+                  label: "Montant à renseigner",
+                  value: String(kpis.aRenseigner),
+                  tone: "text-[var(--sgi-gold)]",
+                  bg: "bg-[var(--sgi-gold)]/15",
+                },
+                {
+                  label: "Paiements validés",
+                  value: String(kpis.validated),
+                  tone: "text-emerald-700 dark:text-emerald-400",
+                  bg: "bg-emerald-500/12",
+                },
+                {
+                  label: "Montant validé",
+                  value: `${fmt(kpis.total)}`,
+                  tone: "text-[var(--sgi-red)]",
+                  bg: "bg-[var(--sgi-red)]/10",
+                  suffix: "FCFA",
+                },
+              ]
+            : [
+                { label: "Enregistrements", value: String(kpis.count), tone: "text-[var(--sgi-blue)]", bg: "bg-[var(--sgi-blue)]/10" },
+                { label: "Validés", value: String(kpis.validated), tone: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-500/12" },
+                { label: "En attente", value: String(kpis.pending), tone: "text-[var(--sgi-gold)]", bg: "bg-[var(--sgi-gold)]/15" },
+                { label: "Montant validé", value: `${fmt(kpis.total)}`, tone: "text-[var(--sgi-red)]", bg: "bg-[var(--sgi-red)]/10", suffix: "FCFA" },
+              ]
+        ).map((kpi) => (
           <div key={kpi.label} className="rounded-xl border border-border bg-card p-3 sm:p-4">
             <div className={`mb-2 inline-flex rounded-lg p-2 ${kpi.bg} ${kpi.tone}`}>
               <Icon size={15} />
@@ -999,7 +1795,7 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
             <p className={`mt-0.5 truncate font-display text-lg font-bold ${kpi.tone}`} style={{ fontFamily: "var(--font-mono)" }}>
               {kpi.value}
             </p>
-            {kpi.suffix && <p className="text-[11px] text-muted-foreground">{kpi.suffix}</p>}
+            {"suffix" in kpi && kpi.suffix && <p className="text-[11px] text-muted-foreground">{kpi.suffix}</p>}
           </div>
         ))}
       </div>
@@ -1031,7 +1827,129 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
               ))}
             </select>
           </div>
+          <div className="w-full sm:w-32">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Année</label>
+            <select
+              className="dash-field"
+              value={yearFilter === "Tous" ? "Tous" : String(yearFilter)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setYearFilter(value === "Tous" ? "Tous" : Number(value));
+                if (value !== "Tous") {
+                  setDateFrom("");
+                  setDateTo("");
+                }
+              }}
+              disabled={Boolean(dateFrom || dateTo)}
+            >
+              <option value="Tous">Toutes</option>
+              {yearOptions.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:w-40">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Mois</label>
+            <select
+              className="dash-field"
+              value={monthFilter === "Tous" ? "Tous" : String(monthFilter)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setMonthFilter(value === "Tous" ? "Tous" : Number(value));
+                if (value !== "Tous") {
+                  setDateFrom("");
+                  setDateTo("");
+                }
+              }}
+              disabled={Boolean(dateFrom || dateTo)}
+            >
+              <option value="Tous">Tous</option>
+              {MONTH_OPTIONS.map((month) => (
+                <option key={month.value} value={month.value}>
+                  {month.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:w-40">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Du</label>
+            <input
+              type="date"
+              className="dash-field"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(e) => {
+                const value = e.target.value;
+                setDateFrom(value);
+                if (value) {
+                  setYearFilter("Tous");
+                  setMonthFilter("Tous");
+                }
+              }}
+            />
+          </div>
+          <div className="w-full sm:w-40">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Au</label>
+            <input
+              type="date"
+              className="dash-field"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(e) => {
+                const value = e.target.value;
+                setDateTo(value);
+                if (value) {
+                  setYearFilter("Tous");
+                  setMonthFilter("Tous");
+                }
+              }}
+            />
+          </div>
+          {(yearFilter !== "Tous" || monthFilter !== "Tous" || dateFrom || dateTo) && (
+            <button
+              type="button"
+              onClick={() => {
+                setYearFilter("Tous");
+                setMonthFilter("Tous");
+                setDateFrom("");
+                setDateTo("");
+              }}
+              className="rounded-xl border border-border px-3 py-2.5 text-xs font-semibold text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+            >
+              Effacer dates
+            </button>
+          )}
+          {tab === "zaimu-special" && (
+            <div className="w-full sm:min-w-[16rem] sm:flex-1">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                Campagne
+              </label>
+              <select
+                className="dash-field"
+                value={selectedCampaignId || ""}
+                onChange={(e) => setSelectedCampaignId(e.target.value || null)}
+                disabled={specialCampaigns.length === 0}
+              >
+                {specialCampaigns.length === 0 && (
+                  <option value="">Aucune campagne disponible</option>
+                )}
+                {specialCampaigns.map((campaign) => (
+                  <option key={campaign.id} value={campaign.id}>
+                    {campaign.label}
+                    {campaign.is_active ? "" : " (inactive)"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
+        {tab === "zaimu-special" && selectedCampaign && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Statistiques et liste filtrées sur « {selectedCampaign.label} ».
+          </p>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -1045,10 +1963,14 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
         <div className="space-y-3 p-3 md:hidden">
           {filtered.length === 0 && (
             <p className="rounded-xl bg-muted/50 px-4 py-8 text-center text-sm text-muted-foreground">
-              Aucun enregistrement pour cet onglet.
+              {tab === "vague-paix"
+                ? "Aucun abonné Vague de Paix dans votre périmètre. Cochez la case à la création du membre ou utilisateur."
+                : "Aucun enregistrement pour cet onglet."}
             </p>
           )}
-          {filtered.map((item) => (
+          {filtered.map((item) => {
+            const balance = tab === "zaimu-special" ? memberBalanceFor(item) : null;
+            return (
             <article key={item.id} className="rounded-xl border border-border bg-background/40 p-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2.5">
@@ -1062,41 +1984,40 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <StatutPill statut={item.statut} />
-                  <RowActionsMenu
-                    actions={[
-                      {
-                        label: "Voir le détail",
-                        icon: <Eye size={14} />,
-                        onClick: () => setDetailId(item.id),
-                      },
-                      {
-                        label: "Modifier",
-                        icon: <Edit2 size={14} />,
-                        onClick: () => setEditing(item),
-                      },
-                      {
-                        label: "Supprimer",
-                        icon: <Trash2 size={14} />,
-                        tone: "danger",
-                        onClick: () => handleDelete(item.id),
-                      },
-                    ]}
-                  />
+                  {canValidate && item.statut === "En attente" && !isVaguePaixPlaceholder(item) && (
+                    <button
+                      type="button"
+                      onClick={() => void handleValidate(item)}
+                      className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-700"
+                    >
+                      <CheckCircle size={12} />
+                      Valider
+                    </button>
+                  )}
+                  <RowActionsMenu actions={rowActionsFor(item)} />
                 </div>
               </div>
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 <span>{item.date}</span>
                 <span className="font-medium text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
-                  {fmt(item.montant)} FCFA
+                  {isVaguePaixPlaceholder(item) || item.montant <= 0
+                    ? "À renseigner"
+                    : `${fmt(item.montant)} FCFA`}
                 </span>
                 <span>{item.groupe}</span>
                 {item.referenceRecu?.trim() && (
                   <span className="font-mono text-foreground/80">Reçu {item.referenceRecu}</span>
                 )}
                 {item.motif && <span>{item.motif}</span>}
+                {balance && (
+                  <span className="font-semibold text-[var(--sgi-red)]">
+                    Reste {fmt(balance.reste)} FCFA
+                  </span>
+                )}
               </div>
             </article>
-          ))}
+            );
+          })}
         </div>
 
         {/* Desktop table */}
@@ -1112,6 +2033,7 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
                   "Montant",
                   tab === "zaimu-special" ? "Campagne" : "Période",
                   "Groupe",
+                  ...(tab === "zaimu-special" ? ["Reste membre"] : []),
                   "Statut",
                   "Actions",
                 ].map((header) => (
@@ -1127,12 +2049,14 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
             <tbody>
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  <td colSpan={tab === "zaimu-special" ? 10 : 9} className="px-4 py-10 text-center text-sm text-muted-foreground">
                     Aucun enregistrement pour cet onglet.
                   </td>
                 </tr>
               )}
-              {filtered.map((item) => (
+              {filtered.map((item) => {
+                const balance = tab === "zaimu-special" ? memberBalanceFor(item) : null;
+                return (
                 <tr key={item.id} className="border-b border-border last:border-b-0 hover:bg-muted/20">
                   <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
                     {displayCollecteNumero(item)}
@@ -1148,7 +2072,9 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
                     </div>
                   </td>
                   <td className="px-4 py-3 font-medium text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
-                    {fmt(item.montant)}
+                    {isVaguePaixPlaceholder(item) || item.montant <= 0
+                      ? "À renseigner"
+                      : fmt(item.montant)}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">
                     {tab === "zaimu-special"
@@ -1156,33 +2082,43 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
                       : item.periode || "—"}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{item.groupe}</td>
+                  {tab === "zaimu-special" && (
+                    <td className="px-4 py-3">
+                      {balance ? (
+                        <div>
+                          <div className="font-mono text-sm font-semibold text-[var(--sgi-red)]">
+                            {fmt(balance.reste)}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {fmt(balance.paye)} / {fmt(balance.engagement)}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-4 py-3">
                     <StatutPill statut={item.statut} />
                   </td>
                   <td className="px-4 py-3">
-                    <RowActionsMenu
-                      actions={[
-                        {
-                          label: "Voir le détail",
-                          icon: <Eye size={14} />,
-                          onClick: () => setDetailId(item.id),
-                        },
-                        {
-                          label: "Modifier",
-                          icon: <Edit2 size={14} />,
-                          onClick: () => setEditing(item),
-                        },
-                        {
-                          label: "Supprimer",
-                          icon: <Trash2 size={14} />,
-                          tone: "danger",
-                          onClick: () => handleDelete(item.id),
-                        },
-                      ]}
-                    />
+                    <div className="flex items-center gap-2">
+                      {canValidate && item.statut === "En attente" && !isVaguePaixPlaceholder(item) && (
+                        <button
+                          type="button"
+                          onClick={() => void handleValidate(item)}
+                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-700"
+                        >
+                          <CheckCircle size={12} />
+                          Valider
+                        </button>
+                      )}
+                      <RowActionsMenu actions={rowActionsFor(item)} />
+                    </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1194,32 +2130,44 @@ export default function CollectesModule({ role }: { role: PlatformRole }) {
         <DetailModal
           record={detail}
           photo={findMemberPhotoByName(detail.membre, members)}
+          memberBalance={detailBalance}
+          canValidate={canValidate && !isVaguePaixPlaceholder(detail)}
+          canEdit={canEditCollecte(detail) || isVaguePaixPlaceholder(detail)}
+          canDelete={canDeleteCollecte(detail) && !isVaguePaixPlaceholder(detail)}
           onClose={() => setDetailId(null)}
           onEdit={() => {
+            if (!canEditCollecte(detail) && !isVaguePaixPlaceholder(detail)) return;
             setEditing(detail);
             setDetailId(null);
           }}
           onDelete={() => void handleDelete(detail.id)}
+          onValidate={() => void handleValidate(detail)}
         />
       )}
 
       {creating && showListPage && (
         <CollecteFormModal
-          title={`Ajouter — ${meta.short}`}
-          initial={emptyForm(tab, memberOptions)}
+          title={tab === "vague-paix" ? "Renseigner un montant — Vague de Paix" : `Ajouter — ${meta.short}`}
+          initial={emptyForm(tab, memberOptions, selectedCampaignLabel)}
           memberOptions={memberOptions}
           members={members}
+          actorRole={role}
           onClose={() => setCreating(false)}
           onSubmit={handleCreate}
         />
       )}
 
-      {editing && (
+      {editing && (canEditCollecte(editing) || isVaguePaixPlaceholder(editing)) && (
         <CollecteFormModal
-          title="Modifier la collecte"
+          title={
+            isVaguePaixPlaceholder(editing)
+              ? "Renseigner le montant — Vague de Paix"
+              : "Modifier la collecte"
+          }
           initial={editing}
           memberOptions={memberOptions}
           members={members}
+          actorRole={role}
           onClose={() => setEditing(null)}
           onSubmit={handleUpdate}
         />

@@ -1,22 +1,25 @@
-import { useRef, useState, type ChangeEvent } from "react";
+import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Download, FileUp, Upload } from "lucide-react";
 import type { CollecteRecord, CollecteTab } from "./CollectesModule";
 import ExportFieldsDialog from "./ExportFieldsDialog";
 import {
-  COLLECTE_EXPORT_DEFAULT_FIELDS,
-  COLLECTE_EXPORT_FIELDS,
   COLLECTE_TYPE_LABELS,
   createCollectesFromImport,
   downloadCollecteImportTemplate,
   exportCollectesExcel,
   exportCollectesPdf,
+  getCollecteExportDefaultFields,
+  getCollecteExportFields,
   parseCollectesImportWorkbook,
+  type CollecteExportBalance,
 } from "./collecteImportExport";
 
 type Props = {
   type: CollecteTab;
   records: CollecteRecord[];
   filteredRecords: CollecteRecord[];
+  balancesById?: Record<string, CollecteExportBalance | null | undefined>;
+  orgScope?: { chapitre?: string; district?: string; groupe?: string; label?: string } | null;
   onImport: (records: CollecteRecord[]) => void;
 };
 
@@ -24,6 +27,8 @@ export default function CollectesImportExportBar({
   type,
   records,
   filteredRecords,
+  balancesById,
+  orgScope = null,
   onImport,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -33,6 +38,8 @@ export default function CollectesImportExportBar({
 
   const typeLabel = COLLECTE_TYPE_LABELS[type];
   const stamp = new Date().toISOString().slice(0, 10);
+  const exportFields = useMemo(() => getCollecteExportFields(type), [type]);
+  const exportDefaults = useMemo(() => getCollecteExportDefaultFields(type), [type]);
 
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -148,22 +155,28 @@ export default function CollectesImportExportBar({
       <ExportFieldsDialog
         open={exportOpen}
         title={`Exporter · ${typeLabel}`}
-        subtitle={`${filteredRecords.length} enregistrement(s) selon les filtres actifs.`}
-        fields={COLLECTE_EXPORT_FIELDS}
-        defaultSelected={COLLECTE_EXPORT_DEFAULT_FIELDS}
-        lockedFields={["Membre"]}
+        subtitle={`${filteredRecords.length} enregistrement(s) · ${orgScope?.label || "périmètre selon les filtres"}.`}
+        fields={exportFields}
+        defaultSelected={exportDefaults}
         accent={type === "zaimu-special" ? "red" : "blue"}
         onClose={() => setExportOpen(false)}
         onExport={({ fields, format }) => {
           const base = `collectes_${type}_${stamp}`;
           if (format === "excel") {
-            exportCollectesExcel(filteredRecords, `${base}.xlsx`, fields);
+            exportCollectesExcel(filteredRecords, `${base}.xlsx`, fields, {
+              type,
+              balancesById,
+              scope: orgScope,
+            });
           } else {
             exportCollectesPdf(filteredRecords, {
               title: "Liste filtrée",
               typeLabel,
               filename: `${base}.pdf`,
               fields,
+              type,
+              balancesById,
+              scope: orgScope,
             });
           }
           setExportOpen(false);

@@ -8,9 +8,11 @@ import {
 } from "../../services/orgService";
 import type { ChapitreRow } from "../../types/supabase";
 import { RowActionsMenu } from "../RowActionsMenu";
+import { useConfirm } from "../ConfirmDialog";
 import { OrgDetailEmpty, OrgEmptyState, OrgPageShell } from "./OrgPageShell";
 
 export default function ChapitresModule() {
+  const { confirm } = useConfirm();
   const [items, setItems] = useState<ChapitreRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -111,9 +113,12 @@ export default function ChapitresModule() {
   };
 
   const handleDelete = async (item: ChapitreRow) => {
-    const ok = window.confirm(
-      `Supprimer le chapitre « ${item.name} » ? Ses districts et groupes seront aussi supprimés s’ils n’ont pas de membres rattachés.`,
-    );
+    const ok = await confirm({
+      title: "Supprimer ce chapitre ?",
+      description: `« ${item.name} »\nSes districts et groupes seront aussi supprimés s’ils n’ont pas de membres rattachés.`,
+      confirmLabel: "Supprimer",
+      tone: "danger",
+    });
     if (!ok) return;
     const { error: deleteError } = await deleteChapitre(item.id);
     if (deleteError) {

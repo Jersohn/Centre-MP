@@ -24,6 +24,9 @@ export interface MemberRecord extends MemberFormValues {
   remoteId?: string;
   /** Fiche `members` réelle vs profil responsable fusionné dans la liste. */
   source?: "member" | "profile";
+  chapitreId?: string | null;
+  districtId?: string | null;
+  groupeId?: string | null;
   adhesion: string;
   totalDons: number;
 }
@@ -87,6 +90,38 @@ export function createMemberFromForm(
     adhesion: new Date().toISOString().slice(0, 10),
     totalDons: 0,
   } satisfies MemberRecord;
+}
+
+/** Applique les valeurs du formulaire sur une fiche membre existante. */
+export function applyMemberFormToRecord(
+  base: MemberRecord,
+  values: MemberFormValues,
+  orgIds?: { chapitreId?: string; districtId?: string; groupeId?: string },
+): MemberRecord {
+  return {
+    ...base,
+    prenom: values.prenom.trim(),
+    nom: values.nom.trim(),
+    email: values.email.trim().toLowerCase(),
+    telephone: values.telephone.trim(),
+    dateNaissance: values.dateNaissance,
+    departement: values.departement || values.categorie || "Homme",
+    categorie: values.departement || values.categorie || "Homme",
+    responsabilite: values.responsabilite,
+    dateDebutPratique: values.dateDebutPratique,
+    abonnementVaguePaix: values.abonnementVaguePaix,
+    sokahan: values.sokahan,
+    quartier: values.quartier.trim(),
+    chapitre: values.chapitre,
+    district: values.district,
+    groupe: values.groupe,
+    statut: values.statut,
+    abonnement: values.abonnement,
+    photo: values.photo || "",
+    chapitreId: orgIds?.chapitreId ?? base.chapitreId,
+    districtId: orgIds?.districtId ?? base.districtId,
+    groupeId: orgIds?.groupeId ?? base.groupeId,
+  };
 }
 
 export function readImageAsDataUrl(file: File): Promise<string> {

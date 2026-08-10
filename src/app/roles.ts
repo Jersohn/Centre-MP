@@ -47,13 +47,14 @@ const CHAPITRE_MODULES: ModuleKey[] = [
   "settings",
 ];
 
-/** District : pilotage opérationnel + collectes (VP & zaimu). */
+/** District : pilotage opérationnel + gestion des responsables de groupe. */
 const LOCAL_MODULES: ModuleKey[] = [
   "dashboard",
   "membres",
   "collectes",
   "statistiques",
   "profil",
+  "settings",
 ];
 
 /** Groupe : suivi opérationnel + statistiques du périmètre. */

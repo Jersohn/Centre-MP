@@ -66,6 +66,7 @@ export function canManageUserAccount(
   if (actorRole === "admin") return true;
   if (actorRole === "centre") return true;
   if (actorRole === "chapitre") return targetRole === "district" || targetRole === "groupe";
+  if (actorRole === "district") return targetRole === "groupe";
   return false;
 }
 
@@ -88,6 +89,34 @@ export function canDeactivateMember(actorRole: PlatformRole, memberResponsabilit
   return !isProtectedHierarchyTarget(actorRole, targetRole);
 }
 
+/**
+ * Modification de la fiche d’un membre du périmètre.
+ * Les fiches « profil responsable » fusionnées ne s’éditent pas ici (Paramètres).
+ */
+export function canEditMember(
+  actorRole: PlatformRole,
+  member: { responsabilite: string; source?: "member" | "profile" },
+): boolean {
+  if (member.source === "profile") return false;
+  const targetRole = platformRoleFromResponsabilite(member.responsabilite);
+  return !isProtectedHierarchyTarget(actorRole, targetRole);
+}
+
+/**
+ * Suppression définitive d’un membre :
+ * centre / chapitre / district (et admin). Les responsables groupe ne peuvent pas supprimer.
+ */
+export function canDeleteMember(
+  actorRole: PlatformRole,
+  member: { responsabilite: string; source?: "member" | "profile" },
+): boolean {
+  if (member.source === "profile") return false;
+  // Suppression définitive réservée à l’admin et au responsable centre.
+  if (actorRole !== "admin" && actorRole !== "centre") return false;
+  const targetRole = platformRoleFromResponsabilite(member.responsabilite);
+  return !isProtectedHierarchyTarget(actorRole, targetRole);
+}
+
 /** Changement de responsabilité / promotion d’un membre. */
 export function canChangeMemberResponsabilite(
   actorRole: PlatformRole,
@@ -97,6 +126,7 @@ export function canChangeMemberResponsabilite(
   if (isProtectedHierarchyTarget(actorRole, targetRole)) return false;
   if (actorRole === "admin" || actorRole === "centre") return true;
   if (actorRole === "chapitre") return true; // sous-jacents / membres simples
+  if (actorRole === "district") return true; // promotion vers responsable groupe
   return false;
 }
 

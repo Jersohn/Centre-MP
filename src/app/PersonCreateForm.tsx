@@ -6,24 +6,26 @@ import {
   type ChangeEvent,
   type ReactNode,
 } from "react";
-import { Camera, Plus, UserPlus, X } from "lucide-react";
+import { Camera, Plus, Save, UserPlus, X } from "lucide-react";
 import { MemberAvatar } from "./MemberAvatar";
 import {
+  applyMemberFormToRecord,
   createMemberFromForm,
   emptyMemberFormValues,
   readImageAsDataUrl,
   type MemberFormValues,
   type MemberRecord,
 } from "./memberFormUtils";
+import { canChangeMemberResponsabilite } from "./orgAccess";
 import { ROLE_LABELS, type PlatformRole } from "./roles";
 import { assignableRoles, createManagedUser, type ManagedUser } from "./settings/usersStore";
 import { useOrgTree, type OrgSelectionIds } from "./useOrgTree";
-import { createMemberRemote, hasRemoteMembers } from "../services/memberService";
+import { createMemberRemote, hasRemoteMembers, updateMemberRemote } from "../services/memberService";
 import { hasRemoteProfiles, inviteUserRemote } from "../services/profileService";
 import { supabase } from "../services/supabaseClient";
 
-const STATUTS = ["Actif", "En attente", "Suspendu"] as const;
 const DEPARTEMENTS = ["Homme", "Femme", "Jeune homme", "Jeune fille", "Avenir"] as const;
+const MEMBER_STATUTS = ["Actif", "En attente", "Suspendu"] as const;
 const MEMBER_RESPONSABILITES = [
   "Membre simple",
   "Responsable groupe",
@@ -51,6 +53,8 @@ type Props = {
   actorRole?: PlatformRole;
   variant?: "inline" | "modal";
   open?: boolean;
+  /** Fiche à modifier (mode édition membre). */
+  editMember?: MemberRecord | null;
   initialOrg?: Partial<Pick<MemberFormValues, "chapitre" | "district" | "groupe">>;
   existingMembers?: MemberRecord[];
   onCancel: () => void;
@@ -62,11 +66,13 @@ export default function PersonCreateForm({
   actorRole = "centre",
   variant = "inline",
   open = true,
+  editMember = null,
   initialOrg,
   existingMembers = [],
   onCancel,
   onSuccess,
 }: Props) {
+  const isEdit = Boolean(editMember);
   const roles = useMemo(() => assignableRoles(actorRole), [actorRole]);
   const orgTree = useOrgTree();
   const [orgIds, setOrgIds] = useState<OrgSelectionIds>({
@@ -75,20 +81,96 @@ export default function PersonCreateForm({
     groupeId: "",
   });
   const [values, setValues] = useState<MemberFormValues>(() =>
-    emptyMemberFormValues({
-      chapitre: initialOrg?.chapitre || "",
-      district: initialOrg?.district || "",
-      groupe: initialOrg?.groupe || "",
-      responsabilite: mode === "responsable" ? "Responsable groupe" : "Membre simple",
-    }),
+    emptyMemberFormValues(
+      editMember
+        ? {
+            prenom: editMember.prenom,
+            nom: editMember.nom,
+            email: editMember.email,
+            telephone: editMember.telephone,
+            dateNaissance: editMember.dateNaissance,
+            departement: editMember.departement || editMember.categorie || "Homme",
+            categorie: editMember.categorie || editMember.departement || "Homme",
+            responsabilite:
+              editMember.responsabilite === "Membre" ? "Membre simple" : editMember.responsabilite,
+            dateDebutPratique: editMember.dateDebutPratique,
+            abonnementVaguePaix: editMember.abonnementVaguePaix,
+            sokahan: editMember.sokahan,
+            quartier: editMember.quartier,
+            chapitre: editMember.chapitre,
+            district: editMember.district,
+            groupe: editMember.groupe,
+            statut: editMember.statut || "Actif",
+            abonnement: editMember.abonnement,
+            photo: editMember.photo,
+          }
+        : {
+            chapitre: initialOrg?.chapitre || "",
+            district: initialOrg?.district || "",
+            groupe: initialOrg?.groupe || "",
+            responsabilite: mode === "responsable" ? "Responsable groupe" : "Membre simple",
+          },
+    ),
   );
   const [platformRole, setPlatformRole] = useState<PlatformRole>(roles[0] || "groupe");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const canEditResponsabilite =
+    !isEdit ||
+    canChangeMemberResponsabilite(actorRole, editMember?.responsabilite || "Membre simple");
 
   useEffect(() => {
     if (variant === "modal" && !open) return;
     if (orgTree.loading || orgTree.chapitres.length === 0) return;
+
+    if (editMember) {
+      let chapitreId = editMember.chapitreId || "";
+      let districtId = editMember.districtId || "";
+      let groupeId = editMember.groupeId || "";
+      if (groupeId) {
+        const groupe = orgTree.groupes.find((item) => item.id === groupeId);
+        if (groupe) districtId = districtId || groupe.district_id;
+      }
+      if (districtId) {
+        const district = orgTree.districts.find((item) => item.id === districtId);
+        if (district) chapitreId = chapitreId || district.chapitre_id;
+      }
+      const nextIds = orgTree.coerceSelection(
+        chapitreId || districtId || groupeId
+          ? { chapitreId, districtId, groupeId }
+          : orgTree.findByNames({
+              chapitre: editMember.chapitre,
+              district: editMember.district,
+              groupe: editMember.groupe,
+            }),
+      );
+      const names = orgTree.nameOf(nextIds);
+      setOrgIds(nextIds);
+      setValues(
+        emptyMemberFormValues({
+          prenom: editMember.prenom,
+          nom: editMember.nom,
+          email: editMember.email,
+          telephone: editMember.telephone,
+          dateNaissance: editMember.dateNaissance,
+          departement: editMember.departement || editMember.categorie || "Homme",
+          categorie: editMember.categorie || editMember.departement || "Homme",
+          responsabilite:
+            editMember.responsabilite === "Membre" ? "Membre simple" : editMember.responsabilite,
+          dateDebutPratique: editMember.dateDebutPratique,
+          abonnementVaguePaix: editMember.abonnementVaguePaix,
+          sokahan: editMember.sokahan,
+          quartier: editMember.quartier,
+          ...names,
+          statut: editMember.statut || "Actif",
+          abonnement: editMember.abonnement,
+          photo: editMember.photo,
+        }),
+      );
+      setError(null);
+      return;
+    }
+
     const nextIds = orgTree.coerceSelection(
       orgTree.findByNames({
         chapitre: initialOrg?.chapitre,
@@ -114,6 +196,7 @@ export default function PersonCreateForm({
   }, [
     open,
     mode,
+    editMember,
     initialOrg?.chapitre,
     initialOrg?.district,
     initialOrg?.groupe,
@@ -121,6 +204,8 @@ export default function PersonCreateForm({
     variant,
     orgTree.loading,
     orgTree.chapitres,
+    orgTree.districts,
+    orgTree.groupes,
     orgTree.coerceSelection,
     orgTree.findByNames,
     orgTree.nameOf,
@@ -209,8 +294,33 @@ export default function PersonCreateForm({
         responsabilite:
           mode === "responsable"
             ? platformRoleToMemberResponsabilite(platformRole)
-            : values.responsabilite,
+            : !canEditResponsabilite && editMember
+              ? editMember.responsabilite === "Membre"
+                ? "Membre simple"
+                : editMember.responsabilite
+              : values.responsabilite,
       };
+
+      if (isEdit && editMember) {
+        if (hasRemoteMembers()) {
+          if (!editMember.remoteId) {
+            throw new Error("Impossible de modifier ce membre : identifiant distant manquant.");
+          }
+          const { error: updateError } = await updateMemberRemote(editMember.remoteId, memberValues, {
+            chapitre_id: orgIds.chapitreId,
+            district_id: orgIds.districtId,
+            groupe_id: orgIds.groupeId,
+          });
+          if (updateError) throw updateError;
+        }
+        const member = applyMemberFormToRecord(editMember, memberValues, {
+          chapitreId: orgIds.chapitreId,
+          districtId: orgIds.districtId,
+          groupeId: orgIds.groupeId,
+        });
+        onSuccess({ member, message: "Informations du membre mises à jour." });
+        return;
+      }
 
       if (hasRemoteMembers()) {
         const { data, error: memberError } = await createMemberRemote(memberValues, {
@@ -351,6 +461,11 @@ export default function PersonCreateForm({
     }
   };
 
+  const lockChapitre =
+    actorRole === "chapitre" || actorRole === "district" || actorRole === "groupe";
+  const lockDistrict = actorRole === "district" || actorRole === "groupe";
+  const lockGroupe = actorRole === "groupe";
+
   const formBody = (
     <form
       onSubmit={handleSubmit}
@@ -488,10 +603,27 @@ export default function PersonCreateForm({
         <Field label="Responsabilité" hint="Fiche membre uniquement — aucun compte de connexion n’est créé.">
           <select
             value={values.responsabilite}
+            disabled={!canEditResponsabilite}
             onChange={(e) => patch({ responsabilite: e.target.value })}
-            className="dash-field"
+            className="dash-field disabled:cursor-not-allowed disabled:opacity-70"
           >
             {MEMBER_RESPONSABILITES.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+
+      {isEdit && (
+        <Field label="Statut">
+          <select
+            value={values.statut}
+            onChange={(e) => patch({ statut: e.target.value })}
+            className="dash-field"
+          >
+            {MEMBER_STATUTS.map((option) => (
               <option key={option} value={option}>
                 {option}
               </option>
@@ -518,7 +650,7 @@ export default function PersonCreateForm({
       <Field label="Chapitre">
         <select
           value={orgIds.chapitreId}
-          disabled={orgTree.loading || orgTree.chapitres.length === 0}
+          disabled={lockChapitre || orgTree.loading || orgTree.chapitres.length === 0}
           onChange={(e) =>
             applyOrgSelection({
               chapitreId: e.target.value,
@@ -542,7 +674,7 @@ export default function PersonCreateForm({
       <Field label="District">
         <select
           value={orgIds.districtId}
-          disabled={orgTree.loading || districtOptions.length === 0}
+          disabled={lockDistrict || orgTree.loading || districtOptions.length === 0}
           onChange={(e) =>
             applyOrgSelection({
               chapitreId: orgIds.chapitreId,
@@ -563,7 +695,7 @@ export default function PersonCreateForm({
       <Field label="Groupe">
         <select
           value={orgIds.groupeId}
-          disabled={orgTree.loading || groupeOptions.length === 0}
+          disabled={lockGroupe || orgTree.loading || groupeOptions.length === 0}
           onChange={(e) =>
             applyOrgSelection({
               chapitreId: orgIds.chapitreId,
@@ -584,17 +716,6 @@ export default function PersonCreateForm({
       {orgTree.error && (
         <p className="md:col-span-2 text-sm text-destructive">{orgTree.error}</p>
       )}
-      <Field label="Statut">
-        <select
-          value={values.statut}
-          onChange={(e) => patch({ statut: e.target.value })}
-          className="dash-field"
-        >
-          {STATUTS.map((item) => (
-            <option key={item}>{item}</option>
-          ))}
-        </select>
-      </Field>
 
       <div className="flex flex-wrap gap-4 md:col-span-2">
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -628,8 +749,14 @@ export default function PersonCreateForm({
           disabled={loading}
           className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--sgi-blue)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
         >
-          {mode === "responsable" ? <UserPlus size={14} /> : <Plus size={14} />}
-          {loading ? "Enregistrement…" : mode === "responsable" ? "Créer le responsable" : "Enregistrer le membre"}
+          {isEdit ? <Save size={14} /> : mode === "responsable" ? <UserPlus size={14} /> : <Plus size={14} />}
+          {loading
+            ? "Enregistrement…"
+            : isEdit
+              ? "Enregistrer les modifications"
+              : mode === "responsable"
+                ? "Créer le responsable"
+                : "Enregistrer le membre"}
         </button>
       </div>
     </form>
@@ -647,14 +774,17 @@ export default function PersonCreateForm({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            {isEdit ? (
+              <Save size={16} className="text-[var(--sgi-blue)]" />
+            ) : (
               <UserPlus size={16} className="text-[var(--sgi-blue)]" />
-              Ajouter un responsable
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Même fiche que l’ajout de membre. Un espace de connexion et un mot de passe temporaire seront générés.
-            </p>
+            )}
+            {isEdit
+              ? "Modifier le membre"
+              : mode === "responsable"
+                ? "Ajouter un responsable"
+                : "Ajouter un membre"}
           </div>
           <button
             type="button"

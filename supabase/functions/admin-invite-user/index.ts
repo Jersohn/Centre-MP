@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
       !canInvite(caller.role as AppRole)
     ) {
       return jsonResponse(403, {
-        error: "Réservé aux administrateurs, responsables centre ou chapitre actifs.",
+        error: "Réservé aux administrateurs et responsables centre, chapitre ou district actifs.",
       });
     }
 
@@ -106,6 +106,15 @@ Deno.serve(async (req) => {
 
     if (callerProfile.role === "chapitre" && scope.chapitre_id !== callerProfile.chapitre_id) {
       return jsonResponse(403, { error: "Périmètre hors de votre chapitre." });
+    }
+
+    if (callerProfile.role === "district") {
+      if (
+        scope.chapitre_id !== callerProfile.chapitre_id ||
+        scope.district_id !== callerProfile.district_id
+      ) {
+        return jsonResponse(403, { error: "Périmètre hors de votre district." });
+      }
     }
 
     let targetId = await findUserIdByEmail(service, email);

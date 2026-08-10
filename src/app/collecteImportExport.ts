@@ -1,7 +1,11 @@
 ﻿import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
 import type { CollecteRecord, CollecteStatut, CollecteTab } from "./CollectesModule";
-import { formatExportNumber, type ExportFieldOption } from "./memberImportExport";
+import {
+  formatExportNumber,
+  formatExportOrgScope,
+  type ExportFieldOption,
+} from "./memberImportExport";
 
 export const COLLECTE_TYPE_LABELS: Record<CollecteTab, string> = {
   "vague-paix": "Vague de Paix",
@@ -25,34 +29,42 @@ export const COLLECTE_IMPORT_COLUMNS = [
 
 export type CollecteImportColumn = (typeof COLLECTE_IMPORT_COLUMNS)[number];
 
-export const COLLECTE_EXPORT_FIELDS: ExportFieldOption[] = [
-  { key: "N° enregistrement", label: "N° enregistrement" },
-  { key: "Référence reçu", label: "Référence reçu" },
-  { key: "Membre", label: "Membre" },
-  { key: "Montant (FCFA)", label: "Montant" },
-  { key: "Date", label: "Date" },
-  { key: "Statut", label: "Statut" },
-  { key: "Chapitre", label: "Chapitre" },
-  { key: "District", label: "District" },
-  { key: "Groupe", label: "Groupe" },
-  { key: "Période", label: "Période" },
-  { key: "Motif", label: "Motif" },
-  { key: "Note", label: "Note" },
-];
+export type CollecteExportBalance = {
+  engagement: number;
+  paye: number;
+  reste: number;
+};
 
-export const COLLECTE_EXPORT_DEFAULT_FIELDS = [
-  "N° enregistrement",
-  "Référence reçu",
-  "Membre",
-  "Montant (FCFA)",
-  "Date",
-  "Statut",
-  "Chapitre",
-  "District",
-  "Groupe",
-  "Période",
-  "Motif",
-];
+/** Champs d’export = colonnes de la vue liste (hors Actions). */
+export function getCollecteExportFields(type: CollecteTab): ExportFieldOption[] {
+  const fields: ExportFieldOption[] = [
+    { key: "N°", label: "N°" },
+    { key: "Réf. reçu", label: "Réf. reçu" },
+    { key: "Date", label: "Date" },
+    { key: "Membre", label: "Membre" },
+    { key: "Montant", label: "Montant" },
+    {
+      key: type === "zaimu-special" ? "Campagne" : "Période",
+      label: type === "zaimu-special" ? "Campagne" : "Période",
+    },
+    { key: "Groupe", label: "Groupe" },
+  ];
+  if (type === "zaimu-special") {
+    fields.push({ key: "Reste membre", label: "Reste membre" });
+  }
+  fields.push({ key: "Statut", label: "Statut" });
+  return fields;
+}
+
+export function getCollecteExportDefaultFields(type: CollecteTab): string[] {
+  return getCollecteExportFields(type).map((f) => f.key);
+}
+
+/** @deprecated Préférer getCollecteExportFields(type). */
+export const COLLECTE_EXPORT_FIELDS = getCollecteExportFields("zaimu-ordinaire");
+
+/** @deprecated Préférer getCollecteExportDefaultFields(type). */
+export const COLLECTE_EXPORT_DEFAULT_FIELDS = getCollecteExportDefaultFields("zaimu-ordinaire");
 
 const EXAMPLE_ROW: Record<CollecteImportColumn, string> = {
   Membre: "Jean-Pierre Kabongo Mwamba",
@@ -89,26 +101,75 @@ function sanitizeText(value: string) {
   return value.replace(/[\u00a0\u202f\u2007\u2009]/g, " ");
 }
 
-function ensureLeadingMember(fields: string[]) {
-  const rest = fields.filter((f) => f !== "Membre");
-  return ["Membre", ...rest];
+/** Libellé de périmètre à partir des collectes exportées. */
+export function inferCollecteExportOrgScope(records: CollecteRecord[]): string {
+  const unique = (values: string[]) =>
+    [...new Set(values.map((v) => v.trim()).filter(Boolean))];
+  const chapitres = unique(records.map((r) => r.chapitre));
+  const districts = unique(records.map((r) => r.district));
+  const groupes = unique(records.map((r) => r.groupe));
+
+  const parts: string[] = [];
+  if (chapitres.length === 1) parts.push(`Chapitre ${chapitres[0]}`);
+  else if (chapitres.length > 1) parts.push(`${chapitres.length} chapitres`);
+  if (districts.length === 1) parts.push(`District ${districts[0]}`);
+  else if (districts.length > 1) parts.push(`${districts.length} districts`);
+  if (groupes.length === 1) parts.push(`Groupe ${groupes[0]}`);
+  else if (groupes.length > 1) parts.push(`${groupes.length} groupes`);
+
+  return parts.length > 0 ? parts.join(" · ") : "Périmètre non précisé";
 }
 
-export function collecteToExportRow(record: CollecteRecord): Record<string, string | number> {
-  return {
-    "N° enregistrement": record.numero || record.id,
-    "Référence reçu": record.referenceRecu || "",
-    Membre: record.membre,
-    "Montant (FCFA)": record.montant,
+function resolveCollecteScopeLabel(
+  records: CollecteRecord[],
+  scope?: { chapitre?: string; district?: string; groupe?: string; label?: string } | null,
+) {
+  const inferred = inferCollecteExportOrgScope(records);
+  if (inferred !== "Périmètre non précisé") return inferred;
+  return formatExportOrgScope(scope) || inferred;
+}
+
+/** Conserve l’ordre des colonnes de la vue liste. */
+function orderSelectedFields(fields: string[], catalog: string[]) {
+  const selected = new Set(fields);
+  const ordered = catalog.filter((key) => selected.has(key));
+  for (const key of fields) {
+    if (!ordered.includes(key)) ordered.push(key);
+  }
+  return ordered;
+}
+
+export function collecteToExportRow(
+  record: CollecteRecord,
+  options?: {
+    type?: CollecteTab;
+    balance?: CollecteExportBalance | null;
+  },
+): Record<string, string | number> {
+  const type = options?.type || record.type;
+  const campagneOuPeriode =
+    type === "zaimu-special"
+      ? record.periode || record.motif || ""
+      : record.periode || "";
+  const row: Record<string, string | number> = {
+    "N°": record.numero?.trim() || record.id,
+    "Réf. reçu": record.referenceRecu || "",
     Date: record.date,
-    Statut: record.statut,
-    Chapitre: record.chapitre,
-    District: record.district,
+    Membre: record.membre,
+    Montant: record.montant,
     Groupe: record.groupe,
-    Période: record.periode,
-    Motif: record.motif,
-    Note: record.note,
+    Statut: record.statut,
   };
+  if (type === "zaimu-special") {
+    row.Campagne = campagneOuPeriode;
+    const balance = options?.balance;
+    row["Reste membre"] = balance
+      ? `${Math.round(balance.reste)} (${Math.round(balance.paye)} / ${Math.round(balance.engagement)})`
+      : "";
+  } else {
+    row.Période = campagneOuPeriode;
+  }
+  return row;
 }
 
 export function downloadCollecteImportTemplate(
@@ -229,11 +290,26 @@ function pickFields(row: Record<string, string | number>, fields: string[]) {
 export function exportCollectesExcel(
   records: CollecteRecord[],
   filename: string,
-  fields: string[] = COLLECTE_EXPORT_DEFAULT_FIELDS
+  fields?: string[],
+  options?: {
+    type?: CollecteTab;
+    balancesById?: Record<string, CollecteExportBalance | null | undefined>;
+    scope?: { chapitre?: string; district?: string; groupe?: string; label?: string } | null;
+  },
 ) {
-  const selected = ensureLeadingMember(fields.length ? fields : COLLECTE_EXPORT_DEFAULT_FIELDS);
+  const type = options?.type || records[0]?.type || "zaimu-ordinaire";
+  const catalog = getCollecteExportDefaultFields(type);
+  const selected = orderSelectedFields(fields?.length ? fields : catalog, catalog);
+  const scopeLabel = resolveCollecteScopeLabel(records, options?.scope);
+  const typeLabel = COLLECTE_TYPE_LABELS[type];
+  const totalValide = records
+    .filter((r) => r.statut === "Validé")
+    .reduce((sum, r) => sum + r.montant, 0);
   const rows = records.map((r) => {
-    const full = collecteToExportRow(r);
+    const full = collecteToExportRow(r, {
+      type,
+      balance: options?.balancesById?.[r.id],
+    });
     const picked = pickFields(full, selected);
     const sanitized: Record<string, string | number> = {};
     for (const [key, value] of Object.entries(picked)) {
@@ -245,6 +321,14 @@ export function exportCollectesExcel(
     return sanitized;
   });
   const workbook = XLSX.utils.book_new();
+  const summarySheet = XLSX.utils.json_to_sheet([
+    { Indicateur: "Type", Valeur: typeLabel },
+    { Indicateur: "Périmètre", Valeur: scopeLabel },
+    { Indicateur: "Lignes exportées", Valeur: records.length },
+    { Indicateur: "Validés", Valeur: records.filter((r) => r.statut === "Validé").length },
+    { Indicateur: "Total validé (FCFA)", Valeur: Math.round(totalValide) },
+  ]);
+  XLSX.utils.book_append_sheet(workbook, summarySheet, "Synthese");
   XLSX.utils.book_append_sheet(
     workbook,
     XLSX.utils.json_to_sheet(
@@ -263,31 +347,70 @@ export function exportCollectesPdf(
     typeLabel: string;
     filename: string;
     fields?: string[];
+    type?: CollecteTab;
+    balancesById?: Record<string, CollecteExportBalance | null | undefined>;
+    scope?: { chapitre?: string; district?: string; groupe?: string; label?: string } | null;
   }
 ) {
-  const selected = ensureLeadingMember(
-    options.fields?.length ? options.fields : COLLECTE_EXPORT_DEFAULT_FIELDS
+  const type = options.type || records[0]?.type || "zaimu-ordinaire";
+  const fieldDefs = getCollecteExportFields(type);
+  const catalog = getCollecteExportDefaultFields(type);
+  const selected = orderSelectedFields(
+    options.fields?.length ? options.fields : catalog,
+    catalog,
   );
-  const labels = Object.fromEntries(COLLECTE_EXPORT_FIELDS.map((f) => [f.key, f.label]));
-  const rows = records.map((r) => pickFields(collecteToExportRow(r), selected));
+  const labels = Object.fromEntries(fieldDefs.map((f) => [f.key, f.label]));
+  const scopeLabel = resolveCollecteScopeLabel(records, options.scope);
+  const generatedAt = new Date().toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const rows = records.map((r) =>
+    pickFields(
+      collecteToExportRow(r, {
+        type,
+        balance: options.balancesById?.[r.id],
+      }),
+      selected,
+    ),
+  );
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
   const margin = 36;
-  let y = 40;
+  const pageW = doc.internal.pageSize.getWidth();
 
   doc.setFillColor(10, 47, 82);
-  doc.rect(0, 0, 842, 58, "F");
+  doc.rect(0, 0, pageW, 72, "F");
+  const band = pageW / 3;
+  doc.setFillColor(10, 47, 82);
+  doc.rect(0, 72, band, 4, "F");
   doc.setFillColor(200, 151, 26);
-  doc.rect(0, 58, 280, 3, "F");
+  doc.rect(band, 72, band, 4, "F");
   doc.setFillColor(194, 58, 43);
-  doc.rect(280, 58, 562, 3, "F");
+  doc.rect(band * 2, 72, band, 4, "F");
 
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(14);
-  doc.text("Centre Miroir Parfait — Collectes", margin, 28);
-  doc.setFontSize(10);
-  doc.text(`${options.typeLabel} · ${options.title}`, margin, 46);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text("Centre Miroir Parfait — Collectes", margin, 22);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.text(sanitizeText(`${options.typeLabel} · ${options.title}`), margin, 40);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(255, 230, 170);
+  const scopeText = scopeLabel.toLowerCase().startsWith("périmètre")
+    ? scopeLabel
+    : `Périmètre : ${scopeLabel}`;
+  doc.text(sanitizeText(scopeText), margin, 54);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(220, 230, 240);
+  doc.text(sanitizeText(`Généré le ${generatedAt}`), margin, 66);
 
-  y = 84;
+  let y = 96;
   doc.setTextColor(16, 32, 51);
   doc.setFontSize(10);
   const total = records
@@ -300,7 +423,7 @@ export function exportCollectesPdf(
   );
   y += 20;
 
-  const usable = 842 - margin * 2;
+  const usable = pageW - margin * 2;
   const widths = selected.map((key) =>
     key.includes("Montant") || key === "Membre" ? 1.35 : 1
   );
@@ -342,6 +465,20 @@ export function exportCollectesPdf(
     });
     y += 15;
   });
+
+  const pageCount = doc.getNumberOfPages();
+  const pageH = doc.internal.pageSize.getHeight();
+  for (let i = 1; i <= pageCount; i += 1) {
+    doc.setPage(i);
+    doc.setDrawColor(220, 226, 234);
+    doc.setLineWidth(0.7);
+    doc.line(margin, pageH - 30, pageW - margin, pageH - 30);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(sanitizeText(`Périmètre : ${scopeLabel}`), margin, pageH - 16);
+    doc.text(`Page ${i} / ${pageCount}`, pageW - margin, pageH - 16, { align: "right" });
+  }
 
   doc.save(options.filename);
 }

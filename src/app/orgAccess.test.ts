@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   canChangeMemberResponsabilite,
   canDeactivateMember,
+  canDeleteMember,
   canDeleteUser,
+  canEditMember,
   canManageUserAccount,
   isProtectedHierarchyTarget,
   platformRoleFromResponsabilite,
@@ -35,5 +37,26 @@ describe("orgAccess hierarchy protection", () => {
     expect(canDeactivateMember("chapitre", "Membre simple")).toBe(true);
     expect(canChangeMemberResponsabilite("groupe", "Responsable district")).toBe(false);
     expect(canChangeMemberResponsabilite("chapitre", "Membre simple")).toBe(true);
+  });
+
+  it("allows responsables to edit their members but not peers/superiors", () => {
+    expect(canEditMember("groupe", { responsabilite: "Membre simple" })).toBe(true);
+    expect(canEditMember("groupe", { responsabilite: "Responsable groupe" })).toBe(false);
+    expect(canEditMember("district", { responsabilite: "Membre simple" })).toBe(true);
+    expect(
+      canEditMember("groupe", { responsabilite: "Membre simple", source: "profile" }),
+    ).toBe(false);
+  });
+
+  it("restricts member deletion to admin and centre only", () => {
+    expect(canDeleteMember("groupe", { responsabilite: "Membre simple" })).toBe(false);
+    expect(canDeleteMember("district", { responsabilite: "Membre simple" })).toBe(false);
+    expect(canDeleteMember("chapitre", { responsabilite: "Membre simple" })).toBe(false);
+    expect(canDeleteMember("centre", { responsabilite: "Membre simple" })).toBe(true);
+    expect(canDeleteMember("admin", { responsabilite: "Membre simple" })).toBe(true);
+    expect(canDeleteMember("centre", { responsabilite: "Responsable centre" })).toBe(false);
+    expect(
+      canDeleteMember("admin", { responsabilite: "Membre simple", source: "profile" }),
+    ).toBe(false);
   });
 });

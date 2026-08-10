@@ -52,6 +52,8 @@ export const MEMBER_EXPORT_FIELDS: ExportFieldOption[] = [
   { key: "Categorie", label: "Catégorie" },
   { key: "Responsabilite", label: "Responsabilité" },
   { key: "DateDebutPratique", label: "Début de pratique" },
+  { key: "ZaimuOrd", label: "Zaimu ord." },
+  { key: "ZaimuSp", label: "Zaimu sp. (payé/cota)" },
   { key: "VagueDePaix", label: "Vague de Paix" },
   { key: "Sokahan", label: "Sokahan" },
   { key: "Quartier", label: "Quartier" },
@@ -72,6 +74,8 @@ export const MEMBER_EXPORT_DEFAULT_FIELDS = [
   "District",
   "Groupe",
   "Statut",
+  "ZaimuOrd",
+  "ZaimuSp",
   "VagueDePaix",
   "Sokahan",
 ];
@@ -192,17 +196,18 @@ function drawTableHeaderRow(
   y: number,
   headerColor: [number, number, number],
 ) {
-  const rowH = 20;
+  const rowH = 18;
   doc.setFillColor(...headerColor);
-  doc.rect(margin, y - 12, usable, rowH, "F");
+  doc.rect(margin, y - 11, usable, rowH, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(7.5);
+  doc.setFontSize(6.2);
   let x = margin;
   fields.forEach((key, i) => {
     const label = sanitizeExportText(labels[key] || key);
-    const lines = doc.splitTextToSize(label, Math.max(18, widths[i] - 6));
-    doc.text(lines[0] || label, x + 3, y);
+    const lines = doc.splitTextToSize(label, Math.max(14, widths[i] - 4));
+    const first = Array.isArray(lines) ? lines.slice(0, 2) : [String(lines || "")];
+    doc.text(first, x + 2, y - 2);
     x += widths[i];
   });
   return y + rowH - 2;
@@ -218,15 +223,19 @@ function drawDynamicPdfTable(
 ) {
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
-  const margin = 32;
+  const margin = 28;
   const usable = pageW - margin * 2;
-  const bottomLimit = pageH - 48;
+  const bottomLimit = pageH - 44;
   const weights = fields.map((key) => {
-    if (isAmountField(key)) return 1.25;
-    if (/email/i.test(key)) return 1.45;
-    if (/telephone|téléphone/i.test(key)) return 1.15;
-    if (/prenom|prénom|nom$/i.test(key)) return 1.1;
-    return 1;
+    if (/zaimusp|zaimu sp/i.test(key) || /payé\/cota|paye\/cota/i.test(labels[key] || "")) return 1.55;
+    if (/zaimuord|zaimu ord/i.test(key)) return 1.2;
+    if (isAmountField(key)) return 1.2;
+    if (/email/i.test(key)) return 1.35;
+    if (/telephone|téléphone/i.test(key)) return 1.05;
+    if (/responsabilite|responsabilité/i.test(key)) return 1.15;
+    if (/prenom|prénom|nom$/i.test(key)) return 1.05;
+    if (/vague|sokahan|statut/i.test(key)) return 0.85;
+    return 0.95;
   });
   const weightSum = weights.reduce((a, b) => a + b, 0) || 1;
   const widths = weights.map((w) => (usable * w) / weightSum);
@@ -237,55 +246,71 @@ function drawDynamicPdfTable(
   doc.setTextColor(16, 32, 51);
 
   rows.forEach((row, index) => {
-    if (y > bottomLimit) {
+    const lineSets = fields.map((key, i) => {
+      const text = formatCell(row[key]);
+      const maxWidth = Math.max(12, widths[i] - 4);
+      const lines = doc.splitTextToSize(text, maxWidth);
+      const arr = Array.isArray(lines) ? lines.map(String) : [String(lines || "")];
+      return arr.slice(0, 2);
+    });
+    const maxLines = Math.max(1, ...lineSets.map((lines) => lines.length));
+    const rowH = 9 + maxLines * 8;
+
+    if (y + rowH > bottomLimit) {
       doc.addPage();
-      y = 40;
+      y = 36;
       y = drawTableHeaderRow(doc, fields, labels, widths, margin, usable, y, headerColor);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(16, 32, 51);
     }
     if (index % 2 === 0) {
       doc.setFillColor(246, 248, 251);
-      doc.rect(margin, y - 10, usable, 16, "F");
+      doc.rect(margin, y - 9, usable, rowH, "F");
     }
     let x = margin;
-    doc.setFontSize(7.5);
-    fields.forEach((key, i) => {
-      const text = formatCell(row[key]);
-      const maxWidth = Math.max(16, widths[i] - 6);
-      const lines = doc.splitTextToSize(text, maxWidth);
-      const cell = Array.isArray(lines) ? String(lines[0] || "") : String(lines || "");
-      doc.text(cell, x + 3, y);
+    doc.setFontSize(6);
+    fields.forEach((_key, i) => {
+      doc.text(lineSets[i], x + 2, y);
       x += widths[i];
     });
-    y += 15;
+    y += rowH;
   });
 
   return y;
 }
 
-function drawMembersPdfChrome(doc: jsPDF, subtitle: string, meta: string) {
+function drawMembersPdfChrome(doc: jsPDF, subtitle: string, scopeLine: string, meta: string) {
   const pageW = doc.internal.pageSize.getWidth();
   doc.setFillColor(10, 47, 82);
-  doc.rect(0, 0, pageW, 64, "F");
+  doc.rect(0, 0, pageW, 72, "F");
   const band = pageW / 3;
   doc.setFillColor(10, 47, 82);
-  doc.rect(0, 64, band, 4, "F");
+  doc.rect(0, 72, band, 4, "F");
   doc.setFillColor(200, 151, 26);
-  doc.rect(band, 64, band, 4, "F");
+  doc.rect(band, 72, band, 4, "F");
   doc.setFillColor(194, 58, 43);
-  doc.rect(band * 2, 64, band, 4, "F");
+  doc.rect(band * 2, 72, band, 4, "F");
 
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.text("Centre Miroir Parfait — SGI Côte d'Ivoire", 32, 28);
+  doc.setFontSize(13);
+  doc.text("Centre Miroir Parfait — SGI Côte d'Ivoire", 28, 22);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
-  doc.text(sanitizeExportText(subtitle), 32, 46);
-  doc.setFontSize(8.5);
+  doc.text(sanitizeExportText(subtitle), 28, 40);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(255, 230, 170);
+  const scopeText = scopeLine.trim()
+    ? (scopeLine.toLowerCase().startsWith("périmètre") || scopeLine.toLowerCase().startsWith("perimetre")
+        ? scopeLine
+        : `Périmètre : ${scopeLine}`)
+    : "Périmètre : non précisé";
+  doc.text(sanitizeExportText(scopeText), 28, 54);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
   doc.setTextColor(220, 230, 240);
-  doc.text(sanitizeExportText(meta), 32, 58);
+  doc.text(sanitizeExportText(meta), 28, 66);
 }
 
 function drawMembersPdfFooters(doc: jsPDF) {
@@ -303,6 +328,324 @@ function drawMembersPdfFooters(doc: jsPDF) {
     doc.text("Document généré pour usage interne — Centre Miroir Parfait", 32, pageH - 16);
     doc.text(`Page ${i} / ${pageCount}`, pageW - 32, pageH - 16, { align: "right" });
   }
+}
+
+type MemberPdfSummaryCard = {
+  label: string;
+  value: string;
+  hint?: string;
+  accent: [number, number, number];
+};
+
+function isMembreSimple(responsabilite: string) {
+  const value = (responsabilite || "").trim();
+  return !value || value === "Membre" || value === "Membre simple";
+}
+
+/** Libellé de périmètre à partir des membres exportés. */
+export function inferExportOrgScope(members: MemberRecord[]): string {
+  const unique = (values: string[]) =>
+    [...new Set(values.map((v) => v.trim()).filter(Boolean))];
+  const chapitres = unique(members.map((m) => m.chapitre));
+  const districts = unique(members.map((m) => m.district));
+  const groupes = unique(members.map((m) => m.groupe));
+
+  const parts: string[] = [];
+  if (chapitres.length === 1) parts.push(`Chapitre ${chapitres[0]}`);
+  else if (chapitres.length > 1) parts.push(`${chapitres.length} chapitres`);
+  if (districts.length === 1) parts.push(`District ${districts[0]}`);
+  else if (districts.length > 1) parts.push(`${districts.length} districts`);
+  if (groupes.length === 1) parts.push(`Groupe ${groupes[0]}`);
+  else if (groupes.length > 1) parts.push(`${groupes.length} groupes`);
+
+  return parts.length > 0 ? parts.join(" · ") : "Périmètre non précisé";
+}
+
+export function formatExportOrgScope(input?: {
+  chapitre?: string;
+  district?: string;
+  groupe?: string;
+  label?: string;
+} | null): string {
+  if (!input) return "";
+  const parts: string[] = [];
+  if (input.chapitre?.trim()) parts.push(`Chapitre ${input.chapitre.trim()}`);
+  if (input.district?.trim()) parts.push(`District ${input.district.trim()}`);
+  if (input.groupe?.trim()) parts.push(`Groupe ${input.groupe.trim()}`);
+  if (parts.length) return parts.join(" · ");
+  return input.label?.trim() || "";
+}
+
+export function computeMemberZaimuTotals(
+  members: MemberRecord[],
+  finance: {
+    collectes?: CollectePayment[];
+    zsAssigneById?: Record<string, number>;
+    /** Cota du périmètre (groupe/district/chapitre/centre), prioritaire sur la somme membres. */
+    zsPerimeterCota?: number | null;
+  } = {},
+) {
+  const collectes = finance.collectes || [];
+  let zaimuOrdinaire = 0;
+  let zaimuSpecialPaye = 0;
+  let memberCotaSum = 0;
+  for (const member of members) {
+    zaimuOrdinaire += getMemberZaimuPaid(collectes, member, "zaimu-ordinaire");
+    zaimuSpecialPaye += getMemberZaimuPaid(collectes, member, "zaimu-special");
+    if (member.remoteId) {
+      memberCotaSum += Number(finance.zsAssigneById?.[member.remoteId] || 0);
+    }
+  }
+  const perimeter = Number(finance.zsPerimeterCota);
+  const zaimuSpecialCota =
+    Number.isFinite(perimeter) && perimeter > 0 ? perimeter : memberCotaSum;
+  return {
+    zaimuOrdinaire,
+    zaimuSpecialPaye,
+    zaimuSpecialCota,
+    zaimuSpecialReste: Math.max(0, zaimuSpecialCota - zaimuSpecialPaye),
+  };
+}
+
+/** Indicateurs consolidés selon les champs cochés à l’export. */
+export function buildMemberPdfSummaryCards(
+  members: MemberRecord[],
+  selectedFields: string[],
+  finance: MemberExportFinanceOptions = {},
+): { cards: MemberPdfSummaryCard[]; detailLines: string[] } {
+  const selected = new Set(selectedFields);
+  const total = members.length;
+  const cards: MemberPdfSummaryCard[] = [
+    {
+      label: "Effectif",
+      value: formatExportNumber(total),
+      hint: "membres",
+      accent: [10, 47, 82],
+    },
+  ];
+  const detailLines: string[] = [];
+
+  if (selected.has("Statut")) {
+    const actifs = members.filter((m) => m.statut === "Actif").length;
+    const pending = members.filter((m) => m.statut === "En attente").length;
+    const suspendus = members.filter((m) => m.statut === "Suspendu").length;
+    cards.push({
+      label: "Actifs",
+      value: formatExportNumber(actifs),
+      hint: total ? `${Math.round((actifs / total) * 100)} %` : undefined,
+      accent: [31, 122, 69],
+    });
+    if (pending > 0) {
+      cards.push({ label: "En attente", value: formatExportNumber(pending), accent: [200, 151, 26] });
+    }
+    if (suspendus > 0) {
+      cards.push({ label: "Suspendus", value: formatExportNumber(suspendus), accent: [194, 58, 43] });
+    }
+  }
+
+  if (selected.has("VagueDePaix")) {
+    const abonnes = members.filter((m) => m.abonnementVaguePaix).length;
+    cards.push({
+      label: "Abonnés VP",
+      value: formatExportNumber(abonnes),
+      hint: total ? `${Math.round((abonnes / total) * 100)} %` : undefined,
+      accent: [26, 52, 112],
+    });
+  }
+
+  const showZaimuSp = selected.has("ZaimuSp");
+  const showZaimuOrd = selected.has("ZaimuOrd");
+  if (showZaimuSp || showZaimuOrd) {
+    const totals = computeMemberZaimuTotals(members, finance);
+    if (showZaimuSp) {
+      cards.push({
+        label: "Zaimu sp. payé",
+        value: formatExportNumber(totals.zaimuSpecialPaye),
+        hint: "FCFA",
+        accent: [194, 58, 43],
+      });
+      cards.push({
+        label: "Zaimu sp. reste",
+        value: formatExportNumber(totals.zaimuSpecialReste),
+        hint: `cota périmètre ${formatExportNumber(totals.zaimuSpecialCota)}`,
+        accent: [200, 151, 26],
+      });
+    }
+    if (showZaimuOrd) {
+      cards.push({
+        label: "Zaimu ordinaire",
+        value: formatExportNumber(totals.zaimuOrdinaire),
+        hint: "FCFA validés",
+        accent: [26, 52, 112],
+      });
+    }
+    const financeParts: string[] = [];
+    if (showZaimuSp) {
+      financeParts.push(
+        `Zaimu spécial : payé ${formatExportNumber(totals.zaimuSpecialPaye)} · reste ${formatExportNumber(totals.zaimuSpecialReste)} (cota périmètre ${formatExportNumber(totals.zaimuSpecialCota)})`,
+      );
+    }
+    if (showZaimuOrd) {
+      financeParts.push(
+        `Zaimu ordinaire : ${formatExportNumber(totals.zaimuOrdinaire)} FCFA validés`,
+      );
+    }
+    if (financeParts.length) {
+      detailLines.push(`Point consolidé — ${financeParts.join(" · ")}`);
+    }
+  }
+
+  if (selected.has("Sokahan")) {
+    const sokahan = members.filter((m) => m.sokahan).length;
+    cards.push({
+      label: "Sokahan",
+      value: formatExportNumber(sokahan),
+      hint: total ? `${Math.round((sokahan / total) * 100)} %` : undefined,
+      accent: [194, 58, 43],
+    });
+  }
+
+  if (selected.has("Abonnement")) {
+    const abonnes = members.filter((m) => m.abonnement).length;
+    cards.push({
+      label: "Abonnés service",
+      value: formatExportNumber(abonnes),
+      accent: [200, 151, 26],
+    });
+  }
+
+  if (selected.has("Responsabilite")) {
+    const simples = members.filter((m) => isMembreSimple(m.responsabilite)).length;
+    const responsables = total - simples;
+    cards.push({
+      label: "Membres simples",
+      value: formatExportNumber(simples),
+      accent: [10, 47, 82],
+    });
+    cards.push({
+      label: "Responsables",
+      value: formatExportNumber(responsables),
+      accent: [200, 151, 26],
+    });
+
+    const byRole = new Map<string, number>();
+    for (const member of members) {
+      if (isMembreSimple(member.responsabilite)) continue;
+      const key = (member.responsabilite || "Responsable").trim();
+      byRole.set(key, (byRole.get(key) || 0) + 1);
+    }
+    if (byRole.size > 0) {
+      detailLines.push(
+        `Répartition responsables : ${[...byRole.entries()]
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"))
+          .map(([label, count]) => `${label} (${formatExportNumber(count)})`)
+          .join(" · ")}`,
+      );
+    }
+  }
+
+  if (selected.has("Categorie") || selected.has("Departement")) {
+    const field = selected.has("Categorie") ? "categorie" : "departement";
+    const countOf = (label: string) =>
+      members.filter((m) => String(m[field] || "").trim().toLowerCase() === label.toLowerCase()).length;
+    const demo = [
+      { label: "Hommes", key: "Homme", accent: [10, 47, 82] as [number, number, number] },
+      { label: "Femmes", key: "Femme", accent: [200, 151, 26] as [number, number, number] },
+      { label: "Jeunes H.", key: "Jeune homme", accent: [26, 52, 112] as [number, number, number] },
+      { label: "Jeunes F.", key: "Jeune fille", accent: [194, 58, 43] as [number, number, number] },
+      { label: "Avenir", key: "Avenir", accent: [31, 122, 69] as [number, number, number] },
+    ];
+    for (const item of demo) {
+      const value = countOf(item.key);
+      if (value > 0) {
+        cards.push({
+          label: item.label,
+          value: formatExportNumber(value),
+          accent: item.accent,
+        });
+      }
+    }
+  }
+
+  if (selected.has("Chapitre") || selected.has("District") || selected.has("Groupe")) {
+    const distinct = (getter: (m: MemberRecord) => string) =>
+      new Set(members.map(getter).map((v) => v.trim()).filter(Boolean)).size;
+    const parts: string[] = [];
+    if (selected.has("Chapitre")) parts.push(`${formatExportNumber(distinct((m) => m.chapitre))} chapitre(s)`);
+    if (selected.has("District")) parts.push(`${formatExportNumber(distinct((m) => m.district))} district(s)`);
+    if (selected.has("Groupe")) parts.push(`${formatExportNumber(distinct((m) => m.groupe))} groupe(s)`);
+    if (parts.length) detailLines.push(`Couverture organisationnelle : ${parts.join(" · ")}`);
+  }
+
+  return { cards, detailLines };
+}
+
+function drawMemberPdfSummary(
+  doc: jsPDF,
+  cards: MemberPdfSummaryCard[],
+  detailLines: string[],
+  startY: number,
+) {
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 32;
+  const usable = pageW - margin * 2;
+  let y = startY;
+
+  doc.setTextColor(10, 47, 82);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("Statistiques consolidees", margin, y);
+  doc.setDrawColor(200, 151, 26);
+  doc.setLineWidth(2);
+  doc.line(margin, y + 5, margin + 178, y + 5);
+  y += 16;
+
+  const perRow = Math.min(6, Math.max(1, cards.length));
+  const gap = 8;
+  const cardH = 46;
+  const cardW = (usable - gap * (perRow - 1)) / perRow;
+
+  cards.forEach((card, index) => {
+    const col = index % perRow;
+    const row = Math.floor(index / perRow);
+    const x = margin + col * (cardW + gap);
+    const cy = y + row * (cardH + gap);
+
+    doc.setFillColor(246, 248, 251);
+    doc.roundedRect(x, cy, cardW, cardH, 5, 5, "F");
+    doc.setFillColor(...card.accent);
+    doc.rect(x, cy, 3.5, cardH, "F");
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.2);
+    doc.setTextColor(100, 116, 139);
+    doc.text(sanitizeExportText(card.label), x + 10, cy + 14);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    doc.setTextColor(16, 32, 51);
+    doc.text(card.value, x + 10, cy + 34);
+
+    if (card.hint) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text(sanitizeExportText(card.hint), x + cardW - 8, cy + 34, { align: "right" });
+    }
+  });
+
+  y += Math.ceil(cards.length / perRow) * (cardH + gap) + 2;
+
+  for (const line of detailLines) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    const wrapped = doc.splitTextToSize(sanitizeExportText(line), usable);
+    doc.text(wrapped, margin, y);
+    y += (Array.isArray(wrapped) ? wrapped.length : 1) * 11 + 2;
+  }
+
+  return y + 6;
 }
 
 const EXAMPLE_ROW: Record<MemberImportColumn, string> = {
@@ -381,6 +724,32 @@ export function memberToImportRow(member: MemberRecord): Record<MemberImportColu
   };
 }
 
+export type MemberExportFinanceOptions = {
+  collectes?: CollectePayment[];
+  zsAssigneById?: Record<string, number>;
+  /** Cota assignée au périmètre du rôle (prioritaire pour le point consolidé). */
+  zsPerimeterCota?: number | null;
+};
+
+/** Ligne d’export membres (inclut Zaimu ord. / Zaimu sp.). */
+export function memberToExportRow(
+  member: MemberRecord,
+  options: MemberExportFinanceOptions = {},
+): Record<string, string | number> {
+  const base = memberToImportRow(member);
+  const collectes = options.collectes || [];
+  const zoPaye = getMemberZaimuPaid(collectes, member, "zaimu-ordinaire");
+  const zsPaye = getMemberZaimuPaid(collectes, member, "zaimu-special");
+  const zsAssigne = member.remoteId
+    ? Number(options.zsAssigneById?.[member.remoteId] || 0)
+    : 0;
+  return {
+    ...base,
+    ZaimuOrd: formatExportNumber(zoPaye),
+    ZaimuSp: `${formatExportNumber(zsPaye)} / ${formatExportNumber(zsAssigne)}`,
+  };
+}
+
 export function downloadMemberImportTemplate(filename = "template_import_membres_sgi.xlsx") {
   const workbook = XLSX.utils.book_new();
   const templateSheet = XLSX.utils.json_to_sheet([EXAMPLE_ROW], {
@@ -407,14 +776,32 @@ function sanitizeRowForExcel(row: Record<string, unknown>) {
 export function exportMembersExcel(
   members: MemberRecord[],
   filename: string,
-  fields: string[] = MEMBER_EXPORT_DEFAULT_FIELDS
+  fields: string[] = MEMBER_EXPORT_DEFAULT_FIELDS,
+  finance: MemberExportFinanceOptions = {},
+  scope?: { chapitre?: string; district?: string; groupe?: string; label?: string } | null,
 ) {
   const selected = ensureLeadingNameFields(
     fields.length ? fields : MEMBER_EXPORT_DEFAULT_FIELDS,
     ["Prenom", "Nom"]
   );
-  const rows = members.map((m) => sanitizeRowForExcel(pickRowFields(memberToImportRow(m), selected)));
+  const rows = members.map((m) =>
+    sanitizeRowForExcel(pickRowFields(memberToExportRow(m, finance), selected)),
+  );
+  const scopeLabel =
+    inferExportOrgScope(members) !== "Périmètre non précisé"
+      ? inferExportOrgScope(members)
+      : formatExportOrgScope(scope) || "Périmètre non précisé";
+  const totals = computeMemberZaimuTotals(members, finance);
   const workbook = XLSX.utils.book_new();
+  const summarySheet = XLSX.utils.json_to_sheet([
+    { Indicateur: "Périmètre", Valeur: scopeLabel },
+    { Indicateur: "Effectif", Valeur: members.length },
+    { Indicateur: "Zaimu sp. payé (FCFA)", Valeur: Math.round(totals.zaimuSpecialPaye) },
+    { Indicateur: "Zaimu sp. reste (FCFA)", Valeur: Math.round(totals.zaimuSpecialReste) },
+    { Indicateur: "Zaimu sp. cota périmètre (FCFA)", Valeur: Math.round(totals.zaimuSpecialCota) },
+    { Indicateur: "Zaimu ordinaire validé (FCFA)", Valeur: Math.round(totals.zaimuOrdinaire) },
+  ]);
+  XLSX.utils.book_append_sheet(workbook, summarySheet, "Synthese");
   const sheet = XLSX.utils.json_to_sheet(
     rows.length ? rows : [Object.fromEntries(selected.map((c) => [c, ""]))],
     { header: selected }
@@ -425,14 +812,21 @@ export function exportMembersExcel(
 
 export function exportMembersPdf(
   members: MemberRecord[],
-  options: { title?: string; filename: string; fields?: string[] }
+  options: {
+    title?: string;
+    filename: string;
+    fields?: string[];
+    finance?: MemberExportFinanceOptions;
+    scope?: { chapitre?: string; district?: string; groupe?: string; label?: string } | null;
+  },
 ) {
   const selected = ensureLeadingNameFields(
     options.fields?.length ? options.fields : MEMBER_EXPORT_DEFAULT_FIELDS,
     ["Prenom", "Nom"]
   );
   const labels = Object.fromEntries(MEMBER_EXPORT_FIELDS.map((f) => [f.key, f.label]));
-  const rows = members.map((m) => pickRowFields(memberToImportRow(m), selected));
+  const finance = options.finance || {};
+  const rows = members.map((m) => pickRowFields(memberToExportRow(m, finance), selected));
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
   const generatedAt = new Date().toLocaleString("fr-FR", {
     day: "2-digit",
@@ -441,22 +835,32 @@ export function exportMembersPdf(
     hour: "2-digit",
     minute: "2-digit",
   });
+  const inferred = inferExportOrgScope(members);
+  const scopeLabel =
+    inferred !== "Périmètre non précisé"
+      ? inferred
+      : formatExportOrgScope(options.scope) || inferred;
 
   drawMembersPdfChrome(
     doc,
-    "Liste des membres",
+    options.title || "Liste des membres",
+    scopeLabel,
     `${members.length} membre${members.length > 1 ? "s" : ""} · Généré le ${generatedAt}`,
   );
 
-  let y = 92;
+  const { cards, detailLines } = buildMemberPdfSummaryCards(members, selected, finance);
+
+  let y = 96;
+  y = drawMemberPdfSummary(doc, cards, detailLines, y);
+
   doc.setTextColor(10, 47, 82);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text("Annuaire des membres", 32, y);
+  doc.setFontSize(10);
+  doc.text("Liste detaillee", 28, y);
   doc.setDrawColor(200, 151, 26);
   doc.setLineWidth(2);
-  doc.line(32, y + 5, 168, y + 5);
-  y += 22;
+  doc.line(28, y + 5, 112, y + 5);
+  y += 18;
 
   drawDynamicPdfTable(doc, rows, selected, labels, y, [10, 47, 82]);
   drawMembersPdfFooters(doc);
@@ -588,12 +992,14 @@ export function exportZaimuSpecialPdf(
     hour: "2-digit",
     minute: "2-digit",
   });
+  const scopeLabel = inferExportOrgScope(members);
   drawMembersPdfChrome(
     doc,
-    "Paiements Zaimu spécial",
+    options.title || "Paiements Zaimu spécial",
+    scopeLabel,
     `${bilan.length} membre${bilan.length > 1 ? "s" : ""} · ${paiements.length} paiement${paiements.length > 1 ? "s" : ""} · Cota ${formatExportNumber(totalAssigne)} · Payé ${formatExportNumber(totalPaye)} FCFA · ${generatedAt}`,
   );
-  let y = 92;
+  let y = 96;
 
   if (bilanFields.length) {
     doc.setFont("helvetica", "bold");

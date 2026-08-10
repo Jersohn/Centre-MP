@@ -27,17 +27,26 @@ export async function saveLandingContentToSupabase(content: LandingContent) {
 
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
+  if (userError || !user) {
+    return {
+      data: null,
+      error: new Error("Session expirée. Reconnectez-vous puis republiez."),
+    };
+  }
 
-  const { data, error } = await supabase.from(TABLE_NAME).upsert(
-    {
-      id: SINGLETON_ID,
-      content,
-      updated_at: new Date().toISOString(),
-      updated_by: user?.id ?? null,
-    },
-    { onConflict: "id" },
-  );
+  // RPC security definer : évite l'échec RLS de l'upsert PostgREST direct.
+  const { data, error } = await supabase.rpc("upsert_landing_content", {
+    p_content: content,
+  });
 
-  return { data, error };
+  if (error) {
+    return {
+      data: null,
+      error: new Error(error.message || "Échec de la publication du contenu."),
+    };
+  }
+
+  return { data, error: null };
 }

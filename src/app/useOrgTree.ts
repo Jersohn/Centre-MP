@@ -89,27 +89,49 @@ export function useOrgTree() {
 
   const findByNames = useCallback(
     (names: { chapitre?: string; district?: string; groupe?: string }): OrgSelectionIds => {
-      const chapitre =
-        chapitres.find(
-          (item) => item.name.toLowerCase() === (names.chapitre || "").trim().toLowerCase(),
-        ) || chapitres[0];
-      const districtOptions = chapitre ? districtsForChapitreId(chapitre.id) : [];
-      const district =
-        districtOptions.find(
-          (item) => item.name.toLowerCase() === (names.district || "").trim().toLowerCase(),
-        ) || districtOptions[0];
-      const groupeOptions = district ? groupesForDistrictId(district.id) : [];
-      const groupe =
-        groupeOptions.find(
-          (item) => item.name.toLowerCase() === (names.groupe || "").trim().toLowerCase(),
-        ) || groupeOptions[0];
+      const chapitreName = (names.chapitre || "").trim().toLowerCase();
+      const districtName = (names.district || "").trim().toLowerCase();
+      const groupeName = (names.groupe || "").trim().toLowerCase();
+
+      const chapitre = chapitreName
+        ? chapitres.find((item) => item.name.toLowerCase() === chapitreName)
+        : undefined;
+      const districtOptions = chapitre ? districtsForChapitreId(chapitre.id) : districts;
+      const district = districtName
+        ? districtOptions.find((item) => item.name.toLowerCase() === districtName)
+        : undefined;
+      const resolvedChapitreId =
+        chapitre?.id ||
+        (district ? districts.find((d) => d.id === district.id)?.chapitre_id : "") ||
+        "";
+      const groupeOptions = district
+        ? groupesForDistrictId(district.id)
+        : resolvedChapitreId
+          ? groupes.filter((g) =>
+              districtsForChapitreId(resolvedChapitreId).some((d) => d.id === g.district_id),
+            )
+          : groupes;
+      const groupe = groupeName
+        ? groupeOptions.find((item) => item.name.toLowerCase() === groupeName)
+        : undefined;
+
+      // Si un groupe est trouvé, remonter district / chapitre pour cohérence.
+      if (groupe) {
+        const parentDistrict = districts.find((d) => d.id === groupe.district_id);
+        return {
+          chapitreId: parentDistrict?.chapitre_id || resolvedChapitreId || "",
+          districtId: parentDistrict?.id || district?.id || "",
+          groupeId: groupe.id,
+        };
+      }
+
       return {
-        chapitreId: chapitre?.id || "",
+        chapitreId: resolvedChapitreId || chapitre?.id || "",
         districtId: district?.id || "",
-        groupeId: groupe?.id || "",
+        groupeId: "",
       };
     },
-    [chapitres, districtsForChapitreId, groupesForDistrictId],
+    [chapitres, districts, groupes, districtsForChapitreId, groupesForDistrictId],
   );
 
   const nameOf = useCallback(
