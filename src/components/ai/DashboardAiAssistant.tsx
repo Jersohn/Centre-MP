@@ -16,7 +16,7 @@ export function DashboardAiAssistant({ role }: Props) {
       welcome={`Bonjour. Je suis votre assistant de pilotage (${ROLE_LABELS[role]}). Je m’appuie sur les indicateurs, membres et collectes de votre périmètre pour répondre précisément. Que souhaitez-vous savoir ?`}
       suggestions={DASHBOARD_SUGGESTIONS}
       buildContext={(question) => buildDashboardContext(role, question)}
-      fabOffsetClass="bottom-6"
+      fabOffsetClass="bottom-[max(1.25rem,env(safe-area-inset-bottom))]"
       accent="gold"
     />
   );

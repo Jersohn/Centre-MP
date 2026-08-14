@@ -18,6 +18,7 @@ const demoMember: MemberRecord = {
   dateDebutPratique: "2015-03-01",
   abonnementVaguePaix: true,
   sokahan: false,
+  gohonzon: false,
   quartier: "Cocody",
   chapitre: DEMO_ORG_SCOPE.groupe.chapitre!,
   district: DEMO_ORG_SCOPE.groupe.district!,

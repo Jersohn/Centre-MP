@@ -79,12 +79,13 @@ export function buildDashboardContext(role: PlatformRole, question = ""): string
   const actifs = members.filter((m) => m.statut === "Actif").length;
   const vaguePaix = members.filter((m) => m.abonnementVaguePaix).length;
   const sokahan = members.filter((m) => m.sokahan).length;
+  const gohonzon = members.filter((m) => m.gohonzon).length;
 
   const memberLines = members
     .slice(0, 40)
     .map((m) => {
       const name = memberFullName(m);
-      return `- ${name} | ${m.statut} | ${m.categorie} | ${m.groupe} | ${m.district} | VP:${m.abonnementVaguePaix ? "oui" : "non"} | Sokahan:${m.sokahan ? "oui" : "non"} | Zaimu cumul ${m.totalDons} FCFA`;
+      return `- ${name} | ${m.statut} | ${m.categorie} | ${m.groupe} | ${m.district} | VP:${m.abonnementVaguePaix ? "oui" : "non"} | Gohonzon:${m.gohonzon ? "oui" : "non"} | Sokahan:${m.sokahan ? "oui" : "non"} | Zaimu cumul ${m.totalDons} FCFA`;
     })
     .join("\n");
 
@@ -119,7 +120,7 @@ export function buildDashboardContext(role: PlatformRole, question = ""): string
     {
       id: "kpis",
       title: "Indicateurs consolidés",
-      body: `Membres: ${members.length} (actifs ${actifs})\nVague de Paix abonnés: ${vaguePaix}\nSokahan: ${sokahan}\nVP collectes: ${vp.length} · validé ${sum(vp, "Validé")} FCFA · attente ${sum(vp, "En attente")} FCFA\nZaimu ordinaire: ${zo.length} · validé ${sum(zo, "Validé")} FCFA · attente ${sum(zo, "En attente")} FCFA\nZaimu spécial: ${zs.length} · validé ${sum(zs, "Validé")} FCFA · attente ${sum(zs, "En attente")} FCFA\nKPIs dashboard:\n${dash.kpis.map((k) => `- ${k.label}: ${k.value} (${k.hint})`).join("\n")}`,
+      body: `Membres: ${members.length} (actifs ${actifs})\nVague de Paix abonnés: ${vaguePaix}\nGohonzon: ${gohonzon}\nSokahan: ${sokahan}\nVP collectes: ${vp.length} · validé ${sum(vp, "Validé")} FCFA · attente ${sum(vp, "En attente")} FCFA\nZaimu ordinaire: ${zo.length} · validé ${sum(zo, "Validé")} FCFA · attente ${sum(zo, "En attente")} FCFA\nZaimu spécial: ${zs.length} · validé ${sum(zs, "Validé")} FCFA · attente ${sum(zs, "En attente")} FCFA\nKPIs dashboard:\n${dash.kpis.map((k) => `- ${k.label}: ${k.value} (${k.hint})`).join("\n")}`,
     },
     {
       id: "repartition",

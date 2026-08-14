@@ -23,6 +23,7 @@ import { RowActionsMenu, type RowAction } from "./RowActionsMenu";
 import { MemberAvatar } from "./MemberAvatar";
 import { findMemberPhotoByName, memberFullName } from "./membersData";
 import CollectesImportExportBar from "./CollectesImportExportBar";
+import FilterPanel from "./FilterPanel";
 import ZaimuSpecialCampaignsPanel from "./ZaimuSpecialCampaignsPanel";
 import type { PlatformRole } from "./roles";
 import { useOrgTree, type OrgSelectionIds } from "./useOrgTree";
@@ -38,6 +39,7 @@ import {
   listMyAssignedSpecialCampaigns,
   listQuotaAssignments,
   listSpecialCampaigns,
+  type QuotaAssignment,
   type ZaimuCampaign,
 } from "../services/quotaService";
 import { fetchMyProfile } from "../services/profileService";
@@ -224,41 +226,115 @@ function perimeterLabelForRole(role: PlatformRole) {
   if (role === "groupe") return "Groupe";
   if (role === "district") return "District";
   if (role === "chapitre") return "Chapitre";
-  return "Périmètre";
+  return "Centre";
 }
 
-/** Cota assignée au niveau du rôle (pas la somme des enfants). */
-function assignedCotaForRole(
-  role: PlatformRole,
-  campaign: ZaimuCampaign,
-  assignments: Awaited<ReturnType<typeof listQuotaAssignments>>["data"],
-  scope: {
-    chapitre_id: string | null;
-    district_id: string | null;
-    groupe_id: string | null;
-  },
+function sameOrgName(a?: string | null, b?: string | null) {
+  const left = normalizeLabel(a || "");
+  const right = normalizeLabel(b || "");
+  return Boolean(left) && left === right;
+}
+
+function lookupUnitCota(
+  rows: QuotaAssignment[],
+  level: "chapitre" | "district" | "groupe",
+  id?: string | null,
+  name?: string | null,
 ) {
+  const label = (name || "").trim();
+  const usableName = label && label !== "Tous" ? label : "";
+  return sumAssignmentRows(rows, (row) => {
+    if (row.level !== level) return false;
+    if (level === "chapitre") {
+      if (id && row.chapitre_id === id) return true;
+      if (usableName && sameOrgName(row.chapitre_name, usableName)) return true;
+    }
+    if (level === "district") {
+      if (id && row.district_id === id) return true;
+      if (usableName && sameOrgName(row.district_name, usableName)) return true;
+    }
+    if (level === "groupe") {
+      if (id && row.groupe_id === id) return true;
+      if (usableName && sameOrgName(row.groupe_name, usableName)) return true;
+    }
+    return false;
+  });
+}
+
+/** Cota du périmètre affiché (campagne + assignments), par id ou par nom. */
+function assignedCotaForView(input: {
+  role: PlatformRole;
+  campaign: ZaimuCampaign | null;
+  assignments: QuotaAssignment[];
+  myCota: number;
+  chapitreId?: string | null;
+  districtId?: string | null;
+  groupeId?: string | null;
+  chapitreName: string;
+  districtName: string;
+  groupeName: string;
+}) {
+  const {
+    role,
+    campaign,
+    assignments,
+    myCota,
+    chapitreId,
+    districtId,
+    groupeId,
+    chapitreName,
+    districtName,
+    groupeName,
+  } = input;
   const rows = assignments || [];
+
+  const useOwnCota = (label: string, lookedUp: number) => {
+    if (lookedUp > 0) return lookedUp;
+    if (perimeterLabelForRole(role) === label) return myCota || 0;
+    return 0;
+  };
+
+  if (groupeName !== "Tous" || groupeId) {
+    const amount = lookupUnitCota(rows, "groupe", groupeId, groupeName);
+    return { amount: useOwnCota("Groupe", amount), label: "Groupe" };
+  }
+  if (districtName !== "Tous" || districtId) {
+    const amount = lookupUnitCota(rows, "district", districtId, districtName);
+    return { amount: useOwnCota("District", amount), label: "District" };
+  }
+  if (chapitreName !== "Tous" || chapitreId) {
+    const amount = lookupUnitCota(rows, "chapitre", chapitreId, chapitreName);
+    return { amount: useOwnCota("Chapitre", amount), label: "Chapitre" };
+  }
+
   if (role === "admin" || role === "centre") {
     const centreRow = rows.find((row) => row.level === "centre");
-    return Number(centreRow?.assigne || campaign.montant_centre || 0);
+    return {
+      amount: Number(centreRow?.assigne || campaign?.montant_centre || myCota || 0),
+      label: "Centre",
+    };
   }
-  if (role === "chapitre" && scope.chapitre_id) {
-    return rows
-      .filter((row) => row.level === "chapitre" && row.chapitre_id === scope.chapitre_id)
-      .reduce((sum, row) => sum + Number(row.assigne || 0), 0);
-  }
-  if (role === "district" && scope.district_id) {
-    return rows
-      .filter((row) => row.level === "district" && row.district_id === scope.district_id)
-      .reduce((sum, row) => sum + Number(row.assigne || 0), 0);
-  }
-  if (role === "groupe" && scope.groupe_id) {
-    return rows
-      .filter((row) => row.level === "groupe" && row.groupe_id === scope.groupe_id)
-      .reduce((sum, row) => sum + Number(row.assigne || 0), 0);
-  }
-  return 0;
+
+  return {
+    amount: myCota || 0,
+    label: perimeterLabelForRole(role),
+  };
+}
+
+function matchesOrgUnitFilters(
+  item: { chapitre: string; district: string; groupe: string },
+  chapitreFilter: string,
+  districtFilter: string,
+  groupeFilter: string,
+) {
+  if (chapitreFilter !== "Tous" && item.chapitre !== chapitreFilter) return false;
+  if (districtFilter !== "Tous" && item.district !== districtFilter) return false;
+  if (groupeFilter !== "Tous" && item.groupe !== groupeFilter) return false;
+  return true;
+}
+
+function sumAssignmentRows(rows: QuotaAssignment[], predicate: (row: QuotaAssignment) => boolean) {
+  return rows.filter(predicate).reduce((sum, row) => sum + Number(row.assigne || 0), 0);
 }
 
 const TAB_META: Record<
@@ -275,7 +351,7 @@ const TAB_META: Record<
   "zaimu-ordinaire": {
     label: "Zaimu ordinaire",
     short: "Zaimu ordinaire",
-    description: "Collecte des zaimu ordinaires des membres.",
+    description: "Suivi des paiements et du total validé de Zaimu ordinaire.",
     icon: Wallet,
     accent: "var(--sgi-gold)",
   },
@@ -317,6 +393,12 @@ const emptyForm = (
 });
 
 const fmt = (n: number) => new Intl.NumberFormat("fr-FR").format(n);
+
+function shortOrgLabel(value?: string) {
+  const raw = (value || "").trim();
+  if (!raw) return "—";
+  return raw.includes("–") ? raw.split("–")[1]?.trim() || raw : raw;
+}
 
 function StatutPill({ statut }: { statut: CollecteStatut }) {
   const styles: Record<CollecteStatut, string> = {
@@ -1083,6 +1165,9 @@ export default function CollectesModule({
   const [tab, setTab] = useState<CollecteTab>(focus?.tab || "vague-paix");
   const [pageView, setPageView] = useState<PageView>("liste");
   const [search, setSearch] = useState("");
+  const [chapitreFilter, setChapitreFilter] = useState("Tous");
+  const [districtFilter, setDistrictFilter] = useState("Tous");
+  const [groupeFilter, setGroupeFilter] = useState("Tous");
   const [statutFilter, setStatutFilter] = useState<"Tous" | CollecteStatut>(
     focus?.statut || "Tous",
   );
@@ -1096,16 +1181,24 @@ export default function CollectesModule({
   const [actionError, setActionError] = useState<string | null>(null);
   const [memberAssigneByKey, setMemberAssigneByKey] = useState<Record<string, number>>({});
   const [perimeterCota, setPerimeterCota] = useState(0);
+  const [myCotaByCampaignId, setMyCotaByCampaignId] = useState<Record<string, number>>({});
   const [specialCampaigns, setSpecialCampaigns] = useState<ZaimuCampaign[]>([]);
+  const [quotaAssignments, setQuotaAssignments] = useState<QuotaAssignment[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [profileScope, setProfileScope] = useState<{
     chapitre_id: string | null;
     district_id: string | null;
     groupe_id: string | null;
+    chapitre_name: string | null;
+    district_name: string | null;
+    groupe_name: string | null;
   }>({
     chapitre_id: null,
     district_id: null,
     groupe_id: null,
+    chapitre_name: null,
+    district_name: null,
+    groupe_name: null,
   });
 
   useEffect(() => {
@@ -1124,17 +1217,92 @@ export default function CollectesModule({
   }, [focus, onFocusApplied]);
 
   const exportOrgScope = useMemo(() => {
-    const chapitre = profileScope.chapitre_id
-      ? orgTree.chapitres.find((c) => c.id === profileScope.chapitre_id)?.name || ""
-      : "";
-    const district = profileScope.district_id
-      ? orgTree.districts.find((d) => d.id === profileScope.district_id)?.name || ""
-      : "";
-    const groupe = profileScope.groupe_id
-      ? orgTree.groupes.find((g) => g.id === profileScope.groupe_id)?.name || ""
-      : "";
+    const chapitre =
+      (profileScope.chapitre_id
+        ? orgTree.chapitres.find((c) => c.id === profileScope.chapitre_id)?.name
+        : "") ||
+      profileScope.chapitre_name ||
+      "";
+    const district =
+      (profileScope.district_id
+        ? orgTree.districts.find((d) => d.id === profileScope.district_id)?.name
+        : "") ||
+      profileScope.district_name ||
+      "";
+    const groupe =
+      (profileScope.groupe_id
+        ? orgTree.groupes.find((g) => g.id === profileScope.groupe_id)?.name
+        : "") ||
+      profileScope.groupe_name ||
+      "";
     return orgScopeFromProfile(role, { chapitre, district, groupe });
   }, [role, profileScope, orgTree.chapitres, orgTree.districts, orgTree.groupes]);
+
+  useEffect(() => {
+    setChapitreFilter(exportOrgScope.chapitre || "Tous");
+    setDistrictFilter(exportOrgScope.district || "Tous");
+    setGroupeFilter(exportOrgScope.groupe || "Tous");
+  }, [exportOrgScope.chapitre, exportOrgScope.district, exportOrgScope.groupe]);
+
+  const chapitreLocked = Boolean(exportOrgScope.chapitre);
+  const districtLocked = Boolean(exportOrgScope.district);
+  const groupeLocked = Boolean(exportOrgScope.groupe);
+
+  const chapitreFilterOptions = useMemo(
+    () => ["Tous", ...orgTree.chapitres.map((item) => item.name)],
+    [orgTree.chapitres],
+  );
+  const districtFilterOptions = useMemo(() => {
+    if (chapitreFilter === "Tous") {
+      return ["Tous", ...orgTree.districts.map((item) => item.name)];
+    }
+    const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
+    const districts = chapitre
+      ? orgTree.districtsForChapitreId(chapitre.id).map((item) => item.name)
+      : [];
+    return ["Tous", ...districts];
+  }, [chapitreFilter, orgTree]);
+  const groupeFilterOptions = useMemo(() => {
+    if (districtFilter !== "Tous") {
+      const district = orgTree.districts.find((item) => item.name === districtFilter);
+      const groupes = district
+        ? orgTree.groupesForDistrictId(district.id).map((item) => item.name)
+        : [];
+      return ["Tous", ...groupes];
+    }
+    if (chapitreFilter !== "Tous") {
+      const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
+      const groupes = chapitre
+        ? orgTree.districtsForChapitreId(chapitre.id).flatMap((district) =>
+            orgTree.groupesForDistrictId(district.id).map((item) => item.name),
+          )
+        : [];
+      return ["Tous", ...Array.from(new Set(groupes))];
+    }
+    return ["Tous", ...orgTree.groupes.map((item) => item.name)];
+  }, [chapitreFilter, districtFilter, orgTree]);
+
+  const activeExportScope = useMemo(() => {
+    const chapitre = chapitreFilter !== "Tous" ? chapitreFilter : undefined;
+    const district = districtFilter !== "Tous" ? districtFilter : undefined;
+    const groupe = groupeFilter !== "Tous" ? groupeFilter : undefined;
+    const parts = [groupe, district, chapitre].filter(Boolean);
+    return {
+      ...exportOrgScope,
+      chapitre,
+      district,
+      groupe,
+      label: parts.length ? parts.join(" · ") : exportOrgScope.label,
+    };
+  }, [exportOrgScope, chapitreFilter, districtFilter, groupeFilter]);
+
+  const scopedMembersForExport = useMemo(
+    () =>
+      members.filter((member) =>
+        matchesOrgUnitFilters(member, chapitreFilter, districtFilter, groupeFilter),
+      ),
+    [members, chapitreFilter, districtFilter, groupeFilter],
+  );
 
   const memberOptions = useMemo(() => {
     // VP : renseigner un montant pour un abonné (case cochée). Autres onglets : tous les membres.
@@ -1164,6 +1332,9 @@ export default function CollectesModule({
         chapitre_id: data.chapitre_id || null,
         district_id: data.district_id || null,
         groupe_id: data.groupe_id || null,
+        chapitre_name: data.chapitre_name || null,
+        district_name: data.district_name || null,
+        groupe_name: data.groupe_name || null,
       });
     }
     void loadProfileScope();
@@ -1176,22 +1347,46 @@ export default function CollectesModule({
     if (tab !== "zaimu-special") return;
     let cancelled = false;
     async function loadCampaigns() {
+      const chapitre_id =
+        profileScope.chapitre_id ||
+        orgTree.chapitres.find((item) => item.name === exportOrgScope.chapitre)?.id ||
+        null;
+      const district_id =
+        profileScope.district_id ||
+        orgTree.districts.find((item) => item.name === exportOrgScope.district)?.id ||
+        null;
+      const groupe_id =
+        profileScope.groupe_id ||
+        orgTree.groupes.find((item) => item.name === exportOrgScope.groupe)?.id ||
+        null;
+
       const assigned = await listMyAssignedSpecialCampaigns({
         role,
-        chapitre_id: profileScope.chapitre_id,
-        district_id: profileScope.district_id,
-        groupe_id: profileScope.groupe_id,
+        chapitre_id,
+        district_id,
+        groupe_id,
+        chapitre_name: exportOrgScope.chapitre || profileScope.chapitre_name,
+        district_name: exportOrgScope.district || profileScope.district_name,
+        groupe_name: exportOrgScope.groupe || profileScope.groupe_name,
       });
       let campaigns = (assigned.data || []).map((row) => row.campaign);
+      const cotaMap: Record<string, number> = {};
+      for (const row of assigned.data || []) {
+        cotaMap[row.campaign.id] = Number(row.assigne || 0);
+      }
       if (campaigns.length === 0 && (role === "admin" || role === "centre")) {
         const all = await listSpecialCampaigns();
         campaigns = all.data || [];
+        for (const campaign of campaigns) {
+          cotaMap[campaign.id] = Number(campaign.montant_centre || 0);
+        }
       }
       campaigns = [...campaigns].sort((a, b) => {
         if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
         return (b.created_at || "").localeCompare(a.created_at || "");
       });
       if (cancelled) return;
+      setMyCotaByCampaignId(cotaMap);
       setSpecialCampaigns(campaigns);
       setSelectedCampaignId((prev) => {
         if (prev && campaigns.some((c) => c.id === prev)) return prev;
@@ -1202,13 +1397,14 @@ export default function CollectesModule({
     return () => {
       cancelled = true;
     };
-  }, [tab, role, profileScope]);
+  }, [tab, role, profileScope, orgTree.chapitres, orgTree.districts, orgTree.groupes, exportOrgScope.chapitre, exportOrgScope.district, exportOrgScope.groupe]);
 
   useEffect(() => {
     if (tab !== "zaimu-special" || !selectedCampaignId) {
       if (tab === "zaimu-special") {
         setPerimeterCota(0);
         setMemberAssigneByKey({});
+        setQuotaAssignments([]);
       }
       return;
     }
@@ -1231,13 +1427,55 @@ export default function CollectesModule({
         }
       }
       setMemberAssigneByKey(memberMap);
-      setPerimeterCota(assignedCotaForRole(role, campaign, assignments, profileScope));
+      setQuotaAssignments(assignments || []);
+      const chapitreName = chapitreFilter !== "Tous" ? chapitreFilter : exportOrgScope.chapitre || "Tous";
+      const districtName = districtFilter !== "Tous" ? districtFilter : exportOrgScope.district || "Tous";
+      const groupeName = groupeFilter !== "Tous" ? groupeFilter : exportOrgScope.groupe || "Tous";
+      const viewed = assignedCotaForView({
+        role,
+        campaign,
+        assignments: assignments || [],
+        myCota: myCotaByCampaignId[campaign.id] || 0,
+        chapitreId:
+          profileScope.chapitre_id ||
+          orgTree.chapitres.find((item) => item.name === chapitreName)?.id ||
+          null,
+        districtId:
+          profileScope.district_id ||
+          orgTree.districts.find((item) => item.name === districtName)?.id ||
+          null,
+        groupeId:
+          profileScope.groupe_id ||
+          orgTree.groupes.find((item) => item.name === groupeName)?.id ||
+          null,
+        chapitreName,
+        districtName,
+        groupeName,
+      });
+      setPerimeterCota(viewed.amount);
     }
     void loadSelectedCota();
     return () => {
       cancelled = true;
     };
-  }, [selectedCampaignId, specialCampaigns, role, profileScope, tab, records]);
+  }, [
+    selectedCampaignId,
+    specialCampaigns,
+    role,
+    profileScope,
+    tab,
+    records,
+    chapitreFilter,
+    districtFilter,
+    groupeFilter,
+    exportOrgScope.chapitre,
+    exportOrgScope.district,
+    exportOrgScope.groupe,
+    orgTree.chapitres,
+    orgTree.districts,
+    orgTree.groupes,
+    myCotaByCampaignId,
+  ]);
 
   const selectedCampaign =
     specialCampaigns.find((c) => c.id === selectedCampaignId) || null;
@@ -1294,6 +1532,9 @@ export default function CollectesModule({
       .filter((item) =>
         tab === "zaimu-special" ? matchesCampaignLabel(item, selectedCampaignLabel) : true,
       )
+      .filter((item) =>
+        matchesOrgUnitFilters(item, chapitreFilter, districtFilter, groupeFilter),
+      )
       .filter((item) => (statutFilter === "Tous" ? true : item.statut === statutFilter))
       .filter((item) => {
         const parts = parseCollecteDateParts(item.date);
@@ -1322,11 +1563,11 @@ export default function CollectesModule({
       })
       .sort((a, b) => {
         if (tab === "vague-paix") {
-          const byGroupe = a.groupe.localeCompare(b.groupe, "fr");
+          const byGroupe = (a.groupe || "").localeCompare(b.groupe || "", "fr");
           if (byGroupe !== 0) return byGroupe;
-          return a.membre.localeCompare(b.membre, "fr");
+          return (a.membre || "").localeCompare(b.membre || "", "fr");
         }
-        return b.date.localeCompare(a.date);
+        return (b.date || "").localeCompare(a.date || "");
       });
   }, [
     records,
@@ -1335,6 +1576,9 @@ export default function CollectesModule({
     search,
     statutFilter,
     selectedCampaignLabel,
+    chapitreFilter,
+    districtFilter,
+    groupeFilter,
     yearFilter,
     monthFilter,
     dateFrom,
@@ -1367,19 +1611,79 @@ export default function CollectesModule({
     };
   }, [filtered, tab]);
 
-  /** KPI Zaimu spécial : payé / reste / paiements selon les filtres actifs. */
+  /** KPI Zaimu spécial : cota du périmètre affiché / payé / reste / paiements. */
   const zaimuGroupBalance = useMemo(() => {
     if (tab !== "zaimu-special") return null;
     const paye = filtered
       .filter((item) => item.statut === "Validé")
       .reduce((sum, item) => sum + item.montant, 0);
+
+    const chapitreName = chapitreFilter !== "Tous" ? chapitreFilter : exportOrgScope.chapitre || "Tous";
+    const districtName = districtFilter !== "Tous" ? districtFilter : exportOrgScope.district || "Tous";
+    const groupeName = groupeFilter !== "Tous" ? groupeFilter : exportOrgScope.groupe || "Tous";
+    const viewed = assignedCotaForView({
+      role,
+      campaign: selectedCampaign,
+      assignments: quotaAssignments,
+      myCota: (selectedCampaignId && myCotaByCampaignId[selectedCampaignId]) || perimeterCota || 0,
+      chapitreId:
+        profileScope.chapitre_id ||
+        orgTree.chapitres.find((item) => item.name === chapitreName)?.id ||
+        null,
+      districtId:
+        profileScope.district_id ||
+        orgTree.districts.find((item) => item.name === districtName)?.id ||
+        null,
+      groupeId:
+        profileScope.groupe_id ||
+        orgTree.groupes.find((item) => item.name === groupeName)?.id ||
+        null,
+      chapitreName,
+      districtName,
+      groupeName,
+    });
+
+    let engagement = viewed.amount;
+    const label = viewed.label;
+
+    if (engagement <= 0 && selectedCampaignLabel) {
+      const labelKey = normalizeLabel(selectedCampaignLabel);
+      engagement = scopedMembersForExport.reduce((sum, member) => {
+        const memberId = member.source === "profile" ? null : member.remoteId || null;
+        if (!memberId) return sum;
+        return sum + (memberAssigneByKey[`${labelKey}::${memberId}`] || 0);
+      }, 0);
+    }
+
     return {
-      engagement: perimeterCota,
+      engagement,
       paye,
-      reste: Math.max(0, perimeterCota - paye),
-      label: perimeterLabelForRole(role),
+      reste: Math.max(0, engagement - paye),
+      label,
     };
-  }, [tab, filtered, perimeterCota, role]);
+  }, [
+    tab,
+    filtered,
+    perimeterCota,
+    role,
+    quotaAssignments,
+    orgTree.groupes,
+    orgTree.districts,
+    orgTree.chapitres,
+    groupeFilter,
+    districtFilter,
+    chapitreFilter,
+    exportOrgScope.chapitre,
+    exportOrgScope.district,
+    exportOrgScope.groupe,
+    profileScope,
+    selectedCampaign,
+    selectedCampaignId,
+    myCotaByCampaignId,
+    selectedCampaignLabel,
+    scopedMembersForExport,
+    memberAssigneByKey,
+  ]);
 
   const detail =
     detailId
@@ -1707,7 +2011,8 @@ export default function CollectesModule({
           type={tab}
           records={records}
           filteredRecords={filtered}
-          orgScope={exportOrgScope}
+          members={scopedMembersForExport}
+          orgScope={activeExportScope}
           balancesById={
             tab === "zaimu-special"
               ? Object.fromEntries(
@@ -1781,10 +2086,31 @@ export default function CollectesModule({
                 },
               ]
             : [
-                { label: "Enregistrements", value: String(kpis.count), tone: "text-[var(--sgi-blue)]", bg: "bg-[var(--sgi-blue)]/10" },
-                { label: "Validés", value: String(kpis.validated), tone: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-500/12" },
-                { label: "En attente", value: String(kpis.pending), tone: "text-[var(--sgi-gold)]", bg: "bg-[var(--sgi-gold)]/15" },
-                { label: "Montant validé", value: `${fmt(kpis.total)}`, tone: "text-[var(--sgi-red)]", bg: "bg-[var(--sgi-red)]/10", suffix: "FCFA" },
+                {
+                  label: "Paiements",
+                  value: String(kpis.count),
+                  tone: "text-[var(--sgi-blue)]",
+                  bg: "bg-[var(--sgi-blue)]/10",
+                },
+                {
+                  label: "Validés",
+                  value: String(kpis.validated),
+                  tone: "text-emerald-700 dark:text-emerald-400",
+                  bg: "bg-emerald-500/12",
+                },
+                {
+                  label: "En attente",
+                  value: String(kpis.pending),
+                  tone: "text-[var(--sgi-gold)]",
+                  bg: "bg-[var(--sgi-gold)]/15",
+                },
+                {
+                  label: "Zaimu ordinaire validé",
+                  value: `${fmt(kpis.total)}`,
+                  tone: "text-[var(--sgi-gold)]",
+                  bg: "bg-[var(--sgi-gold)]/15",
+                  suffix: "FCFA",
+                },
               ]
         ).map((kpi) => (
           <div key={kpi.label} className="rounded-xl border border-border bg-card p-3 sm:p-4">
@@ -1800,7 +2126,20 @@ export default function CollectesModule({
         ))}
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-4">
+      <FilterPanel
+        storageKey={`collectes-${tab}`}
+        activeCount={
+          (search ? 1 : 0) +
+          (chapitreFilter !== "Tous" && !chapitreLocked ? 1 : 0) +
+          (districtFilter !== "Tous" && !districtLocked ? 1 : 0) +
+          (groupeFilter !== "Tous" && !groupeLocked ? 1 : 0) +
+          (statutFilter !== "Tous" ? 1 : 0) +
+          (yearFilter !== "Tous" ? 1 : 0) +
+          (monthFilter !== "Tous" ? 1 : 0) +
+          (dateFrom || dateTo ? 1 : 0)
+        }
+        summary={`${filtered.length} résultat${filtered.length > 1 ? "s" : ""}`}
+      >
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
           <div className="min-w-0 flex-1 sm:min-w-[14rem]">
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Recherche</label>
@@ -1813,6 +2152,75 @@ export default function CollectesModule({
                 placeholder="Membre, référence, groupe…"
               />
             </div>
+          </div>
+          <div className="w-full min-w-0 sm:w-auto sm:min-w-[9rem]">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Chapitre</label>
+            <select
+              value={chapitreFilter}
+              disabled={chapitreLocked}
+              onChange={(e) => {
+                const nextChapitre = e.target.value;
+                setChapitreFilter(nextChapitre);
+                if (nextChapitre !== "Tous") {
+                  const chapitre = orgTree.chapitres.find((item) => item.name === nextChapitre);
+                  const allowedDistricts = chapitre
+                    ? orgTree.districtsForChapitreId(chapitre.id).map((item) => item.name)
+                    : [];
+                  if (districtFilter !== "Tous" && !allowedDistricts.includes(districtFilter)) {
+                    setDistrictFilter("Tous");
+                  }
+                  const allowedGroupes = chapitre
+                    ? orgTree.districtsForChapitreId(chapitre.id).flatMap((district) =>
+                        orgTree.groupesForDistrictId(district.id).map((item) => item.name),
+                      )
+                    : [];
+                  if (groupeFilter !== "Tous" && !allowedGroupes.includes(groupeFilter)) {
+                    setGroupeFilter("Tous");
+                  }
+                }
+              }}
+              className="dash-field disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {chapitreFilterOptions.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full min-w-0 sm:w-auto sm:min-w-[9rem]">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">District</label>
+            <select
+              value={districtFilter}
+              disabled={districtLocked}
+              onChange={(e) => {
+                const nextDistrict = e.target.value;
+                setDistrictFilter(nextDistrict);
+                if (nextDistrict !== "Tous" && groupeFilter !== "Tous") {
+                  const district = orgTree.districts.find((item) => item.name === nextDistrict);
+                  const allowed = district
+                    ? orgTree.groupesForDistrictId(district.id).map((item) => item.name)
+                    : [];
+                  if (!allowed.includes(groupeFilter)) setGroupeFilter("Tous");
+                }
+              }}
+              className="dash-field disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {districtFilterOptions.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full min-w-0 sm:w-auto sm:min-w-[9rem]">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">Groupe</label>
+            <select
+              value={groupeFilter}
+              disabled={groupeLocked}
+              onChange={(e) => setGroupeFilter(e.target.value)}
+              className="dash-field disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {groupeFilterOptions.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
           </div>
           <div className="w-full sm:w-44">
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Statut</label>
@@ -1950,7 +2358,7 @@ export default function CollectesModule({
             Statistiques et liste filtrées sur « {selectedCampaign.label} ».
           </p>
         )}
-      </div>
+      </FilterPanel>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -1970,8 +2378,10 @@ export default function CollectesModule({
           )}
           {filtered.map((item) => {
             const balance = tab === "zaimu-special" ? memberBalanceFor(item) : null;
+            const campagneOuPeriode =
+              tab === "zaimu-special" ? item.periode || item.motif : item.periode;
             return (
-            <article key={item.id} className="rounded-xl border border-border bg-background/40 p-3">
+            <article key={item.id} className="rounded-2xl border border-border bg-background/60 p-3.5 shadow-sm">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2.5">
                   <MemberAvatar photo={findMemberPhotoByName(item.membre, members)} name={item.membre} size="sm" />
@@ -1979,42 +2389,77 @@ export default function CollectesModule({
                     <p className="truncate font-semibold text-foreground">{item.membre}</p>
                     <p className="font-mono text-[11px] text-muted-foreground">
                       {displayCollecteNumero(item)}
+                      {item.referenceRecu?.trim() ? ` · Reçu ${item.referenceRecu}` : ""}
                     </p>
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 items-center gap-1.5">
                   <StatutPill statut={item.statut} />
-                  {canValidate && item.statut === "En attente" && !isVaguePaixPlaceholder(item) && (
-                    <button
-                      type="button"
-                      onClick={() => void handleValidate(item)}
-                      className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-700"
-                    >
-                      <CheckCircle size={12} />
-                      Valider
-                    </button>
-                  )}
                   <RowActionsMenu actions={rowActionsFor(item)} />
                 </div>
               </div>
-              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                <span>{item.date}</span>
-                <span className="font-medium text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
-                  {isVaguePaixPlaceholder(item) || item.montant <= 0
-                    ? "À renseigner"
-                    : `${fmt(item.montant)} FCFA`}
-                </span>
-                <span>{item.groupe}</span>
-                {item.referenceRecu?.trim() && (
-                  <span className="font-mono text-foreground/80">Reçu {item.referenceRecu}</span>
-                )}
-                {item.motif && <span>{item.motif}</span>}
-                {balance && (
-                  <span className="font-semibold text-[var(--sgi-red)]">
-                    Reste {fmt(balance.reste)} FCFA
+
+              <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                {[
+                  { key: "chapitre", label: shortOrgLabel(item.chapitre) },
+                  { key: "district", label: item.district || "" },
+                  { key: "groupe", label: item.groupe || "" },
+                ]
+                  .filter((part) => part.label && part.label !== "—")
+                  .map((part) => (
+                  <span
+                    key={part.key}
+                    className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                  >
+                    {part.label}
                   </span>
-                )}
+                ))}
               </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-xl bg-muted/50 px-2.5 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Date</p>
+                  <p className="mt-0.5 text-xs font-medium text-foreground">{item.date || "—"}</p>
+                </div>
+                <div className="rounded-xl bg-muted/50 px-2.5 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Montant</p>
+                  <p className="mt-0.5 text-xs font-semibold text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
+                    {isVaguePaixPlaceholder(item) || item.montant <= 0
+                      ? "À renseigner"
+                      : `${fmt(item.montant)} FCFA`}
+                  </p>
+                </div>
+                {campagneOuPeriode ? (
+                  <div className="col-span-2 rounded-xl bg-muted/50 px-2.5 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      {tab === "zaimu-special" ? "Campagne" : "Période"}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs font-medium text-foreground">{campagneOuPeriode}</p>
+                  </div>
+                ) : null}
+                {balance ? (
+                  <div className="col-span-2 rounded-xl border border-[var(--sgi-red)]/20 bg-[var(--sgi-red)]/8 px-2.5 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--sgi-red)]">Reste membre</p>
+                    <p className="mt-0.5 font-mono text-sm font-semibold text-[var(--sgi-red)]">
+                      {fmt(balance.reste)} FCFA
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Payé {fmt(balance.paye)} / cota {fmt(balance.engagement)}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+
+              {canValidate && item.statut === "En attente" && !isVaguePaixPlaceholder(item) && (
+                <button
+                  type="button"
+                  onClick={() => void handleValidate(item)}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                >
+                  <CheckCircle size={13} />
+                  Valider
+                </button>
+              )}
             </article>
             );
           })}
@@ -2022,24 +2467,30 @@ export default function CollectesModule({
 
         {/* Desktop table */}
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[68rem] text-[12px]">
             <thead>
               <tr className="border-b border-border bg-muted/40">
                 {[
-                  "N°",
-                  "Réf. reçu",
-                  "Date",
                   "Membre",
+                  "N°",
+                  "Date",
                   "Montant",
-                  tab === "zaimu-special" ? "Campagne" : "Période",
+                  "Chapitre",
+                  "District",
                   "Groupe",
-                  ...(tab === "zaimu-special" ? ["Reste membre"] : []),
+                  tab === "zaimu-special" ? "Campagne" : "Période",
+                  "Réf. reçu",
+                  ...(tab === "zaimu-special" ? ["Reste"] : []),
                   "Statut",
                   "Actions",
                 ].map((header) => (
                     <th
                       key={header}
-                      className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      className={`whitespace-nowrap px-2.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${
+                        header === "Actions"
+                          ? "sticky right-0 z-20 bg-muted/95 shadow-[-6px_0_12px_-8px_rgba(0,0,0,0.25)]"
+                          : ""
+                      }`}
                     >
                       {header}
                     </th>
@@ -2049,7 +2500,7 @@ export default function CollectesModule({
             <tbody>
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={tab === "zaimu-special" ? 10 : 9} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  <td colSpan={tab === "zaimu-special" ? 12 : 11} className="px-4 py-10 text-center text-sm text-muted-foreground">
                     Aucun enregistrement pour cet onglet.
                   </td>
                 </tr>
@@ -2058,35 +2509,43 @@ export default function CollectesModule({
                 const balance = tab === "zaimu-special" ? memberBalanceFor(item) : null;
                 return (
                 <tr key={item.id} className="border-b border-border last:border-b-0 hover:bg-muted/20">
-                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                    {displayCollecteNumero(item)}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-foreground">
-                    {item.referenceRecu?.trim() ? item.referenceRecu : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{item.date}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5">
+                  <td className="px-2.5 py-2">
+                    <div className="flex min-w-[10rem] items-center gap-2">
                       <MemberAvatar photo={findMemberPhotoByName(item.membre, members)} name={item.membre} size="sm" />
-                      <span className="font-medium text-foreground">{item.membre}</span>
+                      <span className="truncate font-medium text-foreground" title={item.membre}>{item.membre}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 font-medium text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
+                  <td className="whitespace-nowrap px-2.5 py-2 font-mono text-[11px] text-muted-foreground">
+                    {displayCollecteNumero(item)}
+                  </td>
+                  <td className="whitespace-nowrap px-2.5 py-2 text-[11px] text-muted-foreground">{item.date || "—"}</td>
+                  <td className="whitespace-nowrap px-2.5 py-2 font-semibold text-foreground" style={{ fontFamily: "var(--font-mono)" }}>
                     {isVaguePaixPlaceholder(item) || item.montant <= 0
                       ? "À renseigner"
-                      : fmt(item.montant)}
+                      : `${fmt(item.montant)}`}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">
+                  <td className="max-w-[7.5rem] truncate px-2.5 py-2 text-[11px] text-muted-foreground" title={item.chapitre}>
+                    {shortOrgLabel(item.chapitre)}
+                  </td>
+                  <td className="max-w-[7rem] truncate px-2.5 py-2 text-[11px] text-muted-foreground" title={item.district}>
+                    {item.district || "—"}
+                  </td>
+                  <td className="max-w-[7rem] truncate px-2.5 py-2 text-[11px] text-muted-foreground" title={item.groupe}>
+                    {item.groupe || "—"}
+                  </td>
+                  <td className="max-w-[8rem] truncate px-2.5 py-2 text-[11px] text-muted-foreground" title={tab === "zaimu-special" ? item.periode || item.motif : item.periode}>
                     {tab === "zaimu-special"
                       ? item.periode || item.motif || "—"
                       : item.periode || "—"}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{item.groupe}</td>
+                  <td className="max-w-[7rem] truncate px-2.5 py-2 font-mono text-[11px] text-foreground" title={item.referenceRecu}>
+                    {item.referenceRecu?.trim() ? item.referenceRecu : "—"}
+                  </td>
                   {tab === "zaimu-special" && (
-                    <td className="px-4 py-3">
+                    <td className="whitespace-nowrap px-2.5 py-2">
                       {balance ? (
                         <div>
-                          <div className="font-mono text-sm font-semibold text-[var(--sgi-red)]">
+                          <div className="font-mono text-[12px] font-semibold text-[var(--sgi-red)]">
                             {fmt(balance.reste)}
                           </div>
                           <div className="text-[10px] text-muted-foreground">
@@ -2094,22 +2553,22 @@ export default function CollectesModule({
                           </div>
                         </div>
                       ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
+                        <span className="text-[11px] text-muted-foreground">—</span>
                       )}
                     </td>
                   )}
-                  <td className="px-4 py-3">
+                  <td className="px-2.5 py-2">
                     <StatutPill statut={item.statut} />
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
+                  <td className="sticky right-0 z-10 bg-card px-2.5 py-2 shadow-[-6px_0_12px_-8px_rgba(0,0,0,0.18)]">
+                    <div className="flex items-center gap-1.5">
                       {canValidate && item.statut === "En attente" && !isVaguePaixPlaceholder(item) && (
                         <button
                           type="button"
                           onClick={() => void handleValidate(item)}
-                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-700"
+                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-emerald-700"
                         >
-                          <CheckCircle size={12} />
+                          <CheckCircle size={11} />
                           Valider
                         </button>
                       )}

@@ -70,16 +70,15 @@ export function canManageUserAccount(
   return false;
 }
 
-/** Suppression de compte : admin / centre uniquement (pas soi-même ni supérieur). */
+/** Suppression de compte : admin et centre, y compris les responsables. Un compte admin n’est jamais supprimé. */
 export function canDeleteUser(
   actorRole: PlatformRole,
   targetRole: PlatformRole,
   isSelf: boolean,
 ): boolean {
   if (isSelf) return false;
-  if (isProtectedHierarchyTarget(actorRole, targetRole)) return false;
-  if (actorRole === "admin") return true;
-  if (actorRole === "centre") return targetRole !== "admin";
+  if (targetRole === "admin") return false;
+  if (actorRole === "admin" || actorRole === "centre") return true;
   return false;
 }
 
@@ -104,17 +103,17 @@ export function canEditMember(
 
 /**
  * Suppression définitive d’un membre :
- * centre / chapitre / district (et admin). Les responsables groupe ne peuvent pas supprimer.
+ * admin et responsable centre, y compris les fiches responsables.
+ * Un administrateur ne peut pas être supprimé.
  */
 export function canDeleteMember(
   actorRole: PlatformRole,
   member: { responsabilite: string; source?: "member" | "profile" },
 ): boolean {
-  if (member.source === "profile") return false;
-  // Suppression définitive réservée à l’admin et au responsable centre.
   if (actorRole !== "admin" && actorRole !== "centre") return false;
   const targetRole = platformRoleFromResponsabilite(member.responsabilite);
-  return !isProtectedHierarchyTarget(actorRole, targetRole);
+  if (targetRole === "admin") return false;
+  return true;
 }
 
 /** Changement de responsabilité / promotion d’un membre. */

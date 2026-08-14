@@ -59,6 +59,7 @@ export type ProfileRow = {
   date_naissance?: string | null;
   date_debut_pratique?: string | null;
   sokahan?: boolean;
+  gohonzon?: boolean;
   abonnement_vague_paix?: boolean;
   abonnement?: boolean;
   chapitre_id: string | null;
@@ -84,6 +85,7 @@ export type MemberRow = {
   statut: MemberStatus;
   abonnement_vague_paix: boolean;
   sokahan: boolean;
+  gohonzon: boolean;
   photo_url: string;
   adhesion: string;
   total_dons: number;

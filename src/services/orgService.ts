@@ -54,9 +54,9 @@ export async function resolveOrgIds(input: {
       .from("chapitres")
       .select("id, name")
       .ilike("name", name)
-      .maybeSingle();
+      .limit(1);
     if (error) return { data: empty, error };
-    chapitre_id = data?.id ?? null;
+    chapitre_id = data?.[0]?.id ?? null;
   }
 
   if (input.district?.trim() && chapitre_id) {
@@ -65,9 +65,9 @@ export async function resolveOrgIds(input: {
       .select("id, name")
       .eq("chapitre_id", chapitre_id)
       .ilike("name", input.district.trim())
-      .maybeSingle();
+      .limit(1);
     if (error) return { data: empty, error };
-    district_id = data?.id ?? null;
+    district_id = data?.[0]?.id ?? null;
   }
 
   if (input.groupe?.trim() && district_id) {
@@ -76,9 +76,9 @@ export async function resolveOrgIds(input: {
       .select("id, name")
       .eq("district_id", district_id)
       .ilike("name", input.groupe.trim())
-      .maybeSingle();
+      .limit(1);
     if (error) return { data: empty, error };
-    groupe_id = data?.id ?? null;
+    groupe_id = data?.[0]?.id ?? null;
   }
 
   return { data: { chapitre_id, district_id, groupe_id }, error: null };

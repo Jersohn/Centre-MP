@@ -35,29 +35,44 @@ export type CollecteExportBalance = {
   reste: number;
 };
 
-/** Champs d’export = colonnes de la vue liste (hors Actions). */
+/** Champs d’export = colonnes du tableau + champs complémentaires (hors Actions). */
 export function getCollecteExportFields(type: CollecteTab): ExportFieldOption[] {
+  const group = "Liste";
   const fields: ExportFieldOption[] = [
-    { key: "N°", label: "N°" },
-    { key: "Réf. reçu", label: "Réf. reçu" },
-    { key: "Date", label: "Date" },
-    { key: "Membre", label: "Membre" },
-    { key: "Montant", label: "Montant" },
+    { key: "Membre", label: "Membre", group },
+    { key: "N°", label: "N°", group },
+    { key: "Date", label: "Date", group },
+    { key: "Montant", label: "Montant", group },
+    { key: "Chapitre", label: "Chapitre", group },
+    { key: "District", label: "District", group },
+    { key: "Groupe", label: "Groupe", group },
     {
       key: type === "zaimu-special" ? "Campagne" : "Période",
       label: type === "zaimu-special" ? "Campagne" : "Période",
+      group,
     },
-    { key: "Groupe", label: "Groupe" },
+    { key: "Réf. reçu", label: "Réf. reçu", group },
   ];
   if (type === "zaimu-special") {
-    fields.push({ key: "Reste membre", label: "Reste membre" });
+    fields.push(
+      { key: "Reste", label: "Reste", group },
+      { key: "Payé membre", label: "Payé membre", group },
+      { key: "Cota membre", label: "Cota membre", group },
+    );
   }
-  fields.push({ key: "Statut", label: "Statut" });
+  fields.push(
+    { key: "Statut", label: "Statut", group },
+    { key: "Motif", label: "Motif", group },
+    { key: "Note", label: "Note", group },
+  );
   return fields;
 }
 
 export function getCollecteExportDefaultFields(type: CollecteTab): string[] {
-  return getCollecteExportFields(type).map((f) => f.key);
+  const optional = new Set(["Motif", "Note", "Payé membre", "Cota membre"]);
+  return getCollecteExportFields(type)
+    .filter((field) => !optional.has(field.key))
+    .map((field) => field.key);
 }
 
 /** @deprecated Préférer getCollecteExportFields(type). */
@@ -152,20 +167,25 @@ export function collecteToExportRow(
       ? record.periode || record.motif || ""
       : record.periode || "";
   const row: Record<string, string | number> = {
-    "N°": record.numero?.trim() || record.id,
-    "Réf. reçu": record.referenceRecu || "",
-    Date: record.date,
     Membre: record.membre,
+    "N°": record.numero?.trim() || record.id,
+    Date: record.date,
     Montant: record.montant,
-    Groupe: record.groupe,
-    Statut: record.statut,
+    Chapitre: record.chapitre || "",
+    District: record.district || "",
+    Groupe: record.groupe || "",
+    "Réf. reçu": record.referenceRecu || "",
+    Statut: record.statut || "",
+    Motif: record.motif || "",
+    Note: record.note || "",
   };
   if (type === "zaimu-special") {
     row.Campagne = campagneOuPeriode;
     const balance = options?.balance;
-    row["Reste membre"] = balance
-      ? `${Math.round(balance.reste)} (${Math.round(balance.paye)} / ${Math.round(balance.engagement)})`
-      : "";
+    row.Reste = balance ? Math.round(balance.reste) : "";
+    row["Reste membre"] = row.Reste;
+    row["Payé membre"] = balance ? Math.round(balance.paye) : "";
+    row["Cota membre"] = balance ? Math.round(balance.engagement) : "";
   } else {
     row.Période = campagneOuPeriode;
   }

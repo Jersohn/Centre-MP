@@ -57,6 +57,17 @@ const ROLE_TO_RESPONSABILITE: Record<AppRole, string> = {
   groupe: "Responsable groupe",
 };
 
+function toSqlDate(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const fr = raw.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{4})$/);
+  if (fr) {
+    return `${fr[3]}-${fr[2].padStart(2, "0")}-${fr[1].padStart(2, "0")}`;
+  }
+  return null;
+}
+
 function stableNumericId(uuid: string): number {
   let hash = 0;
   for (let i = 0; i < uuid.length; i += 1) {
@@ -105,6 +116,7 @@ export function mapMemberRow(row: MemberDbRow): MemberRecord {
     dateDebutPratique: row.date_debut_pratique || "",
     abonnementVaguePaix: Boolean(row.abonnement_vague_paix),
     sokahan: Boolean(row.sokahan),
+    gohonzon: Boolean(row.gohonzon),
     quartier: row.quartier || "",
     chapitre: row.chapitres?.name || "",
     district: row.districts?.name || "",
@@ -148,6 +160,7 @@ function mapProfileAsMember(row: ProfileRow): MemberRecord | null {
     dateDebutPratique: row.date_debut_pratique || "",
     abonnementVaguePaix: Boolean(row.abonnement_vague_paix),
     sokahan: Boolean(row.sokahan),
+    gohonzon: Boolean(row.gohonzon),
     quartier: row.quartier || "",
     chapitre: row.chapitre_name || "",
     district: row.district_name || "",
@@ -178,7 +191,7 @@ export async function listMembersRemote(): Promise<{
   const { data, error } = await supabase
     .from("members")
     .select(
-      "id, prenom, nom, email, telephone, date_naissance, departement, categorie, responsabilite, date_debut_pratique, abonnement_vague_paix, sokahan, abonnement, quartier, chapitre_id, district_id, groupe_id, statut, photo_url, adhesion, total_dons, chapitres(name), districts(name), groupes(name)",
+      "id, prenom, nom, email, telephone, date_naissance, departement, categorie, responsabilite, date_debut_pratique, abonnement_vague_paix, sokahan, gohonzon, abonnement, quartier, chapitre_id, district_id, groupe_id, statut, photo_url, adhesion, total_dons, chapitres(name), districts(name), groupes(name)",
     )
     .order("nom", { ascending: true })
     .order("prenom", { ascending: true });
@@ -220,6 +233,34 @@ export async function listMembersRemote(): Promise<{
   };
 }
 
+async function resolveOptionalOrgIds(
+  values: MemberFormValues,
+  orgIdsOverride?: { chapitre_id?: string | null; district_id?: string | null; groupe_id?: string | null } | null,
+) {
+  if (orgIdsOverride?.chapitre_id && orgIdsOverride?.district_id && orgIdsOverride?.groupe_id) {
+    return {
+      chapitre_id: orgIdsOverride.chapitre_id,
+      district_id: orgIdsOverride.district_id,
+      groupe_id: orgIdsOverride.groupe_id,
+    };
+  }
+  if (!values.chapitre && !values.district && !values.groupe) return null;
+  const resolved = await resolveOrgIds({
+    chapitre: values.chapitre,
+    district: values.district,
+    groupe: values.groupe,
+  });
+  if (resolved.error) return null;
+  if (resolved.data.chapitre_id && resolved.data.district_id && resolved.data.groupe_id) {
+    return {
+      chapitre_id: resolved.data.chapitre_id,
+      district_id: resolved.data.district_id,
+      groupe_id: resolved.data.groupe_id,
+    };
+  }
+  return null;
+}
+
 export async function createMemberRemote(
   values: MemberFormValues,
   orgIdsOverride?: { chapitre_id: string; district_id: string; groupe_id: string } | null,
@@ -231,40 +272,29 @@ export async function createMemberRemote(
     return { data: null, error: new Error("Service indisponible.") };
   }
 
-  let orgIds = orgIdsOverride || null;
-  if (!orgIds?.chapitre_id || !orgIds?.district_id || !orgIds?.groupe_id) {
-    const resolved = await resolveOrgIds({
-      chapitre: values.chapitre,
-      district: values.district,
-      groupe: values.groupe,
-    });
-    if (resolved.error) return { data: null, error: resolved.error };
-    orgIds = resolved.data;
-  }
-  if (!orgIds.chapitre_id || !orgIds.district_id || !orgIds.groupe_id) {
-    return { data: null, error: new Error("Chapitre, district et groupe sont requis.") };
-  }
+  const orgIds = await resolveOptionalOrgIds(values, orgIdsOverride);
 
   const payload = {
     prenom: values.prenom.trim(),
     nom: values.nom.trim(),
     email: values.email.trim().toLowerCase() || null,
     telephone: values.telephone.trim(),
-    date_naissance: values.dateNaissance || null,
+    date_naissance: toSqlDate(values.dateNaissance),
     departement: values.departement.trim() || values.categorie.trim() || "Homme",
     categorie:
       CATEGORIE_TO_DB[values.departement] ||
       CATEGORIE_TO_DB[values.categorie] ||
       "homme",
     responsabilite: RESPONSABILITE_TO_DB[values.responsabilite] || "membre_simple",
-    date_debut_pratique: values.dateDebutPratique || null,
+    date_debut_pratique: toSqlDate(values.dateDebutPratique),
     abonnement_vague_paix: Boolean(values.abonnementVaguePaix),
     sokahan: Boolean(values.sokahan),
+    gohonzon: Boolean(values.gohonzon),
     abonnement: Boolean(values.abonnement),
     quartier: values.quartier.trim(),
-    chapitre_id: orgIds.chapitre_id,
-    district_id: orgIds.district_id,
-    groupe_id: orgIds.groupe_id,
+    chapitre_id: orgIds?.chapitre_id || null,
+    district_id: orgIds?.district_id || null,
+    groupe_id: orgIds?.groupe_id || null,
     statut: STATUT_TO_DB[values.statut] || "actif",
     photo_url: values.photo?.startsWith("http") ? values.photo : "",
   };
@@ -286,43 +316,34 @@ export async function updateMemberRemote(
     return { data: null, error: new Error("Identifiant membre manquant.") };
   }
 
-  let orgIds = orgIdsOverride || null;
-  if (!orgIds?.chapitre_id || !orgIds?.district_id || !orgIds?.groupe_id) {
-    const resolved = await resolveOrgIds({
-      chapitre: values.chapitre,
-      district: values.district,
-      groupe: values.groupe,
-    });
-    if (resolved.error) return { data: null, error: resolved.error };
-    orgIds = resolved.data;
-  }
-  if (!orgIds.chapitre_id || !orgIds.district_id || !orgIds.groupe_id) {
-    return { data: null, error: new Error("Chapitre, district et groupe sont requis.") };
-  }
+  const orgIds = await resolveOptionalOrgIds(values, orgIdsOverride);
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     prenom: values.prenom.trim(),
     nom: values.nom.trim(),
     email: values.email.trim().toLowerCase() || null,
     telephone: values.telephone.trim(),
-    date_naissance: values.dateNaissance || null,
+    date_naissance: toSqlDate(values.dateNaissance),
     departement: values.departement.trim() || values.categorie.trim() || "Homme",
     categorie:
       CATEGORIE_TO_DB[values.departement] ||
       CATEGORIE_TO_DB[values.categorie] ||
       "homme",
     responsabilite: RESPONSABILITE_TO_DB[values.responsabilite] || "membre_simple",
-    date_debut_pratique: values.dateDebutPratique || null,
+    date_debut_pratique: toSqlDate(values.dateDebutPratique),
     abonnement_vague_paix: Boolean(values.abonnementVaguePaix),
     sokahan: Boolean(values.sokahan),
+    gohonzon: Boolean(values.gohonzon),
     abonnement: Boolean(values.abonnement),
     quartier: values.quartier.trim(),
-    chapitre_id: orgIds.chapitre_id,
-    district_id: orgIds.district_id,
-    groupe_id: orgIds.groupe_id,
     statut: STATUT_TO_DB[values.statut] || "actif",
     photo_url: values.photo?.startsWith("http") ? values.photo : "",
   };
+  if (orgIds) {
+    payload.chapitre_id = orgIds.chapitre_id;
+    payload.district_id = orgIds.district_id;
+    payload.groupe_id = orgIds.groupe_id;
+  }
 
   const { data, error } = await supabase
     .from("members")

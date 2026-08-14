@@ -30,6 +30,12 @@ describe("orgAccess hierarchy protection", () => {
     expect(canManageUserAccount("chapitre", "district", false)).toBe(true);
     expect(canManageUserAccount("chapitre", "groupe", false)).toBe(true);
     expect(canDeleteUser("chapitre", "district", false)).toBe(false);
+    expect(canDeleteUser("centre", "chapitre", false)).toBe(true);
+    expect(canDeleteUser("centre", "centre", false)).toBe(true);
+    expect(canDeleteUser("admin", "centre", false)).toBe(true);
+    expect(canDeleteUser("admin", "admin", false)).toBe(false);
+    expect(canDeleteUser("centre", "admin", false)).toBe(false);
+    expect(canDeleteUser("admin", "groupe", true)).toBe(false);
   });
 
   it("blocks member deactivation / responsibility change on superiors", () => {
@@ -54,9 +60,16 @@ describe("orgAccess hierarchy protection", () => {
     expect(canDeleteMember("chapitre", { responsabilite: "Membre simple" })).toBe(false);
     expect(canDeleteMember("centre", { responsabilite: "Membre simple" })).toBe(true);
     expect(canDeleteMember("admin", { responsabilite: "Membre simple" })).toBe(true);
-    expect(canDeleteMember("centre", { responsabilite: "Responsable centre" })).toBe(false);
+    expect(canDeleteMember("centre", { responsabilite: "Responsable centre" })).toBe(true);
+    expect(canDeleteMember("centre", { responsabilite: "Responsable chapitre" })).toBe(true);
     expect(
       canDeleteMember("admin", { responsabilite: "Membre simple", source: "profile" }),
+    ).toBe(true);
+    expect(
+      canDeleteMember("admin", { responsabilite: "Administrateur", source: "profile" }),
     ).toBe(false);
+    expect(
+      canDeleteMember("centre", { responsabilite: "Responsable groupe", source: "profile" }),
+    ).toBe(true);
   });
 });

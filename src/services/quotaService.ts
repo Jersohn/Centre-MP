@@ -423,6 +423,9 @@ export async function listMyAssignedSpecialCampaigns(input: {
   chapitre_id: string | null;
   district_id: string | null;
   groupe_id: string | null;
+  chapitre_name?: string | null;
+  district_name?: string | null;
+  groupe_name?: string | null;
 }): Promise<{ data: AssignedCampaignCard[]; error: Error | null }> {
   if (!isSupabaseEnabled() || !supabase) return unavailable([]);
 
@@ -466,7 +469,13 @@ export async function listMyAssignedSpecialCampaigns(input: {
     query = query.eq("district_id", input.district_id);
   } else if (level === "groupe" && input.groupe_id) {
     query = query.eq("groupe_id", input.groupe_id);
-  } else {
+  } else if (
+    !(
+      (level === "chapitre" && input.chapitre_name) ||
+      (level === "district" && input.district_name) ||
+      (level === "groupe" && input.groupe_name)
+    )
+  ) {
     return { data: [], error: null };
   }
 
@@ -483,8 +492,20 @@ export async function listMyAssignedSpecialCampaigns(input: {
     zaimu_campaigns: Record<string, unknown> | Record<string, unknown>[] | null;
   };
 
+  const norm = (value?: string | null) => (value || "").trim().toLowerCase();
+  const wantedChapitre = norm(input.chapitre_name);
+  const wantedDistrict = norm(input.district_name);
+  const wantedGroupe = norm(input.groupe_name);
+
   return {
     data: ((data || []) as Row[])
+      .filter((row) => {
+        if (input.chapitre_id || input.district_id || input.groupe_id) return true;
+        if (level === "chapitre") return Boolean(wantedChapitre) && norm(row.chapitres?.name) === wantedChapitre;
+        if (level === "district") return Boolean(wantedDistrict) && norm(row.districts?.name) === wantedDistrict;
+        if (level === "groupe") return Boolean(wantedGroupe) && norm(row.groupes?.name) === wantedGroupe;
+        return false;
+      })
       .map((row) => {
         const campRaw = Array.isArray(row.zaimu_campaigns)
           ? row.zaimu_campaigns[0]

@@ -60,6 +60,7 @@ const EMPTY_PROFILE = (role: PlatformRole): UserProfile => ({
   dateNaissance: "",
   dateDebutPratique: "",
   sokahan: false,
+  gohonzon: false,
   abonnementVaguePaix: false,
   abonnement: false,
 });
@@ -197,6 +198,7 @@ export default function ProfilePage({ role }: Props) {
         dateNaissance: data.date_naissance || "",
         dateDebutPratique: data.date_debut_pratique || "",
         sokahan: Boolean(data.sokahan),
+        gohonzon: Boolean(data.gohonzon),
         abonnementVaguePaix: Boolean(data.abonnement_vague_paix),
         abonnement: Boolean(data.abonnement),
       });
@@ -255,6 +257,7 @@ export default function ProfilePage({ role }: Props) {
         date_naissance: profile.dateNaissance || null,
         date_debut_pratique: profile.dateDebutPratique || null,
         sokahan: isJeune ? Boolean(profile.sokahan) : false,
+        gohonzon: Boolean(profile.gohonzon),
         abonnement_vague_paix: Boolean(profile.abonnementVaguePaix),
         abonnement: Boolean(profile.abonnement),
       })
@@ -326,6 +329,7 @@ export default function ProfilePage({ role }: Props) {
       nom,
       ...persistedOrg,
       sokahan: isJeune ? Boolean(prev.sokahan) : false,
+      gohonzon: Boolean(prev.gohonzon),
     }));
     notifyProfileUpdated({ name: fullName, photo: profile.photo || "" });
     setSavedFlash("Profil mis à jour avec succès.");
@@ -637,12 +641,17 @@ export default function ProfilePage({ role }: Props) {
               </Field>
 
               {isJeune && (
-                <Field label="Sokahan" hint="Cochez si vous possédez le Gohonzon.">
+                <Field label="Sokahan" hint="Désignation des jeunes — implique généralement le Gohonzon.">
                   <label className="flex items-center gap-2 rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm text-foreground">
                     <input
                       type="checkbox"
                       checked={Boolean(profile.sokahan)}
-                      onChange={(e) => patch({ sokahan: e.target.checked })}
+                      onChange={(e) =>
+                        patch({
+                          sokahan: e.target.checked,
+                          gohonzon: e.target.checked ? true : profile.gohonzon,
+                        })
+                      }
                     />
                     Sokahan
                   </label>
@@ -790,6 +799,19 @@ export default function ProfilePage({ role }: Props) {
                   onChange={(e) => patch({ abonnementVaguePaix: e.target.checked })}
                 />
                 Abonnement Vague de Paix
+              </label>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={Boolean(profile.gohonzon)}
+                  onChange={(e) =>
+                    patch({
+                      gohonzon: e.target.checked,
+                      sokahan: e.target.checked ? profile.sokahan : false,
+                    })
+                  }
+                />
+                Possède le Gohonzon
               </label>
               <label className="flex items-center gap-2 text-sm text-muted-foreground">
                 <input

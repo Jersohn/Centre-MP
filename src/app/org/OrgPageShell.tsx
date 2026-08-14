@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { Check, Plus, RefreshCw, Search } from "lucide-react";
+import FilterPanel from "../FilterPanel";
 
 type Kpi = {
   label: string;
@@ -108,19 +109,25 @@ export function OrgPageShell({
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(20rem,0.85fr)]">
         <section className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm">
-          <div className="border-b border-border px-5 py-5 sm:px-6">
-            <div className="space-y-3">
-              <label className="relative block">
-                <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  value={query}
-                  onChange={(e) => onQueryChange(e.target.value)}
-                  placeholder={searchPlaceholder}
-                  className="w-full rounded-2xl border border-border bg-input-background py-2.5 pl-10 pr-4 text-sm outline-none focus:border-[var(--sgi-blue)] focus:ring-2 focus:ring-[var(--sgi-blue)]/10"
-                />
-              </label>
-              {filters}
-            </div>
+          <div className="border-b border-border p-3 sm:px-4 sm:py-4">
+            <FilterPanel
+              storageKey={`org-${title}`}
+              activeCount={query.trim() ? 1 : 0}
+              summary={query.trim() || searchPlaceholder}
+            >
+              <div className="space-y-3">
+                <label className="relative block">
+                  <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={query}
+                    onChange={(e) => onQueryChange(e.target.value)}
+                    placeholder={searchPlaceholder}
+                    className="w-full rounded-2xl border border-border bg-input-background py-2.5 pl-10 pr-4 text-sm outline-none focus:border-[var(--sgi-blue)] focus:ring-2 focus:ring-[var(--sgi-blue)]/10"
+                  />
+                </label>
+                {filters}
+              </div>
+            </FilterPanel>
           </div>
           <div className="max-h-[36rem] space-y-2 overflow-y-auto p-3 sm:p-4">{children}</div>
         </section>

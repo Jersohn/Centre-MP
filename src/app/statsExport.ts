@@ -158,15 +158,15 @@ export function exportStatisticsPdf(options: StatsPdfOptions) {
 
   // ── Period block ────────────────────────────────────────────────────────
   doc.setFillColor(...COLORS.card);
-  doc.roundedRect(40, y, contentW, 54, 10, 10, "F");
+  doc.roundedRect(40, y, contentW, 72, 10, 10, "F");
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
   doc.setTextColor(...COLORS.blue);
-  doc.text("PERIODE COUVERTE", 56, y + 18);
+  doc.text("PERIODE ET PERIMETRE", 56, y + 16);
 
   const chipH = 22;
-  const chipY = y + 26;
+  const chipY = y + 22;
   const chipW = 122;
   const fromX = 56;
   const toX = fromX + chipW + 42;
@@ -201,16 +201,15 @@ export function exportStatisticsPdf(options: StatsPdfOptions) {
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
-  doc.setTextColor(...COLORS.muted);
+  doc.setTextColor(...COLORS.blue);
   const scopeHint = sanitize(options.scopeLabel || "Vue globale centre");
   doc.text(
-    scopeHint.length > 34 ? `${scopeHint.slice(0, 32)}...` : scopeHint,
-    pageW - 56,
-    y + 32,
-    { align: "right" },
+    `Perimetre : ${scopeHint.length > 78 ? `${scopeHint.slice(0, 76)}...` : scopeHint}`,
+    56,
+    y + 60,
   );
 
-  y += 78;
+  y += 96;
 
   // ── Hero KPIs ───────────────────────────────────────────────────────────
   y = drawSectionLabel(doc, "Points cles consolides", y);
@@ -232,9 +231,9 @@ export function exportStatisticsPdf(options: StatsPdfOptions) {
       accent: COLORS.green,
     },
     {
-      label: "Zaimu ordinaire",
-      value: money(summary.totalZaimuOrdinaire),
-      hint: "Total periode",
+      label: "Gohonzon",
+      value: formatExportNumber(kpis.gohonzon),
+      hint: "Possesseurs",
       accent: COLORS.gold,
     },
     {
@@ -254,8 +253,7 @@ export function exportStatisticsPdf(options: StatsPdfOptions) {
   // ── Financial consolidated ──────────────────────────────────────────────
   y = drawSectionLabel(doc, "Consolidation financiere", y);
 
-  const totalFinance =
-    summary.totalCotisations + summary.totalZaimuOrdinaire + summary.totalZaimuSpecial;
+  const totalFinance = summary.totalCotisations + summary.totalZaimuSpecial;
   doc.setFillColor(...COLORS.blue);
   doc.roundedRect(40, y, contentW, 70, 10, 10, "F");
   doc.setTextColor(...COLORS.gold);
@@ -285,7 +283,6 @@ export function exportStatisticsPdf(options: StatsPdfOptions) {
 
   const financeRows = [
     { label: "Cotisations Vague de Paix", value: money(summary.totalCotisations), accent: COLORS.blue },
-    { label: "Zaimu ordinaire", value: money(kpis.zaimuOrdinaire), accent: COLORS.gold },
     { label: "Zaimu special", value: money(kpis.zaimuSpecial), accent: COLORS.red },
     { label: "Abonnements Vague de Paix", value: formatExportNumber(summary.totalAbonnements), accent: COLORS.green },
   ];
@@ -321,7 +318,8 @@ export function exportStatisticsPdf(options: StatsPdfOptions) {
     { label: "Jeunes", value: formatExportNumber(kpis.jeunes), accent: COLORS.blueSoft },
     { label: "Jeunes filles", value: formatExportNumber(kpis.jeunesFilles), accent: COLORS.gold },
     { label: "Avenir", value: formatExportNumber(kpis.avenir), accent: COLORS.green },
-    { label: "Sokahan", value: formatExportNumber(kpis.sokahan), accent: COLORS.red },
+    { label: "Sokahan", value: formatExportNumber(kpis.sokahan), accent: COLORS.gold },
+    { label: "Gohonzon", value: formatExportNumber(kpis.gohonzon), accent: COLORS.red },
   ];
 
   demoCards.forEach((card, index) => {
@@ -331,7 +329,8 @@ export function exportStatisticsPdf(options: StatsPdfOptions) {
     const cardY = y + row * (demoH + demoGap);
     drawAccentCard(doc, x, cardY, demoW, demoH, card.accent, card.label, card.value);
   });
-  y += demoH * 2 + demoGap + 30;
+  const demoRows = Math.ceil(demoCards.length / 3);
+  y += demoRows * demoH + (demoRows - 1) * demoGap + 30;
 
   // ── Closing note ────────────────────────────────────────────────────────
   doc.setFillColor(...COLORS.card);

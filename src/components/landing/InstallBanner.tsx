@@ -9,7 +9,7 @@ import {
 
 const DISMISS_KEY = "cmf_pwa_banner_dismissed";
 
-export function InstallBanner() {
+export function InstallBanner({ variant = "public" }: { variant?: "public" | "dashboard" }) {
   const [promptEvent, setPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [iosHint, setIosHint] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -55,17 +55,25 @@ export function InstallBanner() {
 
   return (
     <>
-      <div className="fixed bottom-[4.75rem] left-3 right-3 z-40 mx-auto max-w-md rounded-2xl border border-border bg-white p-4 shadow-[var(--shadow-lift)] lg:bottom-6">
+      <div
+        className={`fixed left-3 right-3 z-40 mx-auto max-w-md rounded-2xl border border-border bg-card p-4 shadow-[var(--shadow-lift)] ${
+          variant === "dashboard"
+            ? "bottom-[5.5rem] md:bottom-6"
+            : "bottom-[4.75rem] lg:bottom-6"
+        }`}
+      >
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--sgi-blue)] text-white">
             <Download size={18} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="font-display text-base font-semibold text-[var(--sgi-ink)]">Installer l’application</p>
+            <p className="font-display text-base font-semibold text-foreground">Installer l’application</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               {iosHint
                 ? "Sur iPhone : Partager → Sur l’écran d’accueil."
-                : "Accédez rapidement au Centre Miroir Parfait depuis votre écran d’accueil."}
+                : variant === "dashboard"
+                  ? "Ajoutez l’espace de pilotage à l’écran d’accueil pour un accès rapide hors navigateur."
+                  : "Accédez rapidement au Centre Miroir Parfait depuis votre écran d’accueil."}
             </p>
             <div className="mt-3 flex gap-2">
               <button

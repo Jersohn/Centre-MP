@@ -218,8 +218,6 @@ export default defineConfig(({ mode }) => {
     react(),
     tailwindcss(),
     VitePWA({
-      // Purge broken SW/caches from previous deploys that served HTML as CSS.
-      selfDestroying: true,
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
@@ -233,8 +231,17 @@ export default defineConfig(({ mode }) => {
         orientation: 'any',
         start_url: '/',
         scope: '/',
+        id: '/',
         lang: 'fr',
         categories: ['lifestyle', 'social'],
+        shortcuts: [
+          {
+            name: 'Espace de pilotage',
+            short_name: 'Pilotage',
+            description: 'Ouvrir la connexion au tableau de bord',
+            url: '/login',
+          },
+        ],
         icons: [
           {
             src: 'pwa-192x192.png',

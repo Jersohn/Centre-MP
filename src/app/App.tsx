@@ -38,7 +38,9 @@ import { useConfirm } from "./ConfirmDialog";
 import RoleDashboard from "./RoleDashboard";
 import MembersKpiPanel from "./MembersKpiPanel";
 import MembersImportExportBar from "./MembersImportExportBar";
+import FilterPanel from "./FilterPanel";
 import ProfilePage from "./ProfilePage";
+import { InstallBanner } from "../components/landing/InstallBanner";
 import {
   buildStatsBreakdown,
   computeMemberListKpis,
@@ -50,6 +52,7 @@ import {
   primaryOrgUnitLabel,
   statsBreakdownLabel,
   statsBreakdownUnitForRole,
+  viewOrgScopeFromFilters,
   type OrgScope,
 } from "./memberListStats";
 import { exportStatisticsPdf } from "./statsExport";
@@ -62,7 +65,7 @@ import {
   listSpecialCampaigns,
   type ZaimuCampaign,
 } from "../services/quotaService";
-import { RowActionsMenu } from "./RowActionsMenu";
+import { RowActionsMenu, type RowAction } from "./RowActionsMenu";
 import { ALLOWED_ROLES, ROLE_LABELS, type ModuleKey, type PlatformRole } from "./roles";
 import { useOrgTree } from "./useOrgTree";
 import { OpsDataProvider, useOpsData } from "./opsDataStore";
@@ -80,7 +83,7 @@ import {
 } from "./orgAccess";
 import { deleteMemberRemote, hasRemoteMembers, setMemberStatusRemote } from "../services/memberService";
 import { signOut } from "../services/authService";
-import { fetchMyProfile, hasRemoteProfiles, inviteUserRemote } from "../services/profileService";
+import { deleteUserRemote, fetchMyProfile, hasRemoteProfiles, inviteUserRemote } from "../services/profileService";
 import { resolveOrgIds } from "../services/orgService";
 import { PROFILE_UPDATED_EVENT } from "./profilesData";
 
@@ -101,6 +104,8 @@ const RESPONSABILITES = [
   "Responsable centre",
 ] as const;
 const RESPONSABILITE_FILTERS = ["Tous", ...RESPONSABILITES] as const;
+const DEPARTEMENTS = ["Homme", "Femme", "Jeune homme", "Jeune fille", "Avenir"] as const;
+const DEPARTEMENT_FILTERS = ["Tous", ...DEPARTEMENTS] as const;
 
 const directives = [
   {
@@ -350,7 +355,7 @@ function SidebarShell({
   const unitName = primaryOrgUnitLabel(role, sessionProfile.orgScope);
 
   return (
-    <>
+    <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
       <div className="sgi-tricolor h-1.5 w-full shrink-0" aria-hidden />
 
       <div className={`relative z-[1] flex items-center gap-3 border-b border-border px-3 py-4 ${collapsed ? "flex-col" : ""}`}>
@@ -454,7 +459,7 @@ function SidebarShell({
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -480,7 +485,7 @@ function Sidebar({
 }) {
   return (
     <aside
-      className="relative sticky top-0 hidden h-screen select-none flex-col overflow-hidden border-r border-border bg-card transition-[width] duration-300 ease-out md:flex"
+      className="relative sticky top-0 hidden h-dvh min-h-0 select-none flex-col overflow-hidden border-r border-border bg-card transition-[width] duration-300 ease-out md:flex"
       style={{ width: collapsed ? 88 : 272 }}
     >
       <div className="sgi-tricolor-rail absolute inset-y-0 left-0 w-[3px]" aria-hidden />
@@ -883,11 +888,13 @@ function FinanceStat({
   value,
   hint,
   tone = "blue",
+  compact = false,
 }: {
   label: string;
   value: string;
   hint: string;
   tone?: "blue" | "gold" | "red" | "green";
+  compact?: boolean;
 }) {
   const toneClass = {
     blue: "border-[var(--sgi-blue)]/20 bg-[var(--sgi-blue)]/8 text-[var(--sgi-blue)]",
@@ -895,6 +902,28 @@ function FinanceStat({
     red: "border-[var(--sgi-red)]/25 bg-[var(--sgi-red)]/10 text-[var(--sgi-red)]",
     green: "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
   }[tone];
+  const rail = {
+    blue: "bg-[var(--sgi-blue)]",
+    gold: "bg-[var(--sgi-gold)]",
+    red: "bg-[var(--sgi-red)]",
+    green: "bg-emerald-600",
+  }[tone];
+  if (compact) {
+    return (
+      <div className={`relative overflow-hidden rounded-xl border px-2 py-2 ${toneClass}`}>
+        <span className={`absolute inset-y-0 left-0 w-0.5 ${rail}`} aria-hidden />
+        <p className="pl-1.5 text-[9px] font-bold uppercase tracking-[0.08em] opacity-90">{label}</p>
+        <p
+          className="mt-0.5 truncate pl-1.5 font-mono text-[11px] font-bold leading-tight text-foreground"
+          title={value}
+        >
+          {value.replace(" FCFA", "")}
+          <span className="ml-0.5 text-[8px] font-semibold text-muted-foreground">F</span>
+        </p>
+        <p className="mt-0.5 truncate pl-1.5 text-[9px] leading-tight text-muted-foreground">{hint}</p>
+      </div>
+    );
+  }
   return (
     <div className={`rounded-2xl border p-3.5 ${toneClass}`}>
       <p className="text-[11px] font-bold uppercase tracking-[0.12em] opacity-90">{label}</p>
@@ -1020,13 +1049,13 @@ function MembreDetail({
       onClick={onClose}
     >
       <div
-        className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-[var(--shadow-lift)] sm:rounded-3xl"
+        className="flex max-h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-[var(--shadow-lift)] sm:max-h-[94vh] sm:rounded-3xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sgi-tricolor h-1.5 w-full shrink-0" aria-hidden />
 
         <div
-          className="relative shrink-0 overflow-hidden px-5 pb-5 pt-4 sm:px-6 sm:pt-5"
+          className="relative shrink-0 overflow-hidden px-4 pb-3 pt-3 sm:px-6 sm:pb-5 sm:pt-5"
           style={{
             background:
               "radial-gradient(ellipse 80% 120% at 0% 0%, rgba(200,151,26,0.18), transparent 55%), radial-gradient(ellipse 70% 100% at 100% 0%, rgba(10,47,82,0.14), transparent 50%), linear-gradient(180deg, color-mix(in srgb, var(--sgi-blue) 8%, transparent), transparent)",
@@ -1035,25 +1064,25 @@ function MembreDetail({
           <button
             type="button"
             onClick={onClose}
-            className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/80 bg-card/80 text-muted-foreground backdrop-blur hover:bg-muted hover:text-foreground"
+            className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/80 bg-card/80 text-muted-foreground backdrop-blur hover:bg-muted hover:text-foreground sm:right-4 sm:top-4"
             aria-label="Fermer"
           >
             <X size={16} />
           </button>
 
-          <div className="flex items-start gap-3 pr-12">
+          <div className="flex items-start gap-3 pr-11">
             <MemberAvatar
               photo={membre.photo}
               prenom={membre.prenom}
               nom={membre.nom}
-              size="xl"
+              size="lg"
               className="shadow-md"
             />
             <div className="min-w-0 pt-0.5">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <StatutBadge statut={membre.statut} />
                 <span
-                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide sm:px-2.5 sm:text-[11px] ${
                     membre.responsabilite === "Membre" || membre.responsabilite === "Membre simple"
                       ? "bg-muted text-muted-foreground"
                       : "bg-[var(--sgi-gold)]/15 text-[var(--sgi-gold)]"
@@ -1062,21 +1091,45 @@ function MembreDetail({
                   {membre.responsabilite === "Membre" ? "Membre simple" : membre.responsabilite}
                 </span>
                 {membre.abonnementVaguePaix && (
-                  <span className="rounded-full bg-[var(--sgi-blue)]/12 px-2.5 py-0.5 text-[11px] font-bold text-[var(--sgi-blue)]">
-                    Vague de Paix
+                  <span className="rounded-full bg-[var(--sgi-blue)]/12 px-2 py-0.5 text-[10px] font-bold text-[var(--sgi-blue)] sm:px-2.5 sm:text-[11px]">
+                    VP
                   </span>
                 )}
               </div>
-              <h3 className="mt-2 font-display text-xl font-semibold leading-tight text-foreground sm:text-2xl">
+              <h3 className="mt-1.5 font-display text-lg font-semibold leading-tight text-foreground sm:mt-2 sm:text-2xl">
                 {membre.prenom} {membre.nom}
               </h3>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-0.5 truncate text-xs text-muted-foreground sm:mt-1 sm:text-sm">
                 {[membre.groupe, membre.district, membre.chapitre].filter(Boolean).join(" · ") || "—"}
               </p>
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="mt-3 grid grid-cols-3 gap-1.5 sm:hidden">
+            <FinanceStat
+              compact
+              label="VP"
+              value={`${formatFcfa(vpPaye)} FCFA`}
+              hint={membre.abonnementVaguePaix ? "Abonné" : "Non abonné"}
+              tone="blue"
+            />
+            <FinanceStat
+              compact
+              label="Z. ord."
+              value={`${formatFcfa(zoPaye)} FCFA`}
+              hint={`${zoRows.filter((r) => r.statut === "Validé").length} validé(s)`}
+              tone="gold"
+            />
+            <FinanceStat
+              compact
+              label="Z. sp."
+              value={`${formatFcfa(zsPaye)} FCFA`}
+              hint={zsEngagementTotal > 0 ? `Reste ${formatFcfa(zsResteTotal)}` : "Payé"}
+              tone="red"
+            />
+          </div>
+
+          <div className="mt-4 hidden grid-cols-3 gap-2 sm:grid">
             <FinanceStat
               label="Vague de Paix"
               value={`${formatFcfa(vpPaye)} FCFA`}
@@ -1106,7 +1159,7 @@ function MembreDetail({
           </div>
         </div>
 
-        <div className="overflow-y-auto px-5 py-5 sm:px-6">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
           <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
             Identité & pratique
           </p>
@@ -1118,6 +1171,16 @@ function MembreDetail({
             <MembreDetailField label="Département" value={membre.departement || "—"} />
             <MembreDetailField label="Début de pratique" value={membre.dateDebutPratique} />
             <MembreDetailField label="Adhésion" value={membre.adhesion} />
+            <MembreDetailField
+              label="Gohonzon"
+              value={
+                membre.gohonzon ? (
+                  <span className="text-emerald-600 dark:text-emerald-400">Oui</span>
+                ) : (
+                  "Non"
+                )
+              }
+            />
             <MembreDetailField
               label="Sokahan"
               value={
@@ -1317,7 +1380,7 @@ function MembreDetail({
           )}
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-border px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+        <div className="flex shrink-0 flex-col gap-2 border-t border-border px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
           {canEdit && onEdit && (
             <button
               type="button"
@@ -1379,6 +1442,8 @@ function Membres({ role }: { role: PlatformRole }) {
   const [activeTab, setActiveTab] = useState<MembresTab>("liste");
   const [chapitreFilter, setChapitreFilter] = useState("Tous");
   const [districtFilter, setDistrictFilter] = useState("Tous");
+  const [groupeFilter, setGroupeFilter] = useState("Tous");
+  const [departementFilter, setDepartementFilter] = useState("Tous");
   const [statutFilter, setStatutFilter] = useState("Tous");
   const [responsabiliteFilter, setResponsabiliteFilter] = useState("Tous");
   const [search, setSearch] = useState("");
@@ -1410,6 +1475,25 @@ function Membres({ role }: { role: PlatformRole }) {
       : [];
     return ["Tous", ...districts];
   }, [chapitreFilter, orgTree]);
+  const groupeFilterOptions = useMemo(() => {
+    if (districtFilter !== "Tous") {
+      const district = orgTree.districts.find((item) => item.name === districtFilter);
+      const groupes = district
+        ? orgTree.groupesForDistrictId(district.id).map((item) => item.name)
+        : [];
+      return ["Tous", ...groupes];
+    }
+    if (chapitreFilter !== "Tous") {
+      const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
+      const groupes = chapitre
+        ? orgTree.districtsForChapitreId(chapitre.id).flatMap((district) =>
+            orgTree.groupesForDistrictId(district.id).map((item) => item.name),
+          )
+        : [];
+      return ["Tous", ...Array.from(new Set(groupes))];
+    }
+    return ["Tous", ...orgTree.groupes.map((item) => item.name)];
+  }, [chapitreFilter, districtFilter, orgTree]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1434,6 +1518,7 @@ function Membres({ role }: { role: PlatformRole }) {
           setOrgScope(scope);
           setChapitreFilter(scope.chapitre || "Tous");
           setDistrictFilter(scope.district || "Tous");
+          setGroupeFilter(scope.groupe || "Tous");
         } else if (!cancelled) {
           setOrgScope(orgScopeFromProfile(role, {}));
         }
@@ -1441,6 +1526,7 @@ function Membres({ role }: { role: PlatformRole }) {
         setOrgScope(DEMO_ORG_SCOPE[role]);
         setChapitreFilter(DEMO_ORG_SCOPE[role].chapitre || "Tous");
         setDistrictFilter(DEMO_ORG_SCOPE[role].district || "Tous");
+        setGroupeFilter(DEMO_ORG_SCOPE[role].groupe || "Tous");
       }
     }
     void loadScope();
@@ -1480,12 +1566,17 @@ function Membres({ role }: { role: PlatformRole }) {
   const filtered = useMemo(() => scopedMembers.filter((m) => {
     if (chapitreFilter !== "Tous" && m.chapitre !== chapitreFilter) return false;
     if (districtFilter !== "Tous" && m.district !== districtFilter) return false;
+    if (groupeFilter !== "Tous" && m.groupe !== groupeFilter) return false;
+    if (departementFilter !== "Tous") {
+      const dept = (m.departement || m.categorie || "").trim();
+      if (dept !== departementFilter) return false;
+    }
     if (statutFilter !== "Tous" && m.statut !== statutFilter) return false;
     const roleLabel = m.responsabilite === "Membre" ? "Membre simple" : m.responsabilite;
     if (responsabiliteFilter !== "Tous" && roleLabel !== responsabiliteFilter) return false;
     if (search && !`${m.prenom} ${m.nom}`.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
-  }), [chapitreFilter, districtFilter, statutFilter, responsabiliteFilter, search, scopedMembers]);
+  }), [chapitreFilter, districtFilter, groupeFilter, departementFilter, statutFilter, responsabiliteFilter, search, scopedMembers]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / MEMBERS_PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -1496,7 +1587,7 @@ function Membres({ role }: { role: PlatformRole }) {
 
   useEffect(() => {
     setPage(1);
-  }, [chapitreFilter, districtFilter, statutFilter, responsabiliteFilter, search, orgScope.label]);
+  }, [chapitreFilter, districtFilter, groupeFilter, departementFilter, statutFilter, responsabiliteFilter, search, orgScope.label]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -1504,14 +1595,25 @@ function Membres({ role }: { role: PlatformRole }) {
 
   const handleDeleteMember = async (m: MemberRecord) => {
     if (!canDeleteMember(role, m)) return;
+    const isResponsableAccount = m.source === "profile";
     const ok = await confirm({
       title: "Supprimer définitivement ?",
-      description: `${m.prenom} ${m.nom}\nCette action est irréversible. Utile pour corriger une erreur de saisie ou retirer un membre qui n’existe plus.`,
+      description: isResponsableAccount
+        ? `${m.prenom} ${m.nom}\nCe compte responsable sera supprimé : il ne pourra plus se connecter.`
+        : `${m.prenom} ${m.nom}\nCette action est irréversible. Utile pour corriger une erreur de saisie ou retirer un membre qui n’existe plus.`,
       confirmLabel: "Supprimer",
       tone: "danger",
     });
     if (!ok) return;
-    if (hasRemoteMembers() && m.remoteId) {
+    if (isResponsableAccount) {
+      if (hasRemoteProfiles() && m.remoteId) {
+        const { error } = await deleteUserRemote(m.remoteId);
+        if (error) {
+          setMemberToast(error.message);
+          return;
+        }
+      }
+    } else if (hasRemoteMembers() && m.remoteId) {
       const { error } = await deleteMemberRemote(m.remoteId);
       if (error) {
         setMemberToast(error.message);
@@ -1523,6 +1625,75 @@ function Membres({ role }: { role: PlatformRole }) {
     setMemberToast(`${m.prenom} ${m.nom} a été supprimé.`);
     void reloadMembers();
   };
+
+  const memberRowActions = (m: MemberRecord): RowAction[] => [
+    {
+      label: "Voir le détail",
+      icon: <Eye size={14} />,
+      onClick: () => setSelected(m),
+    },
+    ...(canEditMember(role, m)
+      ? [{
+          label: "Modifier",
+          icon: <Edit2 size={14} />,
+          onClick: () => setEditingMember(m),
+        }]
+      : []),
+    ...(canPromote && canChangeMemberResponsabilite(role, m.responsabilite)
+      ? [{
+          label: "Promouvoir responsable",
+          icon: <Shield size={14} />,
+          onClick: () => {
+            const roles = assignableRoles(role);
+            const suggested = suggestedPlatformRole(m.responsabilite);
+            setPromoteTarget(m);
+            setPromoteRole(roles.includes(suggested) ? suggested : roles[0] || "groupe");
+            setPromoteError(null);
+            setPromoteInfo(null);
+          },
+        }]
+      : []),
+    ...(canDeactivateMember(role, m.responsabilite)
+      ? [{
+          label: "Désactiver",
+          icon: <UserX size={14} />,
+          tone: "danger" as const,
+          onClick: () => {
+            void (async () => {
+              const ok = await confirm({
+                title: "Désactiver ce membre ?",
+                description: `${m.prenom} ${m.nom} passera au statut Suspendu.`,
+                confirmLabel: "Désactiver",
+                tone: "danger",
+              });
+              if (!ok) return;
+              if (hasRemoteMembers() && m.remoteId && m.source !== "profile") {
+                const { error } = await setMemberStatusRemote(m.remoteId, "Suspendu");
+                if (error) {
+                  setMemberToast(error.message);
+                  return;
+                }
+              }
+              setMembers((prev) =>
+                prev.map((member) =>
+                  member.id === m.id ? { ...member, statut: "Suspendu" } : member,
+                ),
+              );
+              setMemberToast(`${m.prenom} ${m.nom} a été désactivé.`);
+              void reloadMembers();
+            })();
+          },
+        }]
+      : []),
+    ...(canDeleteMember(role, m)
+      ? [{
+          label: "Supprimer",
+          icon: <Trash2 size={14} />,
+          tone: "danger" as const,
+          onClick: () => void handleDeleteMember(m),
+        }]
+      : []),
+  ];
 
   const handlePromoteMember = async () => {
     if (!promoteTarget) return;
@@ -1733,16 +1904,45 @@ function Membres({ role }: { role: PlatformRole }) {
           collectes={collectes}
           role={role}
           orgScope={orgScope}
-          onImport={(imported) => {
-            setMembers((prev) => [...imported, ...prev]);
-            void reloadMembers();
+          onImport={({ created, updated }) => {
+            if (hasRemoteMembers()) {
+              void reloadMembers();
+              return;
+            }
+            setMembers((prev) => {
+              const byId = new Map(prev.map((item) => [item.id, item]));
+              for (const item of updated) byId.set(item.id, item);
+              return [...created, ...byId.values()];
+            });
           }}
         />
       )}
 
       {activeTab === "liste" && (
       <>
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:flex-row sm:flex-wrap sm:items-end">
+      <FilterPanel
+        storageKey="membres"
+        activeCount={
+          (search ? 1 : 0) +
+          (chapitreFilter !== "Tous" && !orgScope.chapitre ? 1 : 0) +
+          (districtFilter !== "Tous" && !orgScope.district ? 1 : 0) +
+          (groupeFilter !== "Tous" && !orgScope.groupe ? 1 : 0) +
+          (departementFilter !== "Tous" ? 1 : 0) +
+          (statutFilter !== "Tous" ? 1 : 0) +
+          (responsabiliteFilter !== "Tous" ? 1 : 0)
+        }
+        summary={`${filtered.length} membre${filtered.length > 1 ? "s" : ""}`}
+        actions={
+          <button
+            type="button"
+            onClick={() => setShowForm((prev) => !prev)}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--sgi-blue)] px-3 py-2 text-xs font-semibold text-white sm:px-4 sm:py-2.5 sm:text-sm"
+          >
+            <Plus size={14} /> {showForm ? "Fermer" : "Nouveau"}
+          </button>
+        }
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
         <div className="w-full min-w-0 flex-1 sm:min-w-[12rem]">
           <label className="mb-1 block text-xs font-medium text-muted-foreground">Recherche</label>
           <div className="relative">
@@ -1760,12 +1960,22 @@ function Membres({ role }: { role: PlatformRole }) {
             onChange={(e) => {
               const nextChapitre = e.target.value;
               setChapitreFilter(nextChapitre);
-              if (nextChapitre !== "Tous" && districtFilter !== "Tous") {
+              if (nextChapitre !== "Tous") {
                 const chapitre = orgTree.chapitres.find((item) => item.name === nextChapitre);
-                const allowed = chapitre
+                const allowedDistricts = chapitre
                   ? orgTree.districtsForChapitreId(chapitre.id).map((item) => item.name)
                   : [];
-                if (!allowed.includes(districtFilter)) setDistrictFilter("Tous");
+                if (districtFilter !== "Tous" && !allowedDistricts.includes(districtFilter)) {
+                  setDistrictFilter("Tous");
+                }
+                const allowedGroupes = chapitre
+                  ? orgTree.districtsForChapitreId(chapitre.id).flatMap((district) =>
+                      orgTree.groupesForDistrictId(district.id).map((item) => item.name),
+                    )
+                  : [];
+                if (groupeFilter !== "Tous" && !allowedGroupes.includes(groupeFilter)) {
+                  setGroupeFilter("Tous");
+                }
               }
             }}
             className="dash-field disabled:cursor-not-allowed disabled:opacity-70"
@@ -1780,7 +1990,17 @@ function Membres({ role }: { role: PlatformRole }) {
           <select
             value={districtFilter}
             disabled={Boolean(orgScope.district)}
-            onChange={(e) => setDistrictFilter(e.target.value)}
+            onChange={(e) => {
+              const nextDistrict = e.target.value;
+              setDistrictFilter(nextDistrict);
+              if (nextDistrict !== "Tous" && groupeFilter !== "Tous") {
+                const district = orgTree.districts.find((item) => item.name === nextDistrict);
+                const allowed = district
+                  ? orgTree.groupesForDistrictId(district.id).map((item) => item.name)
+                  : [];
+                if (!allowed.includes(groupeFilter)) setGroupeFilter("Tous");
+              }
+            }}
             className="dash-field disabled:cursor-not-allowed disabled:opacity-70"
           >
             {districtFilterOptions.map((option) => (
@@ -1788,7 +2008,21 @@ function Membres({ role }: { role: PlatformRole }) {
             ))}
           </select>
         </div>
+        <div className="w-full min-w-0 sm:w-auto sm:min-w-[9rem]">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Groupe</label>
+          <select
+            value={groupeFilter}
+            disabled={Boolean(orgScope.groupe)}
+            onChange={(e) => setGroupeFilter(e.target.value)}
+            className="dash-field disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {groupeFilterOptions.map((option) => (
+              <option key={option}>{option}</option>
+            ))}
+          </select>
+        </div>
         {[
+          ["Département", DEPARTEMENT_FILTERS, departementFilter, setDepartementFilter, false],
           ["Statut", STATUTS, statutFilter, setStatutFilter, false],
           ["Responsabilité", RESPONSABILITE_FILTERS, responsabiliteFilter, setResponsabiliteFilter, false],
         ].map(([label, opts, val, set, locked]: any) => (
@@ -1804,10 +2038,8 @@ function Membres({ role }: { role: PlatformRole }) {
             </select>
           </div>
         ))}
-        <button type="button" onClick={() => setShowForm((prev) => !prev)} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--sgi-blue)] px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 sm:ml-auto sm:w-auto">
-          <Plus size={14} /> {showForm ? "Fermer" : "Nouveau membre"}
-        </button>
-      </div>
+        </div>
+      </FilterPanel>
 
       {memberToast && (
         <div className="rounded-xl border border-[var(--sgi-blue)]/20 bg-[var(--sgi-blue)]/5 px-4 py-3 text-sm text-foreground">
@@ -1877,7 +2109,44 @@ function Membres({ role }: { role: PlatformRole }) {
             Import / Export →
           </button>
         </div>
-        <div className="overflow-x-auto">
+        <div className="space-y-3 p-3 md:hidden">
+          {membersLoading ? (
+            <p className="px-2 py-8 text-center text-sm text-muted-foreground">Chargement…</p>
+          ) : paginatedMembers.length === 0 ? (
+            <p className="px-2 py-8 text-center text-sm text-muted-foreground">
+              {filtered.length === 0 ? "Aucun membre ne correspond aux filtres." : "Aucun membre."}
+            </p>
+          ) : (
+            paginatedMembers.map((m) => {
+              const zoPaye = getMemberZaimuPaid(collectes, m, "zaimu-ordinaire");
+              const zsPaye = getMemberZaimuPaid(collectes, m, "zaimu-special");
+              const zsAssigne = m.remoteId ? memberZsAssigneById[m.remoteId] || 0 : 0;
+              return (
+                <article key={m.id} className="rounded-xl border border-border bg-background/40 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <MemberAvatar photo={m.photo} prenom={m.prenom} nom={m.nom} size="sm" />
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-foreground">{m.prenom} {m.nom}</p>
+                        <p className="truncate text-[11px] text-muted-foreground">{m.email}</p>
+                      </div>
+                    </div>
+                    <RowActionsMenu actions={memberRowActions(m)} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <StatutBadge statut={m.statut} />
+                    <span>{m.groupe || "—"}</span>
+                    <span>{m.departement || m.categorie || "—"}</span>
+                    <span className="font-mono text-foreground">ZO {formatFcfa(zoPaye)}</span>
+                    <span className="font-mono text-foreground">ZS {formatFcfa(zsPaye)}/{formatFcfa(zsAssigne)}</span>
+                  </div>
+                </article>
+              );
+            })
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[64rem] text-[12px]">
             <thead>
               <tr className="border-b border-border bg-muted/40">
@@ -1886,10 +2155,13 @@ function Membres({ role }: { role: PlatformRole }) {
                   "Rôle",
                   "Chapitre",
                   "District",
+                  "Groupe",
+                  "Département",
                   "Statut",
                   "Z. ord.",
                   "Z. sp. payé/cota",
                   "VP",
+                  "Gohonzon",
                   "Sokahan",
                   "Actions",
                 ].map((h) => (
@@ -1909,13 +2181,13 @@ function Membres({ role }: { role: PlatformRole }) {
             <tbody>
               {membersLoading ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  <td colSpan={13} className="px-4 py-10 text-center text-sm text-muted-foreground">
                     Chargement de la liste des membres…
                   </td>
                 </tr>
               ) : paginatedMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  <td colSpan={13} className="px-4 py-10 text-center text-sm text-muted-foreground">
                     {members.length === 0
                       ? "Aucun membre enregistré pour le moment."
                       : "Aucun membre ne correspond aux filtres."}
@@ -1958,6 +2230,12 @@ function Membres({ role }: { role: PlatformRole }) {
                   <td className="max-w-[6.5rem] truncate px-2.5 py-2 text-[11px] text-muted-foreground" title={m.district}>
                     {m.district}
                   </td>
+                  <td className="max-w-[7rem] truncate px-2.5 py-2 text-[11px] text-muted-foreground" title={m.groupe}>
+                    {m.groupe || "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-2.5 py-2 text-[11px] text-muted-foreground">
+                    {m.departement || m.categorie || "—"}
+                  </td>
                   <td className="px-2.5 py-2"><StatutBadge statut={m.statut} /></td>
                   <td className="whitespace-nowrap px-2.5 py-2 font-mono text-[11px] text-foreground">{formatFcfa(zoPaye)}</td>
                   <td className="px-2.5 py-2">
@@ -1970,93 +2248,18 @@ function Membres({ role }: { role: PlatformRole }) {
                       : <span className="text-xs text-muted-foreground">—</span>}
                   </td>
                   <td className="px-2.5 py-2">
+                    {m.gohonzon
+                      ? <CheckCircle size={14} className="text-emerald-500" />
+                      : <span className="text-xs text-muted-foreground">—</span>}
+                  </td>
+                  <td className="px-2.5 py-2">
                     {m.sokahan
                       ? <CheckCircle size={14} className="text-emerald-500" />
                       : <span className="text-xs text-muted-foreground">—</span>}
                   </td>
                   <td className="sticky right-0 z-10 bg-card px-2.5 py-2 shadow-[-6px_0_12px_-8px_rgba(0,0,0,0.18)] group-hover:bg-muted/30">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {canDeleteMember(role, m) && (
-                        <button
-                          type="button"
-                          title="Supprimer le membre"
-                          aria-label={`Supprimer ${m.prenom} ${m.nom}`}
-                          onClick={() => void handleDeleteMember(m)}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--sgi-red)]/25 bg-[var(--sgi-red)]/10 text-[var(--sgi-red)] transition hover:bg-[var(--sgi-red)]/20"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                      <RowActionsMenu
-                      actions={[
-                        {
-                          label: "Voir le détail",
-                          icon: <Eye size={14} />,
-                          onClick: () => setSelected(m),
-                        },
-                        ...(canEditMember(role, m)
-                          ? [{
-                              label: "Modifier",
-                              icon: <Edit2 size={14} />,
-                              onClick: () => setEditingMember(m),
-                            }]
-                          : []),
-                        ...(canPromote && canChangeMemberResponsabilite(role, m.responsabilite)
-                          ? [{
-                              label: "Promouvoir responsable",
-                              icon: <Shield size={14} />,
-                              onClick: () => {
-                                const roles = assignableRoles(role);
-                                const suggested = suggestedPlatformRole(m.responsabilite);
-                                setPromoteTarget(m);
-                                setPromoteRole(roles.includes(suggested) ? suggested : roles[0] || "groupe");
-                                setPromoteError(null);
-                                setPromoteInfo(null);
-                              },
-                            }]
-                          : []),
-                        ...(canDeactivateMember(role, m.responsabilite)
-                          ? [{
-                              label: "Désactiver",
-                              icon: <UserX size={14} />,
-                              tone: "danger" as const,
-                              onClick: () => {
-                                void (async () => {
-                                  const ok = await confirm({
-                                    title: "Désactiver ce membre ?",
-                                    description: `${m.prenom} ${m.nom} passera au statut Suspendu.`,
-                                    confirmLabel: "Désactiver",
-                                    tone: "danger",
-                                  });
-                                  if (!ok) return;
-                                  if (hasRemoteMembers() && m.remoteId && m.source !== "profile") {
-                                    const { error } = await setMemberStatusRemote(m.remoteId, "Suspendu");
-                                    if (error) {
-                                      setMemberToast(error.message);
-                                      return;
-                                    }
-                                  }
-                                  setMembers((prev) =>
-                                    prev.map((member) =>
-                                      member.id === m.id ? { ...member, statut: "Suspendu" } : member,
-                                    ),
-                                  );
-                                  setMemberToast(`${m.prenom} ${m.nom} a été désactivé.`);
-                                  void reloadMembers();
-                                })();
-                              },
-                            }]
-                          : []),
-                        ...(canDeleteMember(role, m)
-                          ? [{
-                              label: "Supprimer",
-                              icon: <Trash2 size={14} />,
-                              tone: "danger" as const,
-                              onClick: () => void handleDeleteMember(m),
-                            }]
-                          : []),
-                      ]}
-                    />
+                    <div className="flex items-center justify-end">
+                      <RowActionsMenu actions={memberRowActions(m)} />
                     </div>
                   </td>
                 </tr>
@@ -2240,11 +2443,12 @@ function Statistiques({ role }: { role: PlatformRole }) {
   const orgTree = useOrgTree();
   const { members, collectes, loading } = useOpsData();
   const [orgScope, setOrgScope] = useState<OrgScope>(() => DEMO_ORG_SCOPE[role]);
-  const [axe, setAxe] = useState<"membres" | "cotisations" | "zaimu-ordinaire" | "zaimu-special">(
-    "membres",
-  );
+  const [axe, setAxe] = useState<"membres" | "cotisations" | "zaimu-special">("membres");
   const [fromDate, setFromDate] = useState(() => format(new Date(new Date().getFullYear(), 0, 1), "yyyy-MM-dd"));
   const [toDate, setToDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [chapitreFilter, setChapitreFilter] = useState("Tous");
+  const [districtFilter, setDistrictFilter] = useState("Tous");
+  const [groupeFilter, setGroupeFilter] = useState("Tous");
 
   useEffect(() => {
     let cancelled = false;
@@ -2280,28 +2484,88 @@ function Statistiques({ role }: { role: PlatformRole }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role, orgTree.chapitres.length]);
 
+  useEffect(() => {
+    setChapitreFilter(orgScope.chapitre || "Tous");
+    setDistrictFilter(orgScope.district || "Tous");
+    setGroupeFilter(orgScope.groupe || "Tous");
+  }, [orgScope.chapitre, orgScope.district, orgScope.groupe]);
+
+  const chapitreLocked = Boolean(orgScope.chapitre);
+  const districtLocked = Boolean(orgScope.district);
+  const groupeLocked = Boolean(orgScope.groupe);
+
+  const chapitreFilterOptions = useMemo(
+    () => ["Tous", ...orgTree.chapitres.map((item) => item.name)],
+    [orgTree.chapitres],
+  );
+  const districtFilterOptions = useMemo(() => {
+    if (chapitreFilter === "Tous") {
+      return ["Tous", ...orgTree.districts.map((item) => item.name)];
+    }
+    const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
+    const districts = chapitre
+      ? orgTree.districtsForChapitreId(chapitre.id).map((item) => item.name)
+      : [];
+    return ["Tous", ...districts];
+  }, [chapitreFilter, orgTree]);
+  const groupeFilterOptions = useMemo(() => {
+    if (districtFilter !== "Tous") {
+      const district = orgTree.districts.find((item) => item.name === districtFilter);
+      const groupes = district
+        ? orgTree.groupesForDistrictId(district.id).map((item) => item.name)
+        : [];
+      return ["Tous", ...groupes];
+    }
+    if (chapitreFilter !== "Tous") {
+      const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
+      const groupes = chapitre
+        ? orgTree.districtsForChapitreId(chapitre.id).flatMap((district) =>
+            orgTree.groupesForDistrictId(district.id).map((item) => item.name),
+          )
+        : [];
+      return ["Tous", ...Array.from(new Set(groupes))];
+    }
+    return ["Tous", ...orgTree.groupes.map((item) => item.name)];
+  }, [chapitreFilter, districtFilter, orgTree]);
+
+  const viewScope = useMemo(
+    () =>
+      viewOrgScopeFromFilters(orgScope, {
+        chapitre: chapitreFilter,
+        district: districtFilter,
+        groupe: groupeFilter,
+      }),
+    [orgScope, chapitreFilter, districtFilter, groupeFilter],
+  );
+
   const axeLabel: Record<string, string> = {
     membres: "Membres",
     cotisations: "Vague de Paix (FCFA)",
-    "zaimu-ordinaire": "Zaimu ordinaire (FCFA)",
     "zaimu-special": "Zaimu spécial (FCFA)",
   };
-  const breakdownUnit = statsBreakdownUnitForRole(role);
+  const breakdownUnit = viewScope.groupe
+    ? "groupe"
+    : viewScope.district
+      ? "groupe"
+      : viewScope.chapitre
+        ? "district"
+        : statsBreakdownUnitForRole(role);
   const breakdownLabel = statsBreakdownLabel(breakdownUnit);
 
   const scopedMembers = useMemo(
-    () => filterMembersByScope(members, orgScope),
-    [members, orgScope],
+    () => filterMembersByScope(members, viewScope),
+    [members, viewScope],
   );
   const scopedCollectes = useMemo(
-    () => filterCollectesByScope(collectes, orgScope),
-    [collectes, orgScope],
+    () => filterCollectesByScope(collectes, viewScope),
+    [collectes, viewScope],
   );
 
   const periodCollectes = useMemo(
     () =>
       scopedCollectes.filter((c) => {
         if (c.statut !== "Validé") return false;
+        if (c.type === "zaimu-ordinaire") return false;
         const date = parseISO(c.date);
         return date >= parseISO(fromDate) && date <= parseISO(toDate);
       }),
@@ -2332,9 +2596,6 @@ function Statistiques({ role }: { role: PlatformRole }) {
   const totalCotisations = periodCollectes
     .filter((c) => c.type === "vague-paix")
     .reduce((sum, c) => sum + c.montant, 0);
-  const totalZaimuOrdinaire = periodCollectes
-    .filter((c) => c.type === "zaimu-ordinaire")
-    .reduce((sum, c) => sum + c.montant, 0);
   const totalZaimuSpecial = periodCollectes
     .filter((c) => c.type === "zaimu-special")
     .reduce((sum, c) => sum + c.montant, 0);
@@ -2351,7 +2612,6 @@ function Statistiques({ role }: { role: PlatformRole }) {
     const months: Array<{
       mois: string;
       montant: number;
-      zaimuOrdinaire: number;
       zaimuSpecial: number;
       membres: number;
       abonnements: number;
@@ -2366,9 +2626,6 @@ function Statistiques({ role }: { role: PlatformRole }) {
       months.push({
         mois: label,
         montant: ofMonth.filter((c) => c.type === "vague-paix").reduce((s, c) => s + c.montant, 0),
-        zaimuOrdinaire: ofMonth
-          .filter((c) => c.type === "zaimu-ordinaire")
-          .reduce((s, c) => s + c.montant, 0),
         zaimuSpecial: ofMonth
           .filter((c) => c.type === "zaimu-special")
           .reduce((s, c) => s + c.montant, 0),
@@ -2385,20 +2642,24 @@ function Statistiques({ role }: { role: PlatformRole }) {
     name: row.label.replace("\n", " "),
     Membres: row.membres,
     Cotisations: row.cotisations,
-    "Zaimu ordinaire": row.zaimuOrdinaire,
     "Zaimu spécial": row.zaimuSpecial,
   }));
 
-  const consolidationHint =
-    role === "groupe"
-      ? "Bilan consolide du groupe"
-      : role === "district"
-        ? "Bilan consolide des groupes du district"
-        : role === "chapitre"
-          ? "Bilan consolide des districts du chapitre"
-          : "Point consolide du Centre";
+  const consolidationHint = viewScope.groupe
+    ? "Bilan consolidé du groupe"
+    : viewScope.district
+      ? "Bilan consolidé des groupes du district"
+      : viewScope.chapitre
+        ? "Bilan consolidé des districts du chapitre"
+        : role === "groupe"
+          ? "Bilan consolide du groupe"
+          : role === "district"
+            ? "Bilan consolide des groupes du district"
+            : role === "chapitre"
+              ? "Bilan consolide des districts du chapitre"
+              : "Point consolide du Centre";
 
-  const scopeSlug = (orgScope.groupe || orgScope.district || orgScope.chapitre || role)
+  const scopeSlug = (viewScope.groupe || viewScope.district || viewScope.chapitre || role)
     .toLowerCase()
     .replace(/[^a-z0-9]+/gi, "_")
     .replace(/^_|_$/g, "");
@@ -2412,11 +2673,8 @@ function Statistiques({ role }: { role: PlatformRole }) {
     exportStatisticsPdf({
       roleLabel: ROLE_LABELS[role],
       consolidationHint,
-      reportTitle:
-        role === "admin" || role === "centre"
-          ? "Bilan consolide du Centre"
-          : `Bilan consolide - ${orgScope.label}`,
-      scopeLabel: orgScope.label,
+      reportTitle: `Bilan consolide - ${viewScope.label}`,
+      scopeLabel: viewScope.label,
       fromDateLabel: format(parseISO(fromDate), "dd/MM/yyyy"),
       toDateLabel: format(parseISO(toDate), "dd/MM/yyyy"),
       filename: `bilan_consolide_${scopeSlug}_${fromDate}_${toDate}.pdf`,
@@ -2425,7 +2683,7 @@ function Statistiques({ role }: { role: PlatformRole }) {
         totalTransactions,
         uniqueMembers,
         totalCotisations,
-        totalZaimuOrdinaire,
+        totalZaimuOrdinaire: 0,
         totalZaimuSpecial,
         totalAbonnements,
       },
@@ -2434,15 +2692,18 @@ function Statistiques({ role }: { role: PlatformRole }) {
 
   const exportStatsExcel = () => {
     const summaryData = [
-      { Clé: "Périmètre", Valeur: orgScope.label },
+      { Clé: "Périmètre", Valeur: viewScope.label },
+      { Clé: "Chapitre", Valeur: viewScope.chapitre || "Tous" },
+      { Clé: "District", Valeur: viewScope.district || "Tous" },
+      { Clé: "Groupe", Valeur: viewScope.groupe || "Tous" },
       { Clé: "Rôle", Valeur: ROLE_LABELS[role] },
       { Clé: "Période", Valeur: `${format(parseISO(fromDate), "dd/MM/yyyy")} - ${format(parseISO(toDate), "dd/MM/yyyy")}` },
       { Clé: "Total de transactions", Valeur: totalTransactions },
       { Clé: "Membres contributeurs", Valeur: uniqueMembers },
       { Clé: "Vague de Paix (FCFA)", Valeur: totalCotisations },
-      { Clé: "Zaimu ordinaire (FCFA)", Valeur: totalZaimuOrdinaire },
       { Clé: "Zaimu spécial (FCFA)", Valeur: totalZaimuSpecial },
       { Clé: "Abonnements Vague de Paix", Valeur: totalAbonnements },
+      { Clé: "Gohonzon", Valeur: scopedMembers.filter((m) => m.gohonzon).length },
     ];
 
     const summarySheet = XLSX.utils.json_to_sheet(summaryData);
@@ -2450,9 +2711,10 @@ function Statistiques({ role }: { role: PlatformRole }) {
       breakdownRows.map((row) => ({
         [breakdownLabel]: row.label.replace("\n", " "),
         Membres: row.membres,
-        "Zaimu ordinaire": row.zaimuOrdinaire,
+        "Vague de Paix": row.cotisations,
         "Zaimu spécial": row.zaimuSpecial,
         "Abonnements VP": row.abonnementsVp,
+        Gohonzon: row.gohonzon,
       })),
     );
     const transactionsSheet = XLSX.utils.json_to_sheet(
@@ -2487,17 +2749,59 @@ function Statistiques({ role }: { role: PlatformRole }) {
         role={role}
         members={members}
         collectes={collectes}
-        orgScope={orgScope}
+        orgScope={viewScope}
         fromDate={fromDate}
         toDate={toDate}
         onFromDateChange={setFromDate}
         onToDateChange={setToDate}
+        orgFilters={{
+          chapitre: chapitreFilter,
+          district: districtFilter,
+          groupe: groupeFilter,
+          chapitreOptions: chapitreFilterOptions,
+          districtOptions: districtFilterOptions,
+          groupeOptions: groupeFilterOptions,
+          chapitreLocked,
+          districtLocked,
+          groupeLocked,
+          onChapitreChange: (nextChapitre) => {
+            setChapitreFilter(nextChapitre);
+            if (nextChapitre !== "Tous") {
+              const chapitre = orgTree.chapitres.find((item) => item.name === nextChapitre);
+              const allowedDistricts = chapitre
+                ? orgTree.districtsForChapitreId(chapitre.id).map((item) => item.name)
+                : [];
+              if (districtFilter !== "Tous" && !allowedDistricts.includes(districtFilter)) {
+                setDistrictFilter("Tous");
+              }
+              const allowedGroupes = chapitre
+                ? orgTree.districtsForChapitreId(chapitre.id).flatMap((district) =>
+                    orgTree.groupesForDistrictId(district.id).map((item) => item.name),
+                  )
+                : [];
+              if (groupeFilter !== "Tous" && !allowedGroupes.includes(groupeFilter)) {
+                setGroupeFilter("Tous");
+              }
+            }
+          },
+          onDistrictChange: (nextDistrict) => {
+            setDistrictFilter(nextDistrict);
+            if (nextDistrict !== "Tous" && groupeFilter !== "Tous") {
+              const district = orgTree.districts.find((item) => item.name === nextDistrict);
+              const allowed = district
+                ? orgTree.groupesForDistrictId(district.id).map((item) => item.name)
+                : [];
+              if (!allowed.includes(groupeFilter)) setGroupeFilter("Tous");
+            }
+          },
+          onGroupeChange: setGroupeFilter,
+        }}
         onExportPdf={exportStatsPdf}
         onExportExcel={exportStatsExcel}
       />
 
-      <div className="bg-card rounded-xl border border-border p-5">
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
               Analyse croisée par {breakdownLabel.toLowerCase()}
@@ -2506,12 +2810,12 @@ function Statistiques({ role }: { role: PlatformRole }) {
               Comparaison multi-indicateurs
             </div>
           </div>
-          <div className="flex gap-1.5">
+          <div className="flex max-w-full gap-1.5 overflow-x-auto pb-1">
             {(
-              ["membres", "cotisations", "zaimu-ordinaire", "zaimu-special"] as const
+              ["membres", "cotisations", "zaimu-special"] as const
             ).map((k) => (
               <button key={k} onClick={() => setAxe(k)}
-                className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${axe === k ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-secondary"}`}>
+                className={`shrink-0 text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${axe === k ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-secondary"}`}>
                 {axeLabel[k]}
               </button>
             ))}
@@ -2536,11 +2840,9 @@ function Statistiques({ role }: { role: PlatformRole }) {
                     ? "Membres"
                     : axe === "cotisations"
                       ? "Cotisations"
-                      : axe === "zaimu-ordinaire"
-                        ? "Zaimu ordinaire"
-                        : "Zaimu spécial"
+                      : "Zaimu spécial"
                 }
-                fill={axe === "zaimu-special" ? "#C23A2B" : axe === "zaimu-ordinaire" ? "#C4920E" : "#1A3470"}
+                fill={axe === "zaimu-special" ? "#C23A2B" : "#1A3470"}
                 radius={[4, 4, 0, 0]}
               />
             </BarChart>
@@ -2549,10 +2851,10 @@ function Statistiques({ role }: { role: PlatformRole }) {
       </div>
 
       {/* Trend area charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-card rounded-xl border border-border p-5">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5">
           <div className="text-sm font-semibold text-foreground mb-0.5" style={{ fontFamily: "var(--font-display)" }}>
-            Vague de Paix, Zaimu ordinaire & spécial
+            Vague de Paix & Zaimu spécial
           </div>
           <div className="text-xs text-muted-foreground mb-4">Évolution sur la période (FCFA)</div>
           {trendData.length === 0 ? (
@@ -2567,10 +2869,6 @@ function Statistiques({ role }: { role: PlatformRole }) {
                     <stop offset="5%" stopColor="#1A3470" stopOpacity={0.2} />
                     <stop offset="95%" stopColor="#1A3470" stopOpacity={0} />
                   </linearGradient>
-                  <linearGradient id="gradGold" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#C4920E" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#C4920E" stopOpacity={0} />
-                  </linearGradient>
                   <linearGradient id="gradRed" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#C23A2B" stopOpacity={0.18} />
                     <stop offset="95%" stopColor="#C23A2B" stopOpacity={0} />
@@ -2583,14 +2881,13 @@ function Statistiques({ role }: { role: PlatformRole }) {
                   formatter={(v: number, name: string) => [`${fmt(v)} FCFA`, name]} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Area type="monotone" dataKey="montant" name="Vague de Paix" stroke="#1A3470" fill="url(#gradBlue)" strokeWidth={2} dot={{ r: 2.5, fill: "#1A3470" }} />
-                <Area type="monotone" dataKey="zaimuOrdinaire" name="Zaimu ordinaire" stroke="#C4920E" fill="url(#gradGold)" strokeWidth={2} dot={{ r: 2.5, fill: "#C4920E" }} />
                 <Area type="monotone" dataKey="zaimuSpecial" name="Zaimu spécial" stroke="#C23A2B" fill="url(#gradRed)" strokeWidth={2} dot={{ r: 2.5, fill: "#C23A2B" }} />
               </AreaChart>
             </ResponsiveContainer>
           )}
         </div>
 
-        <div className="bg-card rounded-xl border border-border p-5">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5">
           <div className="text-sm font-semibold text-foreground mb-0.5" style={{ fontFamily: "var(--font-display)" }}>Membres vs Abonnements Vague de Paix</div>
           <div className="text-xs text-muted-foreground mb-4">Évolution sur 6 mois</div>
           {trendData.length === 0 ? (
@@ -2614,12 +2911,12 @@ function Statistiques({ role }: { role: PlatformRole }) {
       </div>
 
       {/* Summary table */}
-      <div className="bg-card rounded-xl border border-border p-5">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-4 sm:p-5">
         <div className="mb-1 text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
           Tableau de synthèse par {breakdownLabel.toLowerCase()}
         </div>
         <div className="mb-4 text-xs text-muted-foreground">
-          Les totaux de ce périmètre alimentent le cumul supérieur jusqu’au Centre.
+          Périmètre : {viewScope.label}. Les totaux affichés correspondent aux filtres actifs.
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -2628,9 +2925,10 @@ function Statistiques({ role }: { role: PlatformRole }) {
                 {[
                   breakdownLabel,
                   "Membres",
-                  "Zaimu ordinaire",
+                  "Vague de Paix",
                   "Zaimu spécial",
                   "Abonnements VP",
+                  "Gohonzon",
                   "Ratio VP",
                 ].map((h) => (
                   <th key={h} className="text-left pb-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide pr-4">{h}</th>
@@ -2640,7 +2938,7 @@ function Statistiques({ role }: { role: PlatformRole }) {
             <tbody>
               {breakdownRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-2 py-10 text-center text-sm text-muted-foreground">
+                  <td colSpan={7} className="px-2 py-10 text-center text-sm text-muted-foreground">
                     —
                   </td>
                 </tr>
@@ -2651,9 +2949,10 @@ function Statistiques({ role }: { role: PlatformRole }) {
                     <tr key={row.key} className={`border-b border-border hover:bg-muted/20 transition-colors ${i === breakdownRows.length - 1 ? "border-b-0" : ""}`}>
                       <td className="py-3 font-medium text-foreground pr-4">{row.label.replace("\n", " ")}</td>
                       <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{row.membres}</td>
-                      <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{fmt(row.zaimuOrdinaire)}</td>
+                      <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{fmt(row.cotisations)}</td>
                       <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{fmt(row.zaimuSpecial)}</td>
                       <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{row.abonnementsVp}</td>
+                      <td className="py-3 text-foreground pr-4" style={{ fontFamily: "var(--font-mono)" }}>{row.gohonzon}</td>
                       <td className="py-3 pr-4">
                         <div className="flex items-center gap-2">
                           <div className="flex-1 bg-muted rounded-full h-1.5 min-w-16">
@@ -2675,13 +2974,16 @@ function Statistiques({ role }: { role: PlatformRole }) {
                     {breakdownRows.reduce((s, r) => s + r.membres, 0)}
                   </td>
                   <td className="py-3 font-semibold pr-4" style={{ fontFamily: "var(--font-mono)" }}>
-                    {fmt(breakdownRows.reduce((s, r) => s + r.zaimuOrdinaire, 0))}
+                    {fmt(breakdownRows.reduce((s, r) => s + r.cotisations, 0))}
                   </td>
                   <td className="py-3 font-semibold pr-4" style={{ fontFamily: "var(--font-mono)" }}>
                     {fmt(breakdownRows.reduce((s, r) => s + r.zaimuSpecial, 0))}
                   </td>
                   <td className="py-3 font-semibold pr-4" style={{ fontFamily: "var(--font-mono)" }}>
                     {breakdownRows.reduce((s, r) => s + r.abonnementsVp, 0)}
+                  </td>
+                  <td className="py-3 font-semibold pr-4" style={{ fontFamily: "var(--font-mono)" }}>
+                    {breakdownRows.reduce((s, r) => s + r.gohonzon, 0)}
                   </td>
                   <td className="py-3 pr-4 text-xs text-muted-foreground">Cumul</td>
                 </tr>
@@ -2918,7 +3220,7 @@ export default function App() {
 
   return (
     <OpsDataProvider>
-    <div className="flex h-screen overflow-hidden bg-background" style={{ fontFamily: "var(--font-sans)" }}>
+    <div className="flex h-dvh min-h-0 overflow-hidden bg-background" style={{ fontFamily: "var(--font-sans)" }}>
       <Sidebar
         active={activeModule}
         setActive={switchModule}
@@ -2937,7 +3239,7 @@ export default function App() {
           onClick={() => setSidebarOpen(false)}
         >
           <aside
-            className="sgi-drawer-panel absolute left-0 top-0 flex h-full w-[min(300px,88vw)] flex-col bg-card shadow-[var(--shadow-lift)]"
+            className="sgi-drawer-panel absolute left-0 top-0 flex h-full w-[min(300px,88vw)] min-h-0 flex-col overflow-hidden bg-card shadow-[var(--shadow-lift)]"
             onClick={(event) => event.stopPropagation()}
           >
             <div
@@ -2977,7 +3279,7 @@ export default function App() {
           setSidebarOpen={setSidebarOpen}
         />
         <main
-          className="flex-1 overflow-y-auto"
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
           style={{
             scrollbarWidth: "thin",
             scrollbarColor: "rgba(0,0,0,0.1) transparent",
@@ -3022,6 +3324,7 @@ export default function App() {
         </main>
       </div>
 
+      <InstallBanner variant="dashboard" />
       <DashboardAiAssistant role={currentUserRole} />
     </div>
     </OpsDataProvider>

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Pencil, Trash2, UsersRound } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Trash2, UsersRound } from "lucide-react";
 import {
   createGroupe,
   deleteGroupe,
@@ -9,16 +9,25 @@ import {
   updateGroupe,
 } from "../../services/orgService";
 import type { ChapitreRow, DistrictRow, GroupeRow } from "../../types/supabase";
+import { MemberAvatar } from "../MemberAvatar";
+import type { MemberRecord } from "../memberFormUtils";
+import { useOpsData } from "../opsDataStore";
 import { RowActionsMenu } from "../RowActionsMenu";
 import { useConfirm } from "../ConfirmDialog";
+import { membersOfGroupe, OrgMemberDetailModal } from "./OrgMemberDetailModal";
 import { OrgDetailEmpty, OrgEmptyState, OrgPageShell } from "./OrgPageShell";
+
+type Level = "groupes" | "membres";
 
 export default function GroupesModule() {
   const { confirm } = useConfirm();
+  const { members } = useOpsData();
   const [items, setItems] = useState<GroupeRow[]>([]);
   const [chapitres, setChapitres] = useState<ChapitreRow[]>([]);
   const [districts, setDistricts] = useState<DistrictRow[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [level, setLevel] = useState<Level>("groupes");
+  const [groupeId, setGroupeId] = useState<string | null>(null);
+  const [selectedMember, setSelectedMember] = useState<MemberRecord | null>(null);
   const [query, setQuery] = useState("");
   const [chapitreFilter, setChapitreFilter] = useState<"all" | string>("all");
   const [districtFilter, setDistrictFilter] = useState<"all" | string>("all");
@@ -33,7 +42,7 @@ export default function GroupesModule() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selected = items.find((item) => item.id === selectedId) || null;
+  const selectedGroupe = items.find((item) => item.id === groupeId) || null;
 
   const load = async () => {
     setLoading(true);
@@ -47,7 +56,6 @@ export default function GroupesModule() {
       setItems([]);
     } else {
       setItems(groupesRes.data);
-      setSelectedId((current) => current || groupesRes.data[0]?.id || null);
     }
     if (!chapitresRes.error) setChapitres(chapitresRes.data);
     if (!districtsRes.error) setDistricts(districtsRes.data);
@@ -74,7 +82,25 @@ export default function GroupesModule() {
     [districts, chapitreId],
   );
 
-  const visible = useMemo(() => {
+  const memberCountByGroupe = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const groupe of items) {
+      map.set(groupe.id, membersOfGroupe(members, groupe).length);
+    }
+    return map;
+  }, [items, members]);
+
+  const membersList = useMemo(() => {
+    if (!selectedGroupe) return [];
+    return membersOfGroupe(
+      members,
+      selectedGroupe,
+      selectedGroupe.district_name,
+      selectedGroupe.chapitre_name,
+    );
+  }, [members, selectedGroupe]);
+
+  const visibleGroupes = useMemo(() => {
     const q = query.trim().toLowerCase();
     return items.filter((item) => {
       if (chapitreFilter !== "all" && item.chapitre_id !== chapitreFilter) return false;
@@ -88,6 +114,14 @@ export default function GroupesModule() {
       );
     });
   }, [items, query, chapitreFilter, districtFilter]);
+
+  const visibleMembers = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return membersList;
+    return membersList.filter((member) =>
+      `${member.prenom} ${member.nom} ${member.email}`.toLowerCase().includes(q),
+    );
+  }, [membersList, query]);
 
   const openCreate = () => {
     const firstChapitre = chapitres[0]?.id || "";
@@ -139,7 +173,6 @@ export default function GroupesModule() {
         });
         if (saveError || !data) throw saveError || new Error("Création impossible.");
         setToast(`Groupe « ${data.name} » créé.`);
-        setSelectedId(data.id);
       }
       setModalOpen(false);
       await load();
@@ -164,54 +197,224 @@ export default function GroupesModule() {
       return;
     }
     setToast(`Groupe « ${item.name} » supprimé.`);
-    if (selectedId === item.id) setSelectedId(null);
+    if (groupeId === item.id) {
+      setLevel("groupes");
+      setGroupeId(null);
+    }
     await load();
   };
+
+  const openGroupe = (id: string) => {
+    setGroupeId(id);
+    setQuery("");
+    setLevel("membres");
+  };
+
+  const goBack = () => {
+    setQuery("");
+    setLevel("groupes");
+    setGroupeId(null);
+  };
+
+  const detailPanel = selectedGroupe ? (
+    <div className="flex h-full flex-col">
+      <div
+        className="border-b border-border px-5 py-5"
+        style={{
+          background:
+            "linear-gradient(135deg, color-mix(in srgb, var(--sgi-blue) 10%, transparent), transparent)",
+        }}
+      >
+        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--sgi-gold)]">Groupe</p>
+        <h3 className="mt-1 font-display text-xl font-semibold text-foreground">{selectedGroupe.name}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {selectedGroupe.district_name || "District"} · {selectedGroupe.chapitre_name || "Chapitre"}
+        </p>
+      </div>
+      <div className="space-y-4 px-5 py-5">
+        <div className="rounded-2xl border border-border bg-muted/25 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Membres</p>
+          <p className="mt-1 font-display text-2xl font-semibold text-foreground">{membersList.length}</p>
+        </div>
+        {level === "membres" ? (
+          <p className="text-sm text-muted-foreground">
+            Cliquez sur un membre dans la liste pour afficher sa fiche détaillée.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Cliquez sur le groupe pour voir la liste de ses membres.
+          </p>
+        )}
+        <div className="flex flex-col gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => openEdit(selectedGroupe)}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[var(--sgi-blue)] px-4 py-2.5 text-sm font-medium text-white"
+          >
+            <Pencil size={15} /> Modifier
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDelete(selectedGroupe)}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-red-200 px-4 py-2.5 text-sm font-medium text-red-700 hover:bg-red-50"
+          >
+            <Trash2 size={15} /> Supprimer
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : (
+    <OrgDetailEmpty label="Cliquez sur un groupe pour voir ses membres." />
+  );
+
+  const listContent = (() => {
+    if (level === "membres") {
+      if (visibleMembers.length === 0) {
+        return <OrgEmptyState label={loading ? "Chargement…" : "Aucun membre dans ce groupe."} />;
+      }
+      return visibleMembers.map((member) => (
+        <button
+          key={member.id}
+          type="button"
+          onClick={() => setSelectedMember(member)}
+          className="flex w-full items-center gap-3 rounded-2xl border border-transparent bg-muted/25 px-4 py-4 text-left transition hover:border-border hover:bg-muted/50"
+        >
+          <MemberAvatar photo={member.photo} prenom={member.prenom} nom={member.nom} size="sm" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-semibold text-foreground">
+              {member.prenom} {member.nom}
+            </div>
+            <div className="mt-1 truncate text-sm text-muted-foreground">
+              {member.responsabilite === "Membre" ? "Membre simple" : member.responsabilite}
+              {" · "}
+              {member.statut}
+            </div>
+          </div>
+          <ChevronRight size={16} className="shrink-0 text-muted-foreground" />
+        </button>
+      ));
+    }
+
+    if (visibleGroupes.length === 0) {
+      return (
+        <OrgEmptyState
+          label={loading ? "Chargement…" : items.length === 0 ? "Aucun groupe." : "Aucun résultat."}
+        />
+      );
+    }
+
+    return visibleGroupes.map((item, index) => (
+      <div
+        key={item.id}
+        className="flex items-center gap-3 rounded-2xl border border-transparent bg-muted/25 px-4 py-4 transition hover:border-border hover:bg-muted/50"
+      >
+        <button type="button" onClick={() => openGroupe(item.id)} className="min-w-0 flex-1 text-left">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-lg bg-[var(--sgi-blue)]/10 px-1.5 text-[11px] font-bold text-[var(--sgi-blue)]">
+              {index + 1}
+            </span>
+            <span className="truncate font-semibold text-foreground">{item.name}</span>
+          </div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            {item.chapitre_name || "—"} · {item.district_name || "—"} ·{" "}
+            {memberCountByGroupe.get(item.id) || 0} membre
+            {(memberCountByGroupe.get(item.id) || 0) > 1 ? "s" : ""}
+          </div>
+        </button>
+        <ChevronRight size={16} className="shrink-0 text-muted-foreground" />
+        <RowActionsMenu
+          actions={[
+            { label: "Modifier", icon: <Pencil size={14} />, onClick: () => openEdit(item) },
+            {
+              label: "Supprimer",
+              icon: <Trash2 size={14} />,
+              tone: "danger",
+              onClick: () => void handleDelete(item),
+            },
+          ]}
+        />
+      </div>
+    ));
+  })();
 
   return (
     <>
       <OrgPageShell
         title="Gestion des groupes"
-        subtitle="Consultez et administrez les 20 groupes du Centre Miroir Parfait, avec leur district et chapitre."
+        subtitle="Cliquez un groupe pour voir ses membres, puis la fiche détaillée."
         icon={UsersRound}
         kpis={[
           { label: "Groupes", value: items.length, tone: "text-[var(--sgi-blue)]" },
-          { label: "Attendus", value: 20, tone: "text-[var(--sgi-gold)]" },
-          { label: "Districts", value: districts.length, tone: "text-emerald-600" },
-          { label: "Affichés", value: visible.length, tone: "text-muted-foreground" },
+          { label: "Districts", value: districts.length, tone: "text-[var(--sgi-gold)]" },
+          { label: "Membres", value: members.length, tone: "text-emerald-600" },
+          { label: "Affichés", value: visibleGroupes.length, tone: "text-muted-foreground" },
         ]}
         query={query}
         onQueryChange={setQuery}
-        searchPlaceholder="Rechercher un groupe…"
+        searchPlaceholder={level === "membres" ? "Rechercher un membre…" : "Rechercher un groupe…"}
         filters={
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <select
-              value={chapitreFilter}
-              onChange={(e) => {
-                setChapitreFilter(e.target.value);
-                setDistrictFilter("all");
-              }}
-              className="rounded-2xl border border-border bg-input-background px-3.5 py-2.5 text-sm outline-none"
-            >
-              <option value="all">Tous les chapitres</option>
-              {chapitres.map((chapitre) => (
-                <option key={chapitre.id} value={chapitre.id}>
-                  {chapitre.name}
-                </option>
-              ))}
-            </select>
-            <select
-              value={districtFilter}
-              onChange={(e) => setDistrictFilter(e.target.value)}
-              className="rounded-2xl border border-border bg-input-background px-3.5 py-2.5 text-sm outline-none"
-            >
-              <option value="all">Tous les districts</option>
-              {districtsForFilter.map((district) => (
-                <option key={district.id} value={district.id}>
-                  {district.name}
-                </option>
-              ))}
-            </select>
+          <div className="space-y-2">
+            {level === "membres" && (
+              <button
+                type="button"
+                onClick={goBack}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"
+              >
+                <ChevronLeft size={14} /> Retour aux groupes
+              </button>
+            )}
+            <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+              <button
+                type="button"
+                onClick={goBack}
+                className={`rounded-lg px-2 py-1 font-medium transition ${
+                  level === "groupes"
+                    ? "bg-[var(--sgi-blue)]/10 text-[var(--sgi-blue)]"
+                    : "hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                Groupes
+              </button>
+              {selectedGroupe && (
+                <>
+                  <ChevronRight size={12} />
+                  <span className="max-w-[12rem] truncate rounded-lg bg-[var(--sgi-blue)]/10 px-2 py-1 font-medium text-[var(--sgi-blue)]">
+                    {selectedGroupe.name}
+                  </span>
+                </>
+              )}
+            </div>
+            {level === "groupes" && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <select
+                  value={chapitreFilter}
+                  onChange={(e) => {
+                    setChapitreFilter(e.target.value);
+                    setDistrictFilter("all");
+                  }}
+                  className="rounded-2xl border border-border bg-input-background px-3.5 py-2.5 text-sm outline-none"
+                >
+                  <option value="all">Tous les chapitres</option>
+                  {chapitres.map((chapitre) => (
+                    <option key={chapitre.id} value={chapitre.id}>
+                      {chapitre.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={districtFilter}
+                  onChange={(e) => setDistrictFilter(e.target.value)}
+                  className="rounded-2xl border border-border bg-input-background px-3.5 py-2.5 text-sm outline-none"
+                >
+                  <option value="all">Tous les districts</option>
+                  {districtsForFilter.map((district) => (
+                    <option key={district.id} value={district.id}>
+                      {district.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         }
         onRefresh={() => void load()}
@@ -219,95 +422,14 @@ export default function GroupesModule() {
         onCreate={openCreate}
         createLabel="Nouveau groupe"
         toast={toast}
-        detail={
-          selected ? (
-            <div className="flex h-full flex-col">
-              <div
-                className="border-b border-border px-5 py-5"
-                style={{
-                  background:
-                    "linear-gradient(135deg, color-mix(in srgb, var(--sgi-blue) 10%, transparent), transparent)",
-                }}
-              >
-                <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--sgi-gold)]">Groupe</p>
-                <h3 className="mt-1 font-display text-xl font-semibold text-foreground">{selected.name}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {selected.district_name || "District"} · {selected.chapitre_name || "Chapitre"}
-                </p>
-              </div>
-              <div className="space-y-4 px-5 py-5">
-                <div className="rounded-2xl border border-border bg-muted/25 px-4 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Chapitre</p>
-                  <p className="mt-1 text-sm font-medium text-foreground">{selected.chapitre_name || "—"}</p>
-                </div>
-                <div className="rounded-2xl border border-border bg-muted/25 px-4 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">District</p>
-                  <p className="mt-1 text-sm font-medium text-foreground">{selected.district_name || "—"}</p>
-                </div>
-                <div className="flex flex-col gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => openEdit(selected)}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[var(--sgi-blue)] px-4 py-2.5 text-sm font-medium text-white"
-                  >
-                    <Pencil size={15} /> Modifier
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDelete(selected)}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-red-200 px-4 py-2.5 text-sm font-medium text-red-700 hover:bg-red-50"
-                  >
-                    <Trash2 size={15} /> Supprimer
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <OrgDetailEmpty label="Aucun groupe sélectionné" />
-          )
-        }
+        detail={detailPanel}
       >
-        {visible.length === 0 ? (
-          <OrgEmptyState label={loading ? "Chargement…" : items.length === 0 ? "Aucun groupe." : "Aucun résultat."} />
-        ) : (
-          visible.map((item, index) => {
-            const active = selectedId === item.id;
-            return (
-              <div
-                key={item.id}
-                className={`flex items-center gap-3 rounded-2xl border px-4 py-4 transition ${
-                  active
-                    ? "border-[var(--sgi-blue)]/35 bg-[var(--sgi-blue)]/5 shadow-sm"
-                    : "border-transparent bg-muted/25 hover:border-border hover:bg-muted/50"
-                }`}
-              >
-                <button type="button" onClick={() => setSelectedId(item.id)} className="min-w-0 flex-1 text-left">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-lg bg-[var(--sgi-blue)]/10 px-1.5 text-[11px] font-bold text-[var(--sgi-blue)]">
-                      {index + 1}
-                    </span>
-                    <span className="truncate font-semibold text-foreground">{item.name}</span>
-                  </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    {item.chapitre_name || "—"} · {item.district_name || "—"}
-                  </div>
-                </button>
-                <RowActionsMenu
-                  actions={[
-                    { label: "Modifier", icon: <Pencil size={14} />, onClick: () => openEdit(item) },
-                    {
-                      label: "Supprimer",
-                      icon: <Trash2 size={14} />,
-                      tone: "danger",
-                      onClick: () => void handleDelete(item),
-                    },
-                  ]}
-                />
-              </div>
-            );
-          })
-        )}
+        {listContent}
       </OrgPageShell>
+
+      {selectedMember && (
+        <OrgMemberDetailModal membre={selectedMember} onClose={() => setSelectedMember(null)} />
+      )}
 
       {modalOpen && (
         <div

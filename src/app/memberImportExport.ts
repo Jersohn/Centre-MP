@@ -1,6 +1,6 @@
 ﻿import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
-import type { MemberFormValues, MemberRecord } from "./memberFormUtils";
+import type { MemberRecord } from "./memberFormUtils";
 import { memberFullName } from "./membersData";
 import {
   getMemberSpecialAssignment,
@@ -28,6 +28,7 @@ export const MEMBER_IMPORT_COLUMNS = [
   "Responsabilite",
   "DateDebutPratique",
   "VagueDePaix",
+  "Gohonzon",
   "Sokahan",
   "Quartier",
   "Chapitre",
@@ -55,6 +56,7 @@ export const MEMBER_EXPORT_FIELDS: ExportFieldOption[] = [
   { key: "ZaimuOrd", label: "Zaimu ord." },
   { key: "ZaimuSp", label: "Zaimu sp. (payé/cota)" },
   { key: "VagueDePaix", label: "Vague de Paix" },
+  { key: "Gohonzon", label: "Gohonzon" },
   { key: "Sokahan", label: "Sokahan" },
   { key: "Quartier", label: "Quartier" },
   { key: "Chapitre", label: "Chapitre" },
@@ -73,12 +75,20 @@ export const MEMBER_EXPORT_DEFAULT_FIELDS = [
   "Chapitre",
   "District",
   "Groupe",
+  "Departement",
   "Statut",
   "ZaimuOrd",
   "ZaimuSp",
   "VagueDePaix",
+  "Gohonzon",
   "Sokahan",
 ];
+
+const MEMBER_DEPARTEMENT_VALUES = ["Homme", "Femme", "Jeune homme", "Jeune fille", "Avenir"] as const;
+
+function memberDepartementLabel(member: MemberRecord) {
+  return (member.departement || member.categorie || "").trim();
+}
 
 export const ZAIMU_BILAN_EXPORT_FIELDS: ExportFieldOption[] = [
   { key: "Membre", label: "Membre", group: "Bilan cota" },
@@ -234,7 +244,7 @@ function drawDynamicPdfTable(
     if (/telephone|téléphone/i.test(key)) return 1.05;
     if (/responsabilite|responsabilité/i.test(key)) return 1.15;
     if (/prenom|prénom|nom$/i.test(key)) return 1.05;
-    if (/vague|sokahan|statut/i.test(key)) return 0.85;
+    if (/vague|gohonzon|sokahan|statut/i.test(key)) return 0.85;
     return 0.95;
   });
   const weightSum = weights.reduce((a, b) => a + b, 0) || 1;
@@ -495,13 +505,23 @@ export function buildMemberPdfSummaryCards(
     }
   }
 
+  if (selected.has("Gohonzon")) {
+    const gohonzon = members.filter((m) => m.gohonzon).length;
+    cards.push({
+      label: "Gohonzon",
+      value: formatExportNumber(gohonzon),
+      hint: total ? `${Math.round((gohonzon / total) * 100)} %` : undefined,
+      accent: [194, 58, 43],
+    });
+  }
+
   if (selected.has("Sokahan")) {
     const sokahan = members.filter((m) => m.sokahan).length;
     cards.push({
       label: "Sokahan",
       value: formatExportNumber(sokahan),
       hint: total ? `${Math.round((sokahan / total) * 100)} %` : undefined,
-      accent: [194, 58, 43],
+      accent: [200, 151, 26],
     });
   }
 
@@ -545,25 +565,22 @@ export function buildMemberPdfSummaryCards(
   }
 
   if (selected.has("Categorie") || selected.has("Departement")) {
-    const field = selected.has("Categorie") ? "categorie" : "departement";
-    const countOf = (label: string) =>
-      members.filter((m) => String(m[field] || "").trim().toLowerCase() === label.toLowerCase()).length;
-    const demo = [
-      { label: "Hommes", key: "Homme", accent: [10, 47, 82] as [number, number, number] },
-      { label: "Femmes", key: "Femme", accent: [200, 151, 26] as [number, number, number] },
-      { label: "Jeunes H.", key: "Jeune homme", accent: [26, 52, 112] as [number, number, number] },
-      { label: "Jeunes F.", key: "Jeune fille", accent: [194, 58, 43] as [number, number, number] },
-      { label: "Avenir", key: "Avenir", accent: [31, 122, 69] as [number, number, number] },
-    ];
-    for (const item of demo) {
-      const value = countOf(item.key);
-      if (value > 0) {
-        cards.push({
-          label: item.label,
-          value: formatExportNumber(value),
-          accent: item.accent,
-        });
-      }
+    const accents: Record<(typeof MEMBER_DEPARTEMENT_VALUES)[number], [number, number, number]> = {
+      Homme: [10, 47, 82],
+      Femme: [200, 151, 26],
+      "Jeune homme": [26, 52, 112],
+      "Jeune fille": [194, 58, 43],
+      Avenir: [31, 122, 69],
+    };
+    for (const label of MEMBER_DEPARTEMENT_VALUES) {
+      const value = members.filter(
+        (m) => memberDepartementLabel(m).toLowerCase() === label.toLowerCase(),
+      ).length;
+      cards.push({
+        label,
+        value: formatExportNumber(value),
+        accent: accents[label],
+      });
     }
   }
 
@@ -654,11 +671,12 @@ const EXAMPLE_ROW: Record<MemberImportColumn, string> = {
   Email: "awa.traore@email.com",
   Telephone: "+225 07 00 00 00 00",
   DateNaissance: "1995-04-12",
-  Departement: "Culture",
+  Departement: "Femme",
   Categorie: "Femme",
   Responsabilite: "Membre simple",
   DateDebutPratique: "2019-01-15",
   VagueDePaix: "Oui",
+  Gohonzon: "Non",
   Sokahan: "Non",
   Quartier: "Cocody",
   Chapitre: "Rissho Ankoku Ron",
@@ -670,35 +688,111 @@ const EXAMPLE_ROW: Record<MemberImportColumn, string> = {
 };
 
 const GUIDE_ROWS = [
-  { Champ: "Prenom / Nom / Email", Regle: "Obligatoires" },
-  { Champ: "Categorie", Regle: "Homme | Femme | Jeune homme | Jeune fille | Avenir" },
+  {
+    Champ: "Identifiant",
+    Regle: "Prénom + Nom, ou Email. Tous les autres champs sont optionnels.",
+  },
+  {
+    Champ: "Mise à jour",
+    Regle: "Si le membre existe déjà (même email ou même nom), seules les colonnes remplies sont modifiées — idéal pour changer Chapitre / District / Groupe.",
+  },
+  { Champ: "Departement / Categorie", Regle: "Optionnel. Homme | Femme | Jeune homme | Jeune fille | Avenir" },
   {
     Champ: "Responsabilite",
-    Regle: "Membre simple | Responsable groupe | Responsable district | Responsable chapitre | Responsable centre",
+    Regle: "Optionnel. Membre simple | Responsable groupe | Responsable district | Responsable chapitre | Responsable centre",
   },
-  { Champ: "VagueDePaix / Sokahan / Abonnement", Regle: "Oui ou Non" },
-  { Champ: "Statut", Regle: "Actif | En attente | Suspendu" },
-  { Champ: "Dates", Regle: "Format AAAA-MM-JJ (ex. 2026-08-01)" },
-  { Champ: "Chapitre / District / Groupe", Regle: "Respecter les libellés déjà utilisés dans l’application" },
+  { Champ: "VagueDePaix / Gohonzon / Sokahan / Abonnement", Regle: "Optionnel. Oui ou Non (cellule vide = inchangé)" },
+  { Champ: "Statut", Regle: "Optionnel. Actif | En attente | Suspendu" },
+  { Champ: "Dates", Regle: "Optionnel. Format AAAA-MM-JJ (ex. 2026-08-01)" },
+  {
+    Champ: "Chapitre / District / Groupe",
+    Regle: "Optionnels. Si vides, le membre est enregistré avec son nom seulement (non affecté). S’ils sont remplis, utiliser les libellés de l’application.",
+  },
 ];
 
 function yesNo(value: boolean) {
   return value ? "Oui" : "Non";
 }
 
-function parseYesNo(value: unknown, fallback = false) {
+function parseYesNo(value: unknown): boolean | undefined {
   const raw = String(value ?? "")
     .trim()
     .toLowerCase();
-  if (!raw) return fallback;
-  return ["oui", "yes", "true", "1", "o", "y"].includes(raw);
+  if (!raw) return undefined;
+  if (["oui", "yes", "true", "1", "o", "y"].includes(raw)) return true;
+  if (["non", "no", "false", "0", "n"].includes(raw)) return false;
+  return undefined;
+}
+
+function normalizePersonKey(prenom: string, nom: string) {
+  return `${prenom} ${nom}`.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function foldHeader(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+const FOLDED_IMPORT_HEADERS: Record<string, MemberImportColumn> = {
+  prenom: "Prenom",
+  nom: "Nom",
+  email: "Email",
+  mail: "Email",
+  courriel: "Email",
+  telephone: "Telephone",
+  tel: "Telephone",
+  portable: "Telephone",
+  datenaissance: "DateNaissance",
+  naissance: "DateNaissance",
+  departement: "Departement",
+  categorie: "Categorie",
+  responsabilite: "Responsabilite",
+  datedebutpratique: "DateDebutPratique",
+  debutpratique: "DateDebutPratique",
+  vaguedepaix: "VagueDePaix",
+  vp: "VagueDePaix",
+  gohonzon: "Gohonzon",
+  sokahan: "Sokahan",
+  quartier: "Quartier",
+  chapitre: "Chapitre",
+  district: "District",
+  groupe: "Groupe",
+  statut: "Statut",
+  abonnement: "Abonnement",
+  dateadhesion: "DateAdhesion",
+  adhesion: "DateAdhesion",
+};
+
+function remapImportRow(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...row };
+  for (const [key, value] of Object.entries(row)) {
+    const mapped = FOLDED_IMPORT_HEADERS[foldHeader(key)];
+    if (!mapped) continue;
+    const current = out[mapped];
+    if (current === undefined || current === null || String(current).trim() === "") {
+      out[mapped] = value;
+    }
+  }
+  return out;
 }
 
 function cell(row: Record<string, unknown>, key: string) {
-  const exact = row[key];
-  if (exact !== undefined && exact !== null && String(exact).trim() !== "") return String(exact).trim();
-  const found = Object.entries(row).find(([k]) => k.trim().toLowerCase() === key.toLowerCase());
-  return found ? String(found[1] ?? "").trim() : "";
+  const remapped = remapImportRow(row);
+  const exact = remapped[key];
+  if (exact !== undefined && exact !== null && String(exact).trim() !== "") {
+    if (typeof exact === "number" && Number.isFinite(exact)) {
+      const parsed = XLSX.SSF.parse_date_code(exact);
+      if (parsed && exact > 20000) {
+        return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+      }
+      return String(exact).trim();
+    }
+    return String(exact).trim();
+  }
+  return "";
 }
 
 export function memberToImportRow(member: MemberRecord): Record<MemberImportColumn, string> {
@@ -708,11 +802,12 @@ export function memberToImportRow(member: MemberRecord): Record<MemberImportColu
     Email: member.email,
     Telephone: member.telephone,
     DateNaissance: member.dateNaissance,
-    Departement: member.departement,
-    Categorie: member.categorie,
+    Departement: memberDepartementLabel(member),
+    Categorie: memberDepartementLabel(member) || member.categorie,
     Responsabilite: member.responsabilite === "Membre" ? "Membre simple" : member.responsabilite,
     DateDebutPratique: member.dateDebutPratique,
     VagueDePaix: yesNo(member.abonnementVaguePaix),
+    Gohonzon: yesNo(member.gohonzon),
     Sokahan: yesNo(member.sokahan),
     Quartier: member.quartier,
     Chapitre: member.chapitre,
@@ -784,6 +879,7 @@ export function exportMembersExcel(
     fields.length ? fields : MEMBER_EXPORT_DEFAULT_FIELDS,
     ["Prenom", "Nom"]
   );
+  const selectedSet = new Set(selected);
   const rows = members.map((m) =>
     sanitizeRowForExcel(pickRowFields(memberToExportRow(m, finance), selected)),
   );
@@ -792,15 +888,35 @@ export function exportMembersExcel(
       ? inferExportOrgScope(members)
       : formatExportOrgScope(scope) || "Périmètre non précisé";
   const totals = computeMemberZaimuTotals(members, finance);
-  const workbook = XLSX.utils.book_new();
-  const summarySheet = XLSX.utils.json_to_sheet([
+  const summaryRows: { Indicateur: string; Valeur: string | number }[] = [
     { Indicateur: "Périmètre", Valeur: scopeLabel },
     { Indicateur: "Effectif", Valeur: members.length },
-    { Indicateur: "Zaimu sp. payé (FCFA)", Valeur: Math.round(totals.zaimuSpecialPaye) },
-    { Indicateur: "Zaimu sp. reste (FCFA)", Valeur: Math.round(totals.zaimuSpecialReste) },
-    { Indicateur: "Zaimu sp. cota périmètre (FCFA)", Valeur: Math.round(totals.zaimuSpecialCota) },
-    { Indicateur: "Zaimu ordinaire validé (FCFA)", Valeur: Math.round(totals.zaimuOrdinaire) },
-  ]);
+  ];
+  if (selectedSet.has("Departement") || selectedSet.has("Categorie")) {
+    for (const label of MEMBER_DEPARTEMENT_VALUES) {
+      summaryRows.push({
+        Indicateur: label,
+        Valeur: members.filter(
+          (m) => memberDepartementLabel(m).toLowerCase() === label.toLowerCase(),
+        ).length,
+      });
+    }
+  }
+  if (selectedSet.has("ZaimuSp")) {
+    summaryRows.push(
+      { Indicateur: "Zaimu sp. payé (FCFA)", Valeur: Math.round(totals.zaimuSpecialPaye) },
+      { Indicateur: "Zaimu sp. reste (FCFA)", Valeur: Math.round(totals.zaimuSpecialReste) },
+      { Indicateur: "Zaimu sp. cota périmètre (FCFA)", Valeur: Math.round(totals.zaimuSpecialCota) },
+    );
+  }
+  if (selectedSet.has("ZaimuOrd")) {
+    summaryRows.push({
+      Indicateur: "Zaimu ordinaire validé (FCFA)",
+      Valeur: Math.round(totals.zaimuOrdinaire),
+    });
+  }
+  const workbook = XLSX.utils.book_new();
+  const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
   XLSX.utils.book_append_sheet(workbook, summarySheet, "Synthese");
   const sheet = XLSX.utils.json_to_sheet(
     rows.length ? rows : [Object.fromEntries(selected.map((c) => [c, ""]))],
@@ -1048,16 +1164,40 @@ export function exportZaimuSpecialPdf(
   doc.save(options.filename);
 }
 
-export type ParsedImportMember = MemberFormValues & { adhesion: string };
+export type ParsedImportMember = {
+  prenom: string;
+  nom: string;
+  email: string;
+  telephone?: string;
+  dateNaissance?: string;
+  departement?: string;
+  categorie?: string;
+  responsabilite?: string;
+  dateDebutPratique?: string;
+  abonnementVaguePaix?: boolean;
+  gohonzon?: boolean;
+  sokahan?: boolean;
+  quartier?: string;
+  chapitre?: string;
+  district?: string;
+  groupe?: string;
+  statut?: string;
+  abonnement?: boolean;
+  adhesion?: string;
+};
 
 export type ImportParseResult = {
   members: ParsedImportMember[];
   errors: string[];
 };
 
-export function parseMembersImportWorkbook(data: ArrayBuffer): ImportParseResult {
-  const workbook = XLSX.read(data, { type: "array" });
-  const sheetName = workbook.SheetNames.includes("Membres") ? "Membres" : workbook.SheetNames[0];
+export function parseMembersImportWorkbook(data: ArrayBuffer | string): ImportParseResult {
+  const workbook = XLSX.read(data, { type: typeof data === "string" ? "string" : "array" });
+  const preferred = ["Membres", "Liste", "Members", "Adherents"];
+  const sheetName =
+    preferred.find((name) => workbook.SheetNames.includes(name)) ||
+    workbook.SheetNames.find((name) => foldHeader(name) !== "instructions") ||
+    workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
   const members: ParsedImportMember[] = [];
@@ -1067,17 +1207,16 @@ export function parseMembersImportWorkbook(data: ArrayBuffer): ImportParseResult
     const line = index + 2;
     const prenom = cell(row, "Prenom");
     const nom = cell(row, "Nom");
-    const email = cell(row, "Email").toLowerCase();
+    const emailRaw = cell(row, "Email");
+    const email = emailRaw.toLowerCase();
 
-    // skip empty / example-only blanks
     if (!prenom && !nom && !email) return;
 
-    // skip the demo example row if left unchanged? keep it — user may want it
-    if (!prenom || !nom || !email) {
-      errors.push(`Ligne ${line} : Prénom, Nom et Email sont obligatoires.`);
+    if ((!prenom || !nom) && !email) {
+      errors.push(`Ligne ${line} : indiquez Prénom et Nom, ou un Email, pour identifier le membre.`);
       return;
     }
-    if (!email.includes("@")) {
+    if (email && !email.includes("@")) {
       errors.push(`Ligne ${line} : Email invalide (${email}).`);
       return;
     }
@@ -1086,57 +1225,142 @@ export function parseMembersImportWorkbook(data: ArrayBuffer): ImportParseResult
       prenom,
       nom,
       email,
-      telephone: cell(row, "Telephone"),
-      dateNaissance: cell(row, "DateNaissance"),
-      departement: cell(row, "Departement"),
-      categorie: cell(row, "Categorie") || "Homme",
-      responsabilite: cell(row, "Responsabilite") || "Membre simple",
-      dateDebutPratique: cell(row, "DateDebutPratique"),
+      telephone: cell(row, "Telephone") || undefined,
+      dateNaissance: cell(row, "DateNaissance") || undefined,
+      departement: cell(row, "Departement") || undefined,
+      categorie: cell(row, "Categorie") || undefined,
+      responsabilite: cell(row, "Responsabilite") || undefined,
+      dateDebutPratique: cell(row, "DateDebutPratique") || undefined,
       abonnementVaguePaix: parseYesNo(cell(row, "VagueDePaix")),
+      gohonzon: parseYesNo(cell(row, "Gohonzon")),
       sokahan: parseYesNo(cell(row, "Sokahan")),
-      quartier: cell(row, "Quartier"),
-      chapitre: cell(row, "Chapitre") || "Rissho Ankoku Ron",
-      district: cell(row, "District") || "District Bodhisattva",
-      groupe: cell(row, "Groupe") || "BODDHISATTVA",
-      statut: cell(row, "Statut") || "Actif",
-      abonnement: parseYesNo(cell(row, "Abonnement"), true),
-      photo: "",
-      adhesion: cell(row, "DateAdhesion") || new Date().toISOString().slice(0, 10),
+      quartier: cell(row, "Quartier") || undefined,
+      chapitre: cell(row, "Chapitre") || undefined,
+      district: cell(row, "District") || undefined,
+      groupe: cell(row, "Groupe") || undefined,
+      statut: cell(row, "Statut") || undefined,
+      abonnement: parseYesNo(cell(row, "Abonnement")),
+      adhesion: cell(row, "DateAdhesion") || undefined,
     });
   });
 
   return { members, errors };
 }
 
+function findExistingMember(existing: MemberRecord[], row: ParsedImportMember) {
+  if (row.email) {
+    const byEmail = existing.find(
+      (item) => (item.email || "").trim().toLowerCase() === row.email,
+    );
+    if (byEmail) return byEmail;
+  }
+  if (row.prenom && row.nom) {
+    const key = normalizePersonKey(row.prenom, row.nom);
+    return existing.find(
+      (item) => normalizePersonKey(item.prenom || "", item.nom || "") === key,
+    );
+  }
+  return undefined;
+}
+
+function mergeImportedMember(base: MemberRecord, row: ParsedImportMember): MemberRecord {
+  const departement = row.departement || row.categorie || base.departement;
+  const categorie = row.categorie || row.departement || base.categorie;
+  const orgChanged = Boolean(row.chapitre || row.district || row.groupe);
+  return {
+    ...base,
+    prenom: row.prenom.trim() || base.prenom,
+    nom: row.nom.trim() || base.nom,
+    email: row.email.trim().toLowerCase() || base.email,
+    telephone: row.telephone !== undefined ? row.telephone.trim() : base.telephone,
+    dateNaissance: row.dateNaissance ?? base.dateNaissance,
+    departement,
+    categorie,
+    responsabilite: row.responsabilite || base.responsabilite,
+    dateDebutPratique: row.dateDebutPratique ?? base.dateDebutPratique,
+    abonnementVaguePaix: row.abonnementVaguePaix ?? base.abonnementVaguePaix,
+    gohonzon: row.gohonzon ?? base.gohonzon,
+    sokahan: row.sokahan ?? base.sokahan,
+    quartier: row.quartier !== undefined ? row.quartier : base.quartier,
+    chapitre: row.chapitre || base.chapitre,
+    district: row.district || base.district,
+    groupe: row.groupe || base.groupe,
+    statut: row.statut || base.statut,
+    abonnement: row.abonnement ?? base.abonnement,
+    adhesion: row.adhesion || base.adhesion,
+    chapitreId: orgChanged ? undefined : base.chapitreId,
+    districtId: orgChanged ? undefined : base.districtId,
+    groupeId: orgChanged ? undefined : base.groupeId,
+  };
+}
+
+function createImportedMember(row: ParsedImportMember, id: number): MemberRecord {
+  const departement = row.departement || row.categorie || "Homme";
+  return {
+    id,
+    prenom: row.prenom.trim(),
+    nom: row.nom.trim(),
+    email: row.email.trim().toLowerCase(),
+    telephone: (row.telephone || "").trim(),
+    dateNaissance: row.dateNaissance || "",
+    departement,
+    categorie: row.categorie || row.departement || "Homme",
+    responsabilite: row.responsabilite || "Membre simple",
+    dateDebutPratique: row.dateDebutPratique || "",
+    abonnementVaguePaix: row.abonnementVaguePaix ?? false,
+    gohonzon: row.gohonzon ?? false,
+    sokahan: row.sokahan ?? false,
+    quartier: row.quartier || "",
+    chapitre: row.chapitre || "",
+    district: row.district || "",
+    groupe: row.groupe || "",
+    statut: row.statut || "Actif",
+    abonnement: row.abonnement ?? true,
+    photo: "",
+    adhesion: row.adhesion || new Date().toISOString().slice(0, 10),
+    totalDons: 0,
+  };
+}
+
+export type MembersImportApplyResult = {
+  created: MemberRecord[];
+  updated: MemberRecord[];
+};
+
+export function applyMembersImport(
+  imported: ParsedImportMember[],
+  existingMembers: MemberRecord[],
+  orgFallback?: { chapitre?: string; district?: string; groupe?: string } | null,
+): MembersImportApplyResult {
+  const remaining = [...existingMembers];
+  const created: MemberRecord[] = [];
+  const updated: MemberRecord[] = [];
+  let nextId = existingMembers.reduce((max, item) => Math.max(max, item.id), 0) + 1;
+
+  for (const raw of imported) {
+    const row = {
+      ...raw,
+      chapitre: raw.chapitre || orgFallback?.chapitre || undefined,
+      district: raw.district || orgFallback?.district || undefined,
+      groupe: raw.groupe || orgFallback?.groupe || undefined,
+    };
+    const match = findExistingMember(remaining, row);
+    if (match) {
+      updated.push(mergeImportedMember(match, row));
+      const index = remaining.findIndex((item) => item.id === match.id);
+      if (index >= 0) remaining.splice(index, 1);
+      continue;
+    }
+    created.push(createImportedMember(row, nextId++));
+  }
+
+  return { created, updated };
+}
+
 export function createMembersFromImport(
   imported: ParsedImportMember[],
-  existingMembers: MemberRecord[]
+  existingMembers: MemberRecord[],
 ): MemberRecord[] {
-  let nextId = existingMembers.reduce((max, m) => Math.max(max, m.id), 0) + 1;
-  return imported.map((values) => {
-    const record: MemberRecord = {
-      id: nextId++,
-      prenom: values.prenom.trim(),
-      nom: values.nom.trim(),
-      email: values.email.trim().toLowerCase(),
-      telephone: values.telephone.trim(),
-      dateNaissance: values.dateNaissance,
-      departement: values.departement,
-      categorie: values.categorie,
-      responsabilite: values.responsabilite,
-      dateDebutPratique: values.dateDebutPratique,
-      abonnementVaguePaix: values.abonnementVaguePaix,
-      sokahan: values.sokahan,
-      quartier: values.quartier,
-      chapitre: values.chapitre,
-      district: values.district,
-      groupe: values.groupe || "BODDHISATTVA",
-      statut: values.statut,
-      abonnement: values.abonnement,
-      photo: "",
-      adhesion: values.adhesion || new Date().toISOString().slice(0, 10),
-      totalDons: 0,
-    };
-    return record;
-  });
+  const { created, updated } = applyMembersImport(imported, existingMembers);
+  return [...updated, ...created];
 }

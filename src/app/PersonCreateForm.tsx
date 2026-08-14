@@ -96,6 +96,7 @@ export default function PersonCreateForm({
             dateDebutPratique: editMember.dateDebutPratique,
             abonnementVaguePaix: editMember.abonnementVaguePaix,
             sokahan: editMember.sokahan,
+            gohonzon: editMember.gohonzon,
             quartier: editMember.quartier,
             chapitre: editMember.chapitre,
             district: editMember.district,
@@ -160,6 +161,7 @@ export default function PersonCreateForm({
           dateDebutPratique: editMember.dateDebutPratique,
           abonnementVaguePaix: editMember.abonnementVaguePaix,
           sokahan: editMember.sokahan,
+          gohonzon: editMember.gohonzon,
           quartier: editMember.quartier,
           ...names,
           statut: editMember.statut || "Actif",
@@ -394,6 +396,7 @@ export default function PersonCreateForm({
                 date_naissance: memberValues.dateNaissance || null,
                 date_debut_pratique: memberValues.dateDebutPratique || null,
                 sokahan: isJeune ? Boolean(memberValues.sokahan) : false,
+                gohonzon: Boolean(memberValues.gohonzon),
                 abonnement_vague_paix: Boolean(memberValues.abonnementVaguePaix),
                 abonnement: Boolean(memberValues.abonnement),
                 photo_url: memberValues.photo?.startsWith("http") ? memberValues.photo : "",
@@ -428,6 +431,7 @@ export default function PersonCreateForm({
             dateNaissance: memberValues.dateNaissance,
             dateDebutPratique: memberValues.dateDebutPratique,
             sokahan: isJeune ? Boolean(memberValues.sokahan) : false,
+            gohonzon: Boolean(memberValues.gohonzon),
             abonnementVaguePaix: Boolean(memberValues.abonnementVaguePaix),
             abonnement: Boolean(memberValues.abonnement),
             activatedAt: new Date().toISOString(),
@@ -471,7 +475,7 @@ export default function PersonCreateForm({
       onSubmit={handleSubmit}
       className={
         variant === "modal"
-          ? "grid max-h-[75vh] gap-4 overflow-y-auto px-5 py-4 md:grid-cols-2"
+          ? "grid max-h-[70dvh] gap-4 overflow-y-auto px-4 py-4 sm:px-5 md:grid-cols-2"
           : "grid gap-4 rounded-xl border border-border bg-card p-4 md:grid-cols-2"
       }
     >
@@ -573,12 +577,17 @@ export default function PersonCreateForm({
       </Field>
 
       {(values.departement === "Jeune homme" || values.departement === "Jeune fille") && (
-        <Field label="Sokahan" hint="Cochez si la personne possède le Gohonzon.">
+        <Field label="Sokahan" hint="Désignation des jeunes — implique généralement le Gohonzon.">
           <label className="flex items-center gap-2 rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm text-foreground">
             <input
               type="checkbox"
               checked={values.sokahan}
-              onChange={(e) => patch({ sokahan: e.target.checked })}
+              onChange={(e) =>
+                patch({
+                  sokahan: e.target.checked,
+                  gohonzon: e.target.checked ? true : values.gohonzon,
+                })
+              }
             />
             Sokahan
           </label>
@@ -729,6 +738,19 @@ export default function PersonCreateForm({
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
           <input
             type="checkbox"
+            checked={values.gohonzon}
+            onChange={(e) =>
+              patch({
+                gohonzon: e.target.checked,
+                sokahan: e.target.checked ? values.sokahan : false,
+              })
+            }
+          />
+          Possède le Gohonzon
+        </label>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
             checked={values.abonnement}
             onChange={(e) => patch({ abonnement: e.target.checked })}
           />
@@ -766,11 +788,11 @@ export default function PersonCreateForm({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-[var(--sgi-blue-deep)]/40 p-4 sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-[var(--sgi-blue-deep)]/40 p-0 sm:items-center sm:p-4"
       onClick={onCancel}
     >
       <div
-        className="flex w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-lift)]"
+        className="flex max-h-[96dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl border border-border bg-card shadow-[var(--shadow-lift)] sm:rounded-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">

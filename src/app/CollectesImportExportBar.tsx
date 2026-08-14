@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Download, FileUp, Upload } from "lucide-react";
 import type { CollecteRecord, CollecteTab } from "./CollectesModule";
+import type { MemberRecord } from "./memberFormUtils";
 import ExportFieldsDialog from "./ExportFieldsDialog";
 import {
   COLLECTE_TYPE_LABELS,
@@ -13,11 +14,18 @@ import {
   parseCollectesImportWorkbook,
   type CollecteExportBalance,
 } from "./collecteImportExport";
+import {
+  exportZaimuSpecialExcel,
+  exportZaimuSpecialPdf,
+  ZAIMU_EXPORT_DEFAULT_FIELDS,
+  ZAIMU_EXPORT_FIELDS,
+} from "./memberImportExport";
 
 type Props = {
   type: CollecteTab;
   records: CollecteRecord[];
   filteredRecords: CollecteRecord[];
+  members?: MemberRecord[];
   balancesById?: Record<string, CollecteExportBalance | null | undefined>;
   orgScope?: { chapitre?: string; district?: string; groupe?: string; label?: string } | null;
   onImport: (records: CollecteRecord[]) => void;
@@ -27,6 +35,7 @@ export default function CollectesImportExportBar({
   type,
   records,
   filteredRecords,
+  members = [],
   balancesById,
   orgScope = null,
   onImport,
@@ -38,8 +47,20 @@ export default function CollectesImportExportBar({
 
   const typeLabel = COLLECTE_TYPE_LABELS[type];
   const stamp = new Date().toISOString().slice(0, 10);
-  const exportFields = useMemo(() => getCollecteExportFields(type), [type]);
-  const exportDefaults = useMemo(() => getCollecteExportDefaultFields(type), [type]);
+  const isZaimuSpecial = type === "zaimu-special";
+  const listFields = useMemo(() => getCollecteExportFields(type), [type]);
+  const exportFields = useMemo(() => {
+    if (!isZaimuSpecial) return listFields;
+    const used = new Set(listFields.map((field) => field.key));
+    return [
+      ...listFields,
+      ...ZAIMU_EXPORT_FIELDS.filter((field) => !used.has(field.key)),
+    ];
+  }, [isZaimuSpecial, listFields]);
+  const exportDefaults = useMemo(
+    () => getCollecteExportDefaultFields(type),
+    [type],
+  );
 
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -127,7 +148,9 @@ export default function CollectesImportExportBar({
           </span>
           <span className="text-sm font-semibold text-foreground">Exporter</span>
           <span className="text-xs text-muted-foreground">
-            {filteredRecords.length} ligne(s) filtrée(s) · choix des champs.
+            {isZaimuSpecial
+              ? `${members.length} membre(s) · ${filteredRecords.length} paiement(s) · bilan cota et détail.`
+              : `${filteredRecords.length} ligne(s) filtrée(s) · choix des champs.`}
           </span>
         </button>
       </div>
@@ -155,31 +178,65 @@ export default function CollectesImportExportBar({
       <ExportFieldsDialog
         open={exportOpen}
         title={`Exporter · ${typeLabel}`}
-        subtitle={`${filteredRecords.length} enregistrement(s) · ${orgScope?.label || "périmètre selon les filtres"}.`}
+        subtitle={`${filteredRecords.length} enregistrement(s) · cochez les colonnes du tableau à inclure.`}
         fields={exportFields}
         defaultSelected={exportDefaults}
-        accent={type === "zaimu-special" ? "red" : "blue"}
+        lockedFields={["Membre"]}
+        accent={isZaimuSpecial ? "red" : "blue"}
         onClose={() => setExportOpen(false)}
         onExport={({ fields, format }) => {
+          const listKeys = new Set(listFields.map((field) => field.key));
+          const listSelected = fields.filter((key) => listKeys.has(key));
+          const zaimuOnlyKeys = new Set(
+            ZAIMU_EXPORT_FIELDS.filter((field) => !listKeys.has(field.key)).map((field) => field.key),
+          );
+          const wantsZaimuSheets = isZaimuSpecial && fields.some((key) => zaimuOnlyKeys.has(key));
           const base = `collectes_${type}_${stamp}`;
-          if (format === "excel") {
-            exportCollectesExcel(filteredRecords, `${base}.xlsx`, fields, {
-              type,
-              balancesById,
-              scope: orgScope,
-            });
-          } else {
-            exportCollectesPdf(filteredRecords, {
-              title: "Liste filtrée",
-              typeLabel,
-              filename: `${base}.pdf`,
-              fields,
-              type,
-              balancesById,
-              scope: orgScope,
-            });
+
+          if (listSelected.length) {
+            if (format === "excel") {
+              exportCollectesExcel(filteredRecords, `${base}.xlsx`, listSelected, {
+                type,
+                balancesById,
+                scope: orgScope,
+              });
+            } else {
+              exportCollectesPdf(filteredRecords, {
+                title: "Liste filtrée",
+                typeLabel,
+                filename: `${base}.pdf`,
+                fields: listSelected,
+                type,
+                balancesById,
+                scope: orgScope,
+              });
+            }
           }
+
+          if (wantsZaimuSheets) {
+            const zaimuFields = fields.filter((key) =>
+              ZAIMU_EXPORT_FIELDS.some((field) => field.key === key),
+            );
+            if (format === "pdf") {
+              exportZaimuSpecialPdf(members, filteredRecords, {
+                filename: `zaimu_special_${stamp}.pdf`,
+                fields: zaimuFields.length ? zaimuFields : ZAIMU_EXPORT_DEFAULT_FIELDS,
+              });
+            } else {
+              exportZaimuSpecialExcel(
+                members,
+                filteredRecords,
+                `zaimu_special_${stamp}.xlsx`,
+                zaimuFields.length ? zaimuFields : ZAIMU_EXPORT_DEFAULT_FIELDS,
+              );
+            }
+          }
+
           setExportOpen(false);
+          setMessage({
+            type: "ok",
+            text: `Export ${format.toUpperCase()} ${typeLabel} lancé.`,
+          });
         }}
       />
     </div>

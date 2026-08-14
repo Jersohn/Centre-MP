@@ -20,6 +20,7 @@ import type { ProfileStatus, UserProfile } from "../profilesData";
 import { purgeMockAccountStorage } from "../profilesData";
 import { MemberAvatar } from "../MemberAvatar";
 import PersonCreateForm from "../PersonCreateForm";
+import FilterPanel from "../FilterPanel";
 import {
   canDeleteUser,
   canManageOrgScope,
@@ -725,36 +726,44 @@ export default function SettingsModule({ currentUserRole }: { currentUserRole: P
                   </div>
                 </div>
 
-                <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,0.8fr)]">
-                  <label className="relative block">
-                    <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Rechercher un nom ou un e-mail…"
-                      className="w-full rounded-2xl border border-border bg-input-background py-2.5 pl-10 pr-4 text-sm outline-none focus:border-[var(--sgi-blue)] focus:ring-2 focus:ring-[var(--sgi-blue)]/10"
-                    />
-                  </label>
-                  <select
-                    value={roleFilter}
-                    onChange={(e) => setRoleFilter(e.target.value as "all" | PlatformRole)}
-                    className="rounded-2xl border border-border bg-input-background px-3.5 py-2.5 text-sm outline-none"
+                <div className="mt-5">
+                  <FilterPanel
+                    storageKey="settings-users"
+                    activeCount={(query.trim() ? 1 : 0) + (roleFilter !== "all" ? 1 : 0) + (statusFilter !== "all" ? 1 : 0)}
+                    summary={`${visibleProfiles.length} compte${visibleProfiles.length > 1 ? "s" : ""}`}
                   >
-                    <option value="all">Tous les rôles</option>
-                    {ALLOWED_ROLES.filter((role) => currentUserRole === "admin" || role !== "admin").map((role) => (
-                      <option key={role} value={role}>{ROLE_LABELS[role]}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value as "all" | ProfileStatus)}
-                    className="rounded-2xl border border-border bg-input-background px-3.5 py-2.5 text-sm outline-none"
-                  >
-                    <option value="all">Tous les statuts</option>
-                    {STATUS_OPTIONS.map((status) => (
-                      <option key={status} value={status}>{status}</option>
-                    ))}
-                  </select>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,0.8fr)]">
+                      <label className="relative block">
+                        <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <input
+                          value={query}
+                          onChange={(e) => setQuery(e.target.value)}
+                          placeholder="Rechercher un nom ou un e-mail…"
+                          className="w-full rounded-2xl border border-border bg-input-background py-2.5 pl-10 pr-4 text-sm outline-none focus:border-[var(--sgi-blue)] focus:ring-2 focus:ring-[var(--sgi-blue)]/10"
+                        />
+                      </label>
+                      <select
+                        value={roleFilter}
+                        onChange={(e) => setRoleFilter(e.target.value as "all" | PlatformRole)}
+                        className="rounded-2xl border border-border bg-input-background px-3.5 py-2.5 text-sm outline-none"
+                      >
+                        <option value="all">Tous les rôles</option>
+                        {ALLOWED_ROLES.filter((role) => currentUserRole === "admin" || role !== "admin").map((role) => (
+                          <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value as "all" | ProfileStatus)}
+                        className="rounded-2xl border border-border bg-input-background px-3.5 py-2.5 text-sm outline-none"
+                      >
+                        <option value="all">Tous les statuts</option>
+                        {STATUS_OPTIONS.map((status) => (
+                          <option key={status} value={status}>{status}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </FilterPanel>
                 </div>
               </div>
 

@@ -84,6 +84,23 @@ export function orgScopeFromProfile(
   };
 }
 
+/** Périmètre affiché = rôle + filtres chapitre / district / groupe. */
+export function viewOrgScopeFromFilters(
+  base: OrgScope,
+  filters: { chapitre: string; district: string; groupe: string },
+): OrgScope {
+  const chapitre = filters.chapitre !== "Tous" ? filters.chapitre : base.chapitre;
+  const district = filters.district !== "Tous" ? filters.district : base.district;
+  const groupe = filters.groupe !== "Tous" ? filters.groupe : base.groupe;
+  const parts = [groupe, district, chapitre].filter(Boolean);
+  return {
+    chapitre,
+    district,
+    groupe,
+    label: parts.length ? parts.join(" · ") : base.label,
+  };
+}
+
 /** Nom de l’unité que le responsable pilote (chapitre / district / groupe). */
 export function primaryOrgUnitLabel(role: PlatformRole, scope: OrgScope): string {
   if (role === "groupe") return scope.groupe || "Groupe non rattaché";
@@ -113,6 +130,7 @@ export type MemberListKpis = {
   jeunesFilles: number;
   avenir: number;
   sokahan: number;
+  gohonzon: number;
 };
 
 export type DateRange = { from: string; to: string };
@@ -208,6 +226,7 @@ export type StatsBreakdownRow = {
   zaimuOrdinaire: number;
   zaimuSpecial: number;
   abonnementsVp: number;
+  gohonzon: number;
 };
 
 export function buildStatsBreakdown(
@@ -233,9 +252,11 @@ export function buildStatsBreakdown(
       zaimuOrdinaire: 0,
       zaimuSpecial: 0,
       abonnementsVp: 0,
+      gohonzon: 0,
     };
     row.membres += 1;
     if (member.abonnementVaguePaix) row.abonnementsVp += 1;
+    if (member.gohonzon) row.gohonzon += 1;
     map.set(key, row);
   }
 
@@ -250,6 +271,7 @@ export function buildStatsBreakdown(
       zaimuOrdinaire: 0,
       zaimuSpecial: 0,
       abonnementsVp: 0,
+      gohonzon: 0,
     };
     if (collecte.type === "vague-paix") row.cotisations += collecte.montant;
     else if (collecte.type === "zaimu-ordinaire") row.zaimuOrdinaire += collecte.montant;
@@ -289,6 +311,7 @@ export function computeMemberListKpis(
     jeunesFilles: countCat("Jeune fille"),
     avenir: countCat("Avenir"),
     sokahan: membersInPeriod.filter((m) => m.sokahan).length,
+    gohonzon: membersInPeriod.filter((m) => m.gohonzon).length,
   };
 }
 

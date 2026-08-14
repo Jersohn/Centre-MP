@@ -19,6 +19,7 @@ export type UnitStat = {
   membres: number;
   actifs: number;
   vaguePaix: number;
+  gohonzon: number;
   zaimuOrdinaire: number;
   zaimuSpecial: number;
 };
@@ -69,6 +70,7 @@ function statsForUnit(
     membres: list.length,
     actifs: list.filter((m) => m.statut === "Actif").length,
     vaguePaix: list.filter((m) => m.abonnementVaguePaix).length,
+    gohonzon: list.filter((m) => m.gohonzon).length,
     zaimuOrdinaire: ofUnit
       .filter((c) => c.type === "zaimu-ordinaire")
       .reduce((sum, c) => sum + c.montant, 0),
@@ -88,6 +90,13 @@ function membersOf(
     if (match.groupe && m.groupe !== match.groupe) return false;
     return true;
   });
+}
+
+function namesHint(names: string[], max = 4) {
+  const clean = names.map((name) => name.trim()).filter(Boolean);
+  if (!clean.length) return "";
+  if (clean.length <= max) return clean.join(" · ");
+  return `${clean.slice(0, max).join(" · ")} +${clean.length - max}`;
 }
 
 function rowsFromUnits(
@@ -112,7 +121,12 @@ export function buildDashboardScope(
 ): DashboardScope {
   const chapitreCount = org.chapitres.length;
   const actifs = members.filter((m) => m.statut === "Actif").length;
+  const gohonzonCount = members.filter((m) => m.gohonzon).length;
+  const vaguePaixCount = members.filter((m) => m.abonnementVaguePaix).length;
   const validated = collectes.filter((c) => c.statut === "Validé");
+  const vaguePaixTotal = validated
+    .filter((c) => c.type === "vague-paix")
+    .reduce((sum, c) => sum + c.montant, 0);
   const zaimuOrdinaireTotal = validated
     .filter((c) => c.type === "zaimu-ordinaire")
     .reduce((sum, c) => sum + c.montant, 0);
@@ -153,8 +167,10 @@ export function buildDashboardScope(
       unitLabel: "Groupe",
       unitPlural: "Groupes",
       kpis: [
-        { label: "Membres", value: fmt(members.length), hint: "", tone: "blue" },
-        { label: "Groupes", value: fmt(units.length || rows.length), hint: "", tone: "gold" },
+        { label: "Membres", value: fmt(members.length), hint: districtName ? `District ${districtName}` : "", tone: "blue" },
+        { label: "Groupes", value: fmt(units.length || rows.length), hint: "Groupes du district", tone: "gold" },
+        { label: "Vague de Paix", value: fmt(vaguePaixCount), hint: `${fmt(vaguePaixTotal)} FCFA`, tone: "blue" },
+        { label: "Gohonzon", value: fmt(gohonzonCount), hint: "Possesseurs", tone: "green" },
         { label: "Zaimu ordinaire", value: fmt(zaimuOrdinaireTotal), hint: "FCFA", tone: "gold" },
         { label: "Zaimu spécial", value: fmt(zaimuSpecialTotal), hint: "FCFA", tone: "red" },
       ],
@@ -187,14 +203,31 @@ export function buildDashboardScope(
     const rows = rowsFromUnits(units, members, collectes, (label) =>
       membersOf(members, { district: label, chapitre: chapitreName || undefined }),
     );
+    const groupeCount = org.groupes.filter((g) => {
+      if (chapitreId && g.chapitre_id === chapitreId) return true;
+      if (chapitreId) {
+        return org.districts.some((d) => d.id === g.district_id && d.chapitre_id === chapitreId);
+      }
+      if (chapitreName && (g.chapitre_name === chapitreName || g.district_name)) {
+        return (
+          g.chapitre_name === chapitreName ||
+          org.districts.some((d) => d.id === g.district_id && d.chapitre_name === chapitreName)
+        );
+      }
+      return false;
+    }).length;
+    const districtCount = units.length || rows.length;
     return {
       title: chapitreName || "Pilotage du chapitre",
-      subtitle: "Chapitre que vous pilotez · effectifs et indicateurs par district",
+      subtitle: `${districtCount} district${districtCount > 1 ? "s" : ""} · ${groupeCount} groupe${groupeCount > 1 ? "s" : ""} · effectifs par district`,
       unitLabel: "District",
       unitPlural: "Districts",
       kpis: [
-        { label: "Membres", value: fmt(members.length), hint: "", tone: "blue" },
-        { label: "Districts", value: fmt(units.length || rows.length), hint: "", tone: "gold" },
+        { label: "Membres", value: fmt(members.length), hint: chapitreName ? `Chapitre ${chapitreName}` : "", tone: "blue" },
+        { label: "Districts", value: fmt(districtCount), hint: "Dans le chapitre", tone: "gold" },
+        { label: "Groupes", value: fmt(groupeCount), hint: "Dans le chapitre", tone: "green" },
+        { label: "Vague de Paix", value: fmt(vaguePaixCount), hint: `${fmt(vaguePaixTotal)} FCFA`, tone: "blue" },
+        { label: "Gohonzon", value: fmt(gohonzonCount), hint: "Possesseurs", tone: "green" },
         { label: "Zaimu ordinaire", value: fmt(zaimuOrdinaireTotal), hint: "FCFA", tone: "gold" },
         { label: "Zaimu spécial", value: fmt(zaimuSpecialTotal), hint: "FCFA", tone: "red" },
       ],
@@ -229,6 +262,8 @@ export function buildDashboardScope(
       kpis: [
         { label: "Membres", value: fmt(members.length), hint: "", tone: "blue" },
         { label: "Actifs", value: fmt(actifs), hint: "", tone: "green" },
+        { label: "Vague de Paix", value: fmt(vaguePaixCount), hint: `${fmt(vaguePaixTotal)} FCFA`, tone: "blue" },
+        { label: "Gohonzon", value: fmt(gohonzonCount), hint: "Possesseurs", tone: "green" },
         { label: "Zaimu ordinaire", value: fmt(zaimuOrdinaireTotal), hint: "FCFA", tone: "gold" },
         { label: "Zaimu spécial", value: fmt(zaimuSpecialTotal), hint: "FCFA", tone: "red" },
       ],
@@ -249,15 +284,29 @@ export function buildDashboardScope(
   const rows = rowsFromUnits(units, members, collectes, (label) =>
     membersOf(members, { chapitre: label }),
   );
+  const chapterNames = org.chapitres.map((c) => c.name).filter(Boolean);
+  const districtCount = org.districts.length;
+  const groupeCount = org.groupes.length;
 
   return {
     title: role === "admin" ? "Administration" : "Centre Miroir Parfait",
-    subtitle: "Indicateurs consolidés à partir de l’organisation et des membres",
+    subtitle: `${chapitreCount || units.length} chapitre${(chapitreCount || units.length) > 1 ? "s" : ""}${
+      chapterNames.length ? ` (${namesHint(chapterNames, 6)})` : ""
+    } · ${districtCount} district${districtCount > 1 ? "s" : ""} · ${groupeCount} groupe${groupeCount > 1 ? "s" : ""}`,
     unitLabel: "Chapitre",
     unitPlural: "Chapitres",
     kpis: [
+      {
+        label: "Chapitres",
+        value: fmt(chapitreCount || units.length),
+        hint: namesHint(chapterNames) || "Organisation du centre",
+        tone: "gold",
+      },
+      { label: "Districts", value: fmt(districtCount), hint: "Dans le centre", tone: "blue" },
+      { label: "Groupes", value: fmt(groupeCount), hint: "Dans le centre", tone: "green" },
       { label: "Membres", value: fmt(members.length), hint: "", tone: "blue" },
-      { label: "Chapitres", value: fmt(chapitreCount || units.length), hint: "", tone: "gold" },
+      { label: "Vague de Paix", value: fmt(vaguePaixCount), hint: `${fmt(vaguePaixTotal)} FCFA`, tone: "blue" },
+      { label: "Gohonzon", value: fmt(gohonzonCount), hint: "Possesseurs", tone: "green" },
       { label: "Zaimu ordinaire", value: fmt(zaimuOrdinaireTotal), hint: "FCFA", tone: "gold" },
       { label: "Zaimu spécial", value: fmt(zaimuSpecialTotal), hint: "FCFA", tone: "red" },
     ],
@@ -272,8 +321,9 @@ export function exportDashboardPdf(options: {
   fromDate: string;
   toDate: string;
   filename: string;
+  scopeLabel?: string;
 }) {
-  const { scope, roleLabel, fromDate, toDate, filename } = options;
+  const { scope, roleLabel, fromDate, toDate, filename, scopeLabel } = options;
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const margin = 36;
   let y = 48;
@@ -300,6 +350,10 @@ export function exportDashboardPdf(options: {
   y += 18;
   doc.text(`Periode d'export : du ${fromDate} au ${toDate}`, margin, y);
   y += 18;
+  if (scopeLabel) {
+    doc.text(`Perimetre : ${scopeLabel}`, margin, y);
+    y += 18;
+  }
   doc.setTextColor(90, 107, 125);
   doc.setFontSize(10);
   doc.text(scope.subtitle, margin, y);
@@ -330,11 +384,12 @@ export function exportDashboardPdf(options: {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(8);
   doc.text(scope.unitLabel, margin + 6, y);
-  doc.text("Membres", margin + 120, y);
-  doc.text("Actifs", margin + 175, y);
-  doc.text("VP", margin + 225, y);
-  doc.text("Zaimu ord.", margin + 275, y);
-  doc.text("Zaimu spe.", margin + 370, y);
+  doc.text("Membres", margin + 108, y);
+  doc.text("Actifs", margin + 158, y);
+  doc.text("VP", margin + 202, y);
+  doc.text("Gohonzon", margin + 238, y);
+  doc.text("Zaimu ord.", margin + 310, y);
+  doc.text("Zaimu spe.", margin + 400, y);
   y += 18;
 
   doc.setTextColor(16, 32, 51);
@@ -348,12 +403,13 @@ export function exportDashboardPdf(options: {
       doc.rect(margin, y - 11, 523, 18, "F");
     }
     doc.setFontSize(8);
-    doc.text(row.label.slice(0, 22), margin + 6, y);
-    doc.text(String(row.membres), margin + 120, y);
-    doc.text(String(row.actifs), margin + 175, y);
-    doc.text(String(row.vaguePaix), margin + 225, y);
-    doc.text(fmt(row.zaimuOrdinaire), margin + 275, y);
-    doc.text(fmt(row.zaimuSpecial), margin + 370, y);
+    doc.text(row.label.slice(0, 18), margin + 6, y);
+    doc.text(String(row.membres), margin + 108, y);
+    doc.text(String(row.actifs), margin + 158, y);
+    doc.text(String(row.vaguePaix), margin + 202, y);
+    doc.text(String(row.gohonzon), margin + 238, y);
+    doc.text(fmt(row.zaimuOrdinaire), margin + 310, y);
+    doc.text(fmt(row.zaimuSpecial), margin + 400, y);
     y += 18;
   });
 
@@ -373,11 +429,13 @@ export function exportDashboardExcel(options: {
   filename: string;
   members: MemberRecord[];
   collectes?: DashboardCollecteLike[];
+  scopeLabel?: string;
 }) {
-  const { scope, roleLabel, fromDate, toDate, filename, members, collectes = [] } = options;
+  const { scope, roleLabel, fromDate, toDate, filename, members, collectes = [], scopeLabel } = options;
 
   const resume = [
     { Indicateur: "Profil", Valeur: roleLabel },
+    { Indicateur: "Périmètre", Valeur: scopeLabel || scope.title },
     { Indicateur: "Période début", Valeur: fromDate },
     { Indicateur: "Période fin", Valeur: toDate },
     { Indicateur: "Titre", Valeur: scope.title },
@@ -389,6 +447,7 @@ export function exportDashboardExcel(options: {
     Membres: row.membres,
     Actifs: row.actifs,
     "Vague de Paix": row.vaguePaix,
+    Gohonzon: row.gohonzon,
     "Zaimu ordinaire (FCFA)": row.zaimuOrdinaire,
     "Zaimu spécial (FCFA)": row.zaimuSpecial,
   }));
@@ -407,6 +466,8 @@ export function exportDashboardExcel(options: {
       Groupe: m.groupe,
       Statut: m.statut,
       "Vague de Paix": m.abonnementVaguePaix ? "Oui" : "Non",
+      Gohonzon: m.gohonzon ? "Oui" : "Non",
+      Sokahan: m.sokahan ? "Oui" : "Non",
       "Zaimu ordinaire (FCFA)": ofMember
         .filter((c) => c.type === "zaimu-ordinaire")
         .reduce((s, c) => s + c.montant, 0),

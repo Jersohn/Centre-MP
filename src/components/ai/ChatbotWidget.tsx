@@ -114,9 +114,9 @@ export function ChatbotWidget({
   };
 
   return (
-    <div className={`pointer-events-none fixed right-4 z-[60] sm:right-6 ${fabOffsetClass}`}>
+    <div className={`pointer-events-none fixed right-3 z-[60] sm:right-6 ${fabOffsetClass}`}>
       {open && (
-        <div className="pointer-events-auto mb-3 flex h-[min(560px,72vh)] w-[min(100vw-2rem,380px)] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_18px_50px_rgba(6,28,51,0.22)]">
+        <div className="pointer-events-auto mb-3 flex h-[min(560px,70dvh)] w-[min(calc(100vw-1.5rem),380px)] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_18px_50px_rgba(6,28,51,0.22)]">
           <div className={`${accentBg} relative px-4 py-3 text-white`}>
             <div className="sgi-tricolor absolute inset-x-0 bottom-0 h-0.5 opacity-90" aria-hidden />
             <div className="flex items-start justify-between gap-3">

@@ -10,6 +10,7 @@ export interface MemberFormValues {
   dateDebutPratique: string;
   abonnementVaguePaix: boolean;
   sokahan: boolean;
+  gohonzon: boolean;
   quartier: string;
   chapitre: string;
   district: string;
@@ -44,6 +45,7 @@ export function emptyMemberFormValues(seed?: Partial<MemberFormValues>): MemberF
     dateDebutPratique: "",
     abonnementVaguePaix: true,
     sokahan: false,
+    gohonzon: false,
     quartier: "",
     chapitre: seed?.chapitre || "",
     district: seed?.district || "",
@@ -52,6 +54,30 @@ export function emptyMemberFormValues(seed?: Partial<MemberFormValues>): MemberF
     abonnement: true,
     photo: "",
     ...seed,
+  };
+}
+
+export function memberToFormValues(member: MemberRecord): MemberFormValues {
+  return {
+    prenom: member.prenom,
+    nom: member.nom,
+    email: member.email,
+    telephone: member.telephone,
+    dateNaissance: member.dateNaissance,
+    departement: member.departement,
+    categorie: member.categorie,
+    responsabilite: member.responsabilite,
+    dateDebutPratique: member.dateDebutPratique,
+    abonnementVaguePaix: member.abonnementVaguePaix,
+    sokahan: member.sokahan,
+    gohonzon: member.gohonzon,
+    quartier: member.quartier,
+    chapitre: member.chapitre,
+    district: member.district,
+    groupe: member.groupe,
+    statut: member.statut,
+    abonnement: member.abonnement,
+    photo: member.photo,
   };
 }
 
@@ -80,6 +106,7 @@ export function createMemberFromForm(
     dateDebutPratique: values.dateDebutPratique,
     abonnementVaguePaix: values.abonnementVaguePaix,
     sokahan: values.sokahan,
+    gohonzon: values.gohonzon,
     quartier: values.quartier,
     chapitre: values.chapitre,
     district: values.district,
@@ -111,6 +138,7 @@ export function applyMemberFormToRecord(
     dateDebutPratique: values.dateDebutPratique,
     abonnementVaguePaix: values.abonnementVaguePaix,
     sokahan: values.sokahan,
+    gohonzon: values.gohonzon,
     quartier: values.quartier.trim(),
     chapitre: values.chapitre,
     district: values.district,

@@ -312,7 +312,7 @@ export default function AdminEditLanding() {
   };
 
   return (
-    <div className="relative space-y-5 p-4 pb-28 sm:space-y-6 sm:p-6 sm:pb-28">
+    <div className="relative min-w-0 max-w-full space-y-5 overflow-x-hidden p-3 pb-28 sm:space-y-6 sm:p-6 sm:pb-28">
       {notice && (
         <div
           role="status"

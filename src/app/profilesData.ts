@@ -24,6 +24,7 @@ export interface UserProfile {
   dateNaissance?: string;
   dateDebutPratique?: string;
   sokahan?: boolean;
+  gohonzon?: boolean;
   abonnementVaguePaix?: boolean;
   abonnement?: boolean;
 }

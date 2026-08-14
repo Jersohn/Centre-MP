@@ -12,6 +12,7 @@ const sampleMembers = [
     categorie: "Homme",
     abonnementVaguePaix: true,
     sokahan: true,
+    gohonzon: true,
     adhesion: "2026-03-01",
     chapitre: "Chapitre 1 – Kinshasa",
     district: "District Nord",
@@ -22,6 +23,7 @@ const sampleMembers = [
     categorie: "Jeune fille",
     abonnementVaguePaix: false,
     sokahan: false,
+    gohonzon: false,
     adhesion: "2026-08-02",
     chapitre: "Chapitre 1 – Kinshasa",
     district: "District Nord",
@@ -32,6 +34,7 @@ const sampleMembers = [
     categorie: "Avenir",
     abonnementVaguePaix: true,
     sokahan: true,
+    gohonzon: true,
     adhesion: "2026-07-10",
     chapitre: "Chapitre 2 – Brazzaville",
     district: "District Sud",
@@ -85,6 +88,7 @@ describe("memberListStats", () => {
     expect(kpis.jeunesFilles).toBe(1);
     expect(kpis.avenir).toBe(1);
     expect(kpis.sokahan).toBe(2);
+    expect(kpis.gohonzon).toBe(2);
     expect(kpis.zaimuOrdinaire).toBe(25000);
     expect(kpis.zaimuSpecial).toBe(0);
   });

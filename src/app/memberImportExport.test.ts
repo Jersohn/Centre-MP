@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import {
   buildMemberPdfSummaryCards,
+  applyMembersImport,
   createMembersFromImport,
   MEMBER_IMPORT_COLUMNS,
   parseMembersImportWorkbook,
@@ -22,6 +23,7 @@ function sampleMember(partial: Partial<MemberRecord>): MemberRecord {
     dateDebutPratique: "",
     abonnementVaguePaix: false,
     sokahan: false,
+    gohonzon: false,
     abonnement: false,
     quartier: "",
     chapitre: "C1",
@@ -44,11 +46,12 @@ describe("memberImportExport", () => {
           Email: "awa@example.com",
           Telephone: "+225",
           DateNaissance: "1995-01-01",
-          Departement: "Culture",
+          Departement: "Femme",
           Categorie: "Femme",
           Responsabilite: "Membre simple",
           DateDebutPratique: "2019-01-01",
           VagueDePaix: "Oui",
+          Gohonzon: "Oui",
           Sokahan: "Non",
           Quartier: "Cocody",
           Chapitre: "Trois Trésors",
@@ -70,11 +73,70 @@ describe("memberImportExport", () => {
     expect(parsed.members).toHaveLength(1);
     expect(parsed.members[0].prenom).toBe("Awa");
     expect(parsed.members[0].abonnementVaguePaix).toBe(true);
+    expect(parsed.members[0].gohonzon).toBe(true);
     expect(parsed.members[0].sokahan).toBe(false);
 
     const created = createMembersFromImport(parsed.members, [{ id: 7 } as any]);
     expect(created[0].id).toBe(8);
     expect(created[0].email).toBe("awa@example.com");
+  });
+
+  it("accepts optional fields and updates existing assignments without requiring email", () => {
+    const sheet = XLSX.utils.json_to_sheet(
+      [
+        {
+          Prenom: "Awa",
+          Nom: "Traoré",
+          Chapitre: "Trois Trésors",
+          District: "District Trésors",
+          Groupe: "ROI LION",
+        },
+      ],
+      { header: [...MEMBER_IMPORT_COLUMNS] }
+    );
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, sheet, "Membres");
+    const buffer = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+
+    const parsed = parseMembersImportWorkbook(buffer);
+    expect(parsed.errors).toHaveLength(0);
+    expect(parsed.members[0].email).toBe("");
+    expect(parsed.members[0].chapitre).toBe("Trois Trésors");
+    expect(parsed.members[0].abonnementVaguePaix).toBeUndefined();
+
+    const existing = [
+      sampleMember({
+        id: 4,
+        prenom: "Awa",
+        nom: "Traoré",
+        email: "awa@example.com",
+        chapitre: "Ancien chapitre",
+        district: "Ancien district",
+        groupe: "Ancien groupe",
+        gohonzon: true,
+      }),
+    ];
+    const applied = applyMembersImport(parsed.members, existing);
+    expect(applied.created).toHaveLength(0);
+    expect(applied.updated).toHaveLength(1);
+    expect(applied.updated[0].email).toBe("awa@example.com");
+    expect(applied.updated[0].chapitre).toBe("Trois Trésors");
+    expect(applied.updated[0].district).toBe("District Trésors");
+    expect(applied.updated[0].groupe).toBe("ROI LION");
+    expect(applied.updated[0].gohonzon).toBe(true);
+  });
+
+  it("reads French headers such as Prénom", () => {
+    const sheet = XLSX.utils.json_to_sheet(
+      [{ Prénom: "Koffi", Nom: "Yao", Email: "koffi@example.com" }],
+    );
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, sheet, "Liste");
+    const buffer = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+    const parsed = parseMembersImportWorkbook(buffer);
+    expect(parsed.errors).toHaveLength(0);
+    expect(parsed.members[0].prenom).toBe("Koffi");
+    expect(parsed.members[0].nom).toBe("Yao");
   });
 
   it("builds PDF summary cards from selected export fields only", () => {
@@ -124,5 +186,17 @@ describe("memberImportExport", () => {
     expect(withRoles.cards.map((c) => c.label)).toContain("Membres simples");
     expect(withRoles.cards.map((c) => c.label)).toContain("Responsables");
     expect(withRoles.detailLines[0]).toContain("Responsable groupe");
+
+    const withDept = buildMemberPdfSummaryCards(members, ["Prenom", "Nom", "Departement"]);
+    expect(withDept.cards.map((c) => c.label)).toEqual([
+      "Effectif",
+      "Homme",
+      "Femme",
+      "Jeune homme",
+      "Jeune fille",
+      "Avenir",
+    ]);
+    expect(withDept.cards.find((c) => c.label === "Homme")?.value).toBe("2");
+    expect(withDept.cards.find((c) => c.label === "Femme")?.value).toBe("0");
   });
 });

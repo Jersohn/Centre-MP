@@ -18,6 +18,7 @@ describe("createMemberFromForm", () => {
         dateDebutPratique: "",
         abonnementVaguePaix: false,
         sokahan: true,
+        gohonzon: true,
         quartier: "",
         chapitre: "Rissho Ankoku Ron",
         district: "District Bodhisattva",
@@ -35,6 +36,7 @@ describe("createMemberFromForm", () => {
     expect(member.email).toBe("grace@example.com");
     expect(member.abonnement).toBe(true);
     expect(member.sokahan).toBe(true);
+    expect(member.gohonzon).toBe(true);
     expect(member.photo).toBe("data:image/png;base64,abc");
     expect(member.totalDons).toBe(0);
   });

@@ -6,11 +6,12 @@ import {
   Upload,
   Users,
 } from "lucide-react";
-import type { MemberRecord } from "./memberFormUtils";
+import { memberToFormValues, type MemberRecord } from "./memberFormUtils";
+import { memberFullName } from "./membersData";
 import type { PlatformRole } from "./roles";
 import ExportFieldsDialog from "./ExportFieldsDialog";
 import {
-  createMembersFromImport,
+  applyMembersImport,
   downloadMemberImportTemplate,
   exportMembersExcel,
   exportMembersPdf,
@@ -24,6 +25,12 @@ import {
   type ZaimuSpecialPaymentRow,
 } from "./memberImportExport";
 import {
+  createMemberRemote,
+  hasRemoteMembers,
+  updateMemberRemote,
+} from "../services/memberService";
+import { resolveOrgIds } from "../services/orgService";
+import {
   listMyAssignedSpecialCampaigns,
   listQuotaAssignments,
   listSpecialCampaigns,
@@ -36,7 +43,7 @@ type Props = {
   collectes: ZaimuSpecialPaymentRow[];
   role: PlatformRole;
   orgScope?: { chapitre?: string; district?: string; groupe?: string; label?: string } | null;
-  onImport: (members: MemberRecord[]) => void;
+  onImport: (payload: { created: MemberRecord[]; updated: MemberRecord[] }) => void;
 };
 
 type ExportKind = "membres" | "zaimu" | null;
@@ -50,8 +57,9 @@ export default function MembersImportExportBar({
   onImport,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [message, setMessage] = useState<{ type: "ok" | "err"; text: string; details?: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ current: number; total: number; label: string } | null>(null);
   const [exportKind, setExportKind] = useState<ExportKind>(null);
   const [zsAssigneById, setZsAssigneById] = useState<Record<string, number>>({});
   const [zsPerimeterCota, setZsPerimeterCota] = useState(0);
@@ -112,30 +120,122 @@ export default function MembersImportExportBar({
 
     setBusy(true);
     setMessage(null);
+    setProgress({ current: 0, total: 1, label: "Lecture du fichier…" });
     try {
-      const buffer = await file.arrayBuffer();
-      const { members: parsed, errors } = parseMembersImportWorkbook(buffer);
+      const isCsv = file.name.toLowerCase().endsWith(".csv");
+      const parsedSource = isCsv ? await file.text() : await file.arrayBuffer();
+      const { members: parsed, errors } = parseMembersImportWorkbook(parsedSource);
       if (!parsed.length) {
         setMessage({
           type: "err",
-          text: errors[0] || "Aucun membre valide trouvé dans le fichier. Utilisez le template fourni.",
+          text: errors[0] || "Aucun membre valide trouvé dans le fichier. Vérifiez les colonnes Prénom / Nom (ou Email).",
+          details: errors.slice(0, 12),
         });
         return;
       }
-      const created = createMembersFromImport(parsed, members);
-      onImport(created);
-      const suffix = errors.length ? ` (${errors.length} ligne(s) ignorée(s))` : "";
+
+      const { created, updated } = applyMembersImport(parsed, members);
+      const persistErrors: string[] = [...errors];
+      let createdOk = 0;
+      let updatedOk = 0;
+      const orgCache = new Map<string, { chapitre_id: string; district_id: string; groupe_id: string } | null>();
+
+      const resolveOrg = async (member: MemberRecord) => {
+        if (member.chapitreId && member.districtId && member.groupeId) {
+          return {
+            chapitre_id: member.chapitreId,
+            district_id: member.districtId,
+            groupe_id: member.groupeId,
+          };
+        }
+        const key = `${member.chapitre}|${member.district}|${member.groupe}`;
+        if (orgCache.has(key)) return orgCache.get(key) || null;
+        const resolved = await resolveOrgIds({
+          chapitre: member.chapitre,
+          district: member.district,
+          groupe: member.groupe,
+        });
+        const ids =
+          resolved.data.chapitre_id && resolved.data.district_id && resolved.data.groupe_id
+            ? {
+                chapitre_id: resolved.data.chapitre_id,
+                district_id: resolved.data.district_id,
+                groupe_id: resolved.data.groupe_id,
+              }
+            : null;
+        orgCache.set(key, ids);
+        return ids;
+      };
+
+      const queue = [
+        ...updated.map((member) => ({ member, kind: "update" as const })),
+        ...created.map((member) => ({ member, kind: "create" as const })),
+      ];
+      const total = Math.max(queue.length, 1);
+
+      if (hasRemoteMembers()) {
+        for (let index = 0; index < queue.length; index += 1) {
+          const { member, kind } = queue[index];
+          setProgress({
+            current: index + 1,
+            total,
+            label:
+              kind === "update"
+                ? `Mise à jour ${index + 1}/${total} — ${memberFullName(member) || member.email}`
+                : `Enregistrement ${index + 1}/${total} — ${memberFullName(member) || member.email}`,
+          });
+          await new Promise((resolve) => window.setTimeout(resolve, 0));
+          if (kind === "update") {
+            if (!member.remoteId || member.source === "profile") {
+              persistErrors.push(
+                `${memberFullName(member) || member.email} : fiche responsable non modifiable par import.`,
+              );
+              continue;
+            }
+            const orgIds = await resolveOrg(member);
+            const { error } = await updateMemberRemote(member.remoteId, memberToFormValues(member), orgIds);
+            if (error) persistErrors.push(`${memberFullName(member)} : ${error.message}`);
+            else updatedOk += 1;
+            continue;
+          }
+
+          if (!member.prenom.trim() || !member.nom.trim()) {
+            persistErrors.push(
+              `${member.email || "Nouveau membre"} : prénom et nom sont requis pour créer une fiche.`,
+            );
+            continue;
+          }
+          const orgIds = await resolveOrg(member);
+          const { error } = await createMemberRemote(memberToFormValues(member), orgIds);
+          if (error) persistErrors.push(`${memberFullName(member)} : ${error.message}`);
+          else createdOk += 1;
+        }
+      } else {
+        createdOk = created.length;
+        updatedOk = updated.length;
+      }
+
+      setProgress({ current: total, total, label: "Finalisation…" });
+      onImport({ created, updated });
       setMessage({
-        type: "ok",
-        text: `${created.length} membre(s) importé(s) avec succès${suffix}.`,
+        type: createdOk + updatedOk > 0 ? "ok" : "err",
+        text:
+          createdOk + updatedOk > 0
+            ? `${createdOk} membre(s) créé(s), ${updatedOk} mis à jour.${persistErrors.length ? ` ${persistErrors.length} ligne(s) en alerte.` : ""}`
+            : persistErrors[0] || "Aucun membre n’a pu être enregistré.",
+        details: persistErrors.slice(0, 20),
       });
-    } catch {
+    } catch (error) {
       setMessage({
         type: "err",
-        text: "Impossible de lire le fichier. Vérifiez qu’il s’agit d’un Excel (.xlsx) conforme au template.",
+        text:
+          error instanceof Error
+            ? `Import impossible : ${error.message}`
+            : "Impossible de lire le fichier. Utilisez un Excel (.xlsx) ou un CSV.",
       });
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   };
 
@@ -146,10 +246,46 @@ export default function MembersImportExportBar({
         <div className="p-4 sm:p-5">
           <p className="text-sm font-semibold text-foreground">Import & export</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Cliquez sur Exporter, choisissez les champs à afficher, puis lancez le PDF ou l’Excel.
+            Importez un Excel/CSV (une barre de progression s’affiche), ou exportez la liste filtrée.
           </p>
         </div>
       </div>
+
+      {progress && (
+        <div className="rounded-xl border border-[var(--sgi-blue)]/25 bg-[var(--sgi-blue)]/8 px-4 py-3">
+          <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+            <p className="font-medium text-foreground">{progress.label}</p>
+            <p className="text-xs tabular-nums text-muted-foreground">
+              {progress.current}/{progress.total}
+            </p>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-[var(--sgi-blue)] transition-all"
+              style={{ width: `${Math.round((progress.current / Math.max(progress.total, 1)) * 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {message && (
+        <div
+          className={`rounded-xl border px-4 py-2.5 text-sm ${
+            message.type === "ok"
+              ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+              : "border-[var(--sgi-red)]/20 bg-[var(--sgi-red)]/10 text-[var(--sgi-red-deep)] dark:text-[var(--sgi-red-soft)]"
+          }`}
+        >
+          <p>{message.text}</p>
+          {message.details && message.details.length > 0 && (
+            <ul className="mt-2 max-h-40 list-disc space-y-1 overflow-auto pl-5 text-xs opacity-90">
+              {message.details.map((detail, index) => (
+                <li key={`${index}-${detail}`}>{detail}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
@@ -161,7 +297,7 @@ export default function MembersImportExportBar({
               <div>
                 <h3 className="font-display text-base font-semibold text-foreground">1. Liste des membres</h3>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Import via template, ou export avec sélection des champs.
+                  Import via template (champs optionnels), ou export avec sélection des champs.
                 </p>
               </div>
             </div>
@@ -228,18 +364,6 @@ export default function MembersImportExportBar({
         </div>
       </div>
 
-      {message && (
-        <div
-          className={`rounded-xl border px-4 py-2.5 text-sm ${
-            message.type === "ok"
-              ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-              : "border-[var(--sgi-red)]/20 bg-[var(--sgi-red)]/10 text-[var(--sgi-red-deep)] dark:text-[var(--sgi-red-soft)]"
-          }`}
-        >
-          {message.text}
-        </div>
-      )}
-
       <ExportFieldsDialog
         open={exportKind === "membres"}
         title="Exporter la liste des membres"
@@ -303,7 +427,7 @@ export default function MembersImportExportBar({
       <input
         ref={fileRef}
         type="file"
-        accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+        accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
         className="hidden"
         onChange={handleImportFile}
       />

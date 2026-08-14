@@ -52,15 +52,15 @@ export function canManageOrgScope(
   return false;
 }
 
-/** Suppression de compte : réservée admin / centre (pas soi-même, centre ≠ admin). */
+/** Suppression de compte : admin et centre (pas soi-même). Un compte admin n’est jamais supprimé. */
 export function canDeleteUser(
   callerRole: AppRole,
   targetRole: AppRole,
   isSelf: boolean,
 ) {
   if (isSelf) return false;
-  if (callerRole === "admin") return true;
-  if (callerRole === "centre") return targetRole !== "admin";
+  if (targetRole === "admin") return false;
+  if (callerRole === "admin" || callerRole === "centre") return true;
   return false;
 }
 
