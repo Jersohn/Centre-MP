@@ -90,7 +90,6 @@ export async function listChapitres(): Promise<{ data: ChapitreRow[]; error: Err
   const { data, error } = await supabase
     .from("chapitres")
     .select("id, slug, name, description, sort_order, created_at, updated_at")
-    .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
 
   if (error) return { data: [], error: mapError(error, "Impossible de charger les chapitres.") };
@@ -183,7 +182,6 @@ export async function listDistricts(): Promise<{ data: DistrictRow[]; error: Err
   const { data, error } = await supabase
     .from("districts")
     .select("id, chapitre_id, slug, name, sort_order, created_at, updated_at, chapitres(name)")
-    .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
 
   if (error) return { data: [], error: mapError(error, "Impossible de charger les districts.") };

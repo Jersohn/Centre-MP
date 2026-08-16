@@ -23,6 +23,7 @@ import { RowActionsMenu } from "../RowActionsMenu";
 import { useConfirm } from "../ConfirmDialog";
 import { membersOfGroupe, OrgMemberDetailModal } from "./OrgMemberDetailModal";
 import { OrgDetailEmpty, OrgEmptyState, OrgPageShell } from "./OrgPageShell";
+import { sortByLabel } from "../sortUtils";
 
 type Level = "districts" | "groupes" | "membres";
 
@@ -62,10 +63,10 @@ export default function DistrictsModule() {
       setToast(districtsRes.error.message);
       setItems([]);
     } else {
-      setItems(districtsRes.data);
+      setItems(sortByLabel(districtsRes.data, (item) => item.name));
     }
-    if (!chapitresRes.error) setChapitres(chapitresRes.data);
-    if (!groupesRes.error) setGroupes(groupesRes.data);
+    if (!chapitresRes.error) setChapitres(sortByLabel(chapitresRes.data, (item) => item.name));
+    if (!groupesRes.error) setGroupes(sortByLabel(groupesRes.data, (item) => item.name));
     setLoading(false);
   };
 
@@ -80,7 +81,10 @@ export default function DistrictsModule() {
   }, [toast]);
 
   const groupesOfDistrict = useMemo(
-    () => groupes.filter((item) => item.district_id === districtId),
+    () => sortByLabel(
+      groupes.filter((item) => item.district_id === districtId),
+      (item) => item.name,
+    ),
     [groupes, districtId],
   );
 
@@ -104,15 +108,18 @@ export default function DistrictsModule() {
 
   const visibleDistricts = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return items.filter((item) => {
-      if (chapitreFilter !== "all" && item.chapitre_id !== chapitreFilter) return false;
-      if (!q) return true;
-      return (
-        item.name.toLowerCase().includes(q) ||
-        (item.chapitre_name || "").toLowerCase().includes(q) ||
-        item.slug.toLowerCase().includes(q)
-      );
-    });
+    return sortByLabel(
+      items.filter((item) => {
+        if (chapitreFilter !== "all" && item.chapitre_id !== chapitreFilter) return false;
+        if (!q) return true;
+        return (
+          item.name.toLowerCase().includes(q) ||
+          (item.chapitre_name || "").toLowerCase().includes(q) ||
+          item.slug.toLowerCase().includes(q)
+        );
+      }),
+      (item) => item.name,
+    );
   }, [items, query, chapitreFilter]);
 
   const visibleGroupes = useMemo(() => {

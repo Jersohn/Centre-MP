@@ -24,6 +24,7 @@ import { RowActionsMenu } from "../RowActionsMenu";
 import { useConfirm } from "../ConfirmDialog";
 import { membersOfGroupe, OrgMemberDetailModal } from "./OrgMemberDetailModal";
 import { OrgDetailEmpty, OrgEmptyState, OrgPageShell } from "./OrgPageShell";
+import { sortByLabel } from "../sortUtils";
 
 type Level = "chapitres" | "districts" | "groupes" | "membres";
 
@@ -71,9 +72,9 @@ export default function ChapitresModule() {
       setDistricts([]);
       setGroupes([]);
     } else {
-      setChapitres(chapRes.data);
-      setDistricts(distRes.data);
-      setGroupes(grpRes.data);
+      setChapitres(sortByLabel(chapRes.data, (item) => item.name));
+      setDistricts(sortByLabel(distRes.data, (item) => item.name));
+      setGroupes(sortByLabel(grpRes.data, (item) => item.name));
     }
     setLoading(false);
   };
@@ -89,12 +90,18 @@ export default function ChapitresModule() {
   }, [toast]);
 
   const districtsOfChapitre = useMemo(
-    () => districts.filter((item) => item.chapitre_id === chapitreId),
+    () => sortByLabel(
+      districts.filter((item) => item.chapitre_id === chapitreId),
+      (item) => item.name,
+    ),
     [districts, chapitreId],
   );
 
   const groupesOfDistrict = useMemo(
-    () => groupes.filter((item) => item.district_id === districtId),
+    () => sortByLabel(
+      groupes.filter((item) => item.district_id === districtId),
+      (item) => item.name,
+    ),
     [groupes, districtId],
   );
 

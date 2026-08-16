@@ -16,6 +16,7 @@ import { RowActionsMenu } from "../RowActionsMenu";
 import { useConfirm } from "../ConfirmDialog";
 import { membersOfGroupe, OrgMemberDetailModal } from "./OrgMemberDetailModal";
 import { OrgDetailEmpty, OrgEmptyState, OrgPageShell } from "./OrgPageShell";
+import { sortByLabel } from "../sortUtils";
 
 type Level = "groupes" | "membres";
 
@@ -55,10 +56,10 @@ export default function GroupesModule() {
       setToast(groupesRes.error.message);
       setItems([]);
     } else {
-      setItems(groupesRes.data);
+      setItems(sortByLabel(groupesRes.data, (item) => item.name));
     }
-    if (!chapitresRes.error) setChapitres(chapitresRes.data);
-    if (!districtsRes.error) setDistricts(districtsRes.data);
+    if (!chapitresRes.error) setChapitres(sortByLabel(chapitresRes.data, (item) => item.name));
+    if (!districtsRes.error) setDistricts(sortByLabel(districtsRes.data, (item) => item.name));
     setLoading(false);
   };
 
@@ -73,12 +74,19 @@ export default function GroupesModule() {
   }, [toast]);
 
   const districtsForFilter = useMemo(() => {
-    if (chapitreFilter === "all") return districts;
-    return districts.filter((item) => item.chapitre_id === chapitreFilter);
+    const list =
+      chapitreFilter === "all"
+        ? districts
+        : districts.filter((item) => item.chapitre_id === chapitreFilter);
+    return sortByLabel(list, (item) => item.name);
   }, [districts, chapitreFilter]);
 
   const districtsForForm = useMemo(
-    () => districts.filter((item) => item.chapitre_id === chapitreId),
+    () =>
+      sortByLabel(
+        districts.filter((item) => item.chapitre_id === chapitreId),
+        (item) => item.name,
+      ),
     [districts, chapitreId],
   );
 
@@ -102,17 +110,20 @@ export default function GroupesModule() {
 
   const visibleGroupes = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return items.filter((item) => {
-      if (chapitreFilter !== "all" && item.chapitre_id !== chapitreFilter) return false;
-      if (districtFilter !== "all" && item.district_id !== districtFilter) return false;
-      if (!q) return true;
-      return (
-        item.name.toLowerCase().includes(q) ||
-        (item.district_name || "").toLowerCase().includes(q) ||
-        (item.chapitre_name || "").toLowerCase().includes(q) ||
-        item.slug.toLowerCase().includes(q)
-      );
-    });
+    return sortByLabel(
+      items.filter((item) => {
+        if (chapitreFilter !== "all" && item.chapitre_id !== chapitreFilter) return false;
+        if (districtFilter !== "all" && item.district_id !== districtFilter) return false;
+        if (!q) return true;
+        return (
+          item.name.toLowerCase().includes(q) ||
+          (item.district_name || "").toLowerCase().includes(q) ||
+          (item.chapitre_name || "").toLowerCase().includes(q) ||
+          item.slug.toLowerCase().includes(q)
+        );
+      }),
+      (item) => item.name,
+    );
   }, [items, query, chapitreFilter, districtFilter]);
 
   const visibleMembers = useMemo(() => {
