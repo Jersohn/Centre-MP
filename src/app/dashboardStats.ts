@@ -93,7 +93,10 @@ function membersOf(
 }
 
 function namesHint(names: string[], max = 4) {
-  const clean = names.map((name) => name.trim()).filter(Boolean);
+  const clean = [...names]
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
   if (!clean.length) return "";
   if (clean.length <= max) return clean.join(" · ");
   return `${clean.slice(0, max).join(" · ")} +${clean.length - max}`;
@@ -105,11 +108,13 @@ function rowsFromUnits(
   collectes: DashboardCollecteLike[],
   pick: (unitLabel: string) => MemberRecord[],
 ): UnitStat[] {
-  return units.map((unit) => ({
-    key: unit.key,
-    label: unit.label,
-    ...statsForUnit(pick(unit.label), collectes),
-  }));
+  return units
+    .map((unit) => ({
+      key: unit.key,
+      label: unit.label,
+      ...statsForUnit(pick(unit.label), collectes),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
 }
 
 export function buildDashboardScope(

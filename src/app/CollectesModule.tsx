@@ -45,6 +45,7 @@ import {
 import { fetchMyProfile } from "../services/profileService";
 import { useConfirm } from "./ConfirmDialog";
 import { orgScopeFromProfile } from "./memberListStats";
+import { sortNames, withTousSorted } from "./sortUtils";
 
 export type CollecteTab = "vague-paix" | "zaimu-ordinaire" | "zaimu-special";
 export type CollecteStatut = "En attente" | "Validé" | "Annulé";
@@ -1249,18 +1250,18 @@ export default function CollectesModule({
   const groupeLocked = Boolean(exportOrgScope.groupe);
 
   const chapitreFilterOptions = useMemo(
-    () => ["Tous", ...orgTree.chapitres.map((item) => item.name)],
+    () => withTousSorted(orgTree.chapitres.map((item) => item.name)),
     [orgTree.chapitres],
   );
   const districtFilterOptions = useMemo(() => {
     if (chapitreFilter === "Tous") {
-      return ["Tous", ...orgTree.districts.map((item) => item.name)];
+      return withTousSorted(orgTree.districts.map((item) => item.name));
     }
     const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
     const districts = chapitre
       ? orgTree.districtsForChapitreId(chapitre.id).map((item) => item.name)
       : [];
-    return ["Tous", ...districts];
+    return withTousSorted(districts);
   }, [chapitreFilter, orgTree]);
   const groupeFilterOptions = useMemo(() => {
     if (districtFilter !== "Tous") {
@@ -1268,7 +1269,7 @@ export default function CollectesModule({
       const groupes = district
         ? orgTree.groupesForDistrictId(district.id).map((item) => item.name)
         : [];
-      return ["Tous", ...groupes];
+      return withTousSorted(groupes);
     }
     if (chapitreFilter !== "Tous") {
       const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
@@ -1277,9 +1278,9 @@ export default function CollectesModule({
             orgTree.groupesForDistrictId(district.id).map((item) => item.name),
           )
         : [];
-      return ["Tous", ...Array.from(new Set(groupes))];
+      return withTousSorted(groupes);
     }
-    return ["Tous", ...orgTree.groupes.map((item) => item.name)];
+    return withTousSorted(orgTree.groupes.map((item) => item.name));
   }, [chapitreFilter, districtFilter, orgTree]);
 
   const activeExportScope = useMemo(() => {
@@ -1310,7 +1311,7 @@ export default function CollectesModule({
       tab === "vague-paix"
         ? members.filter((member) => member.abonnementVaguePaix)
         : members;
-    const names = source.map((member) => memberFullName(member)).filter(Boolean);
+    const names = sortNames(source.map((member) => memberFullName(member)).filter(Boolean));
     if (editing?.membre && !names.includes(editing.membre)) {
       return [editing.membre, ...names];
     }
@@ -1383,7 +1384,7 @@ export default function CollectesModule({
       }
       campaigns = [...campaigns].sort((a, b) => {
         if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
-        return (b.created_at || "").localeCompare(a.created_at || "");
+        return (a.label || "").localeCompare(b.label || "", "fr", { sensitivity: "base" });
       });
       if (cancelled) return;
       setMyCotaByCampaignId(cotaMap);
@@ -1563,10 +1564,12 @@ export default function CollectesModule({
       })
       .sort((a, b) => {
         if (tab === "vague-paix") {
-          const byGroupe = (a.groupe || "").localeCompare(b.groupe || "", "fr");
+          const byGroupe = (a.groupe || "").localeCompare(b.groupe || "", "fr", { sensitivity: "base" });
           if (byGroupe !== 0) return byGroupe;
-          return (a.membre || "").localeCompare(b.membre || "", "fr");
+          return (a.membre || "").localeCompare(b.membre || "", "fr", { sensitivity: "base" });
         }
+        const byMembre = (a.membre || "").localeCompare(b.membre || "", "fr", { sensitivity: "base" });
+        if (byMembre !== 0) return byMembre;
         return (b.date || "").localeCompare(a.date || "");
       });
   }, [

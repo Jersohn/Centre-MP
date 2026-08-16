@@ -279,7 +279,7 @@ export function buildStatsBreakdown(
     map.set(key, row);
   }
 
-  return [...map.values()].sort((a, b) => b.membres - a.membres || a.label.localeCompare(b.label, "fr"));
+  return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, "fr", { sensitivity: "base" }));
 }
 
 export function computeMemberListKpis(

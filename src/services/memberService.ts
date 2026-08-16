@@ -2,6 +2,7 @@ import { supabase, isSupabaseEnabled } from "./supabaseClient";
 import { resolveOrgIds } from "./orgService";
 import { listProfiles } from "./profileService";
 import type { MemberFormValues, MemberRecord } from "../app/memberFormUtils";
+import { sortMembersByName } from "../app/sortUtils";
 import type { AppRole, MemberRow, ProfileRow } from "../types/supabase";
 
 const CATEGORIE_TO_DB: Record<string, string> = {
@@ -225,10 +226,7 @@ export async function listMembersRemote(): Promise<{
   }
 
   return {
-    data: [...members, ...fromProfiles].sort((a, b) => {
-      const byNom = a.nom.localeCompare(b.nom, "fr");
-      return byNom !== 0 ? byNom : a.prenom.localeCompare(b.prenom, "fr");
-    }),
+    data: sortMembersByName([...members, ...fromProfiles]),
     error: null,
   };
 }

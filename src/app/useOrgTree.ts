@@ -5,6 +5,7 @@ import {
   listGroupes,
 } from "../services/orgService";
 import type { ChapitreRow, DistrictRow, GroupeRow } from "../types/supabase";
+import { sortByLabel } from "./sortUtils";
 
 export type OrgSelectionIds = {
   chapitreId: string;
@@ -38,9 +39,9 @@ export function useOrgTree() {
       setDistricts([]);
       setGroupes([]);
     } else {
-      setChapitres(chapRes.data);
-      setDistricts(distRes.data);
-      setGroupes(grpRes.data);
+      setChapitres(sortByLabel(chapRes.data, (item) => item.name));
+      setDistricts(sortByLabel(distRes.data, (item) => item.name));
+      setGroupes(sortByLabel(grpRes.data, (item) => item.name));
     }
     setLoading(false);
   }, []);
@@ -50,12 +51,20 @@ export function useOrgTree() {
   }, [reload]);
 
   const districtsForChapitreId = useCallback(
-    (chapitreId: string) => districts.filter((item) => item.chapitre_id === chapitreId),
+    (chapitreId: string) =>
+      sortByLabel(
+        districts.filter((item) => item.chapitre_id === chapitreId),
+        (item) => item.name,
+      ),
     [districts],
   );
 
   const groupesForDistrictId = useCallback(
-    (districtId: string) => groupes.filter((item) => item.district_id === districtId),
+    (districtId: string) =>
+      sortByLabel(
+        groupes.filter((item) => item.district_id === districtId),
+        (item) => item.name,
+      ),
     [groupes],
   );
 

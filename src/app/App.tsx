@@ -86,6 +86,7 @@ import { signOut } from "../services/authService";
 import { deleteUserRemote, fetchMyProfile, hasRemoteProfiles, inviteUserRemote } from "../services/profileService";
 import { resolveOrgIds } from "../services/orgService";
 import { PROFILE_UPDATED_EVENT } from "./profilesData";
+import { sortMembersByName, withTousSorted } from "./sortUtils";
 
 type SessionProfile = {
   name: string;
@@ -1462,18 +1463,18 @@ function Membres({ role }: { role: PlatformRole }) {
   // Centre / admin : aucun filtre de périmètre → tous les membres + responsables rattachés.
   const scopedMembers = useMemo(() => filterMembersByScope(members, orgScope), [members, orgScope]);
   const chapitreFilterOptions = useMemo(
-    () => ["Tous", ...orgTree.chapitres.map((item) => item.name)],
+    () => withTousSorted(orgTree.chapitres.map((item) => item.name)),
     [orgTree.chapitres],
   );
   const districtFilterOptions = useMemo(() => {
     if (chapitreFilter === "Tous") {
-      return ["Tous", ...orgTree.districts.map((item) => item.name)];
+      return withTousSorted(orgTree.districts.map((item) => item.name));
     }
     const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
     const districts = chapitre
       ? orgTree.districtsForChapitreId(chapitre.id).map((item) => item.name)
       : [];
-    return ["Tous", ...districts];
+    return withTousSorted(districts);
   }, [chapitreFilter, orgTree]);
   const groupeFilterOptions = useMemo(() => {
     if (districtFilter !== "Tous") {
@@ -1481,7 +1482,7 @@ function Membres({ role }: { role: PlatformRole }) {
       const groupes = district
         ? orgTree.groupesForDistrictId(district.id).map((item) => item.name)
         : [];
-      return ["Tous", ...groupes];
+      return withTousSorted(groupes);
     }
     if (chapitreFilter !== "Tous") {
       const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
@@ -1490,9 +1491,9 @@ function Membres({ role }: { role: PlatformRole }) {
             orgTree.groupesForDistrictId(district.id).map((item) => item.name),
           )
         : [];
-      return ["Tous", ...Array.from(new Set(groupes))];
+      return withTousSorted(groupes);
     }
-    return ["Tous", ...orgTree.groupes.map((item) => item.name)];
+    return withTousSorted(orgTree.groupes.map((item) => item.name));
   }, [chapitreFilter, districtFilter, orgTree]);
 
   useEffect(() => {
@@ -1563,20 +1564,35 @@ function Membres({ role }: { role: PlatformRole }) {
     };
   }, [members]);
 
-  const filtered = useMemo(() => scopedMembers.filter((m) => {
-    if (chapitreFilter !== "Tous" && m.chapitre !== chapitreFilter) return false;
-    if (districtFilter !== "Tous" && m.district !== districtFilter) return false;
-    if (groupeFilter !== "Tous" && m.groupe !== groupeFilter) return false;
-    if (departementFilter !== "Tous") {
-      const dept = (m.departement || m.categorie || "").trim();
-      if (dept !== departementFilter) return false;
-    }
-    if (statutFilter !== "Tous" && m.statut !== statutFilter) return false;
-    const roleLabel = m.responsabilite === "Membre" ? "Membre simple" : m.responsabilite;
-    if (responsabiliteFilter !== "Tous" && roleLabel !== responsabiliteFilter) return false;
-    if (search && !`${m.prenom} ${m.nom}`.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  }), [chapitreFilter, districtFilter, groupeFilter, departementFilter, statutFilter, responsabiliteFilter, search, scopedMembers]);
+  const filtered = useMemo(
+    () =>
+      sortMembersByName(
+        scopedMembers.filter((m) => {
+          if (chapitreFilter !== "Tous" && m.chapitre !== chapitreFilter) return false;
+          if (districtFilter !== "Tous" && m.district !== districtFilter) return false;
+          if (groupeFilter !== "Tous" && m.groupe !== groupeFilter) return false;
+          if (departementFilter !== "Tous") {
+            const dept = (m.departement || m.categorie || "").trim();
+            if (dept !== departementFilter) return false;
+          }
+          if (statutFilter !== "Tous" && m.statut !== statutFilter) return false;
+          const roleLabel = m.responsabilite === "Membre" ? "Membre simple" : m.responsabilite;
+          if (responsabiliteFilter !== "Tous" && roleLabel !== responsabiliteFilter) return false;
+          if (search && !`${m.prenom} ${m.nom}`.toLowerCase().includes(search.toLowerCase())) return false;
+          return true;
+        }),
+      ),
+    [
+      chapitreFilter,
+      districtFilter,
+      groupeFilter,
+      departementFilter,
+      statutFilter,
+      responsabiliteFilter,
+      search,
+      scopedMembers,
+    ],
+  );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / MEMBERS_PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -1912,7 +1928,7 @@ function Membres({ role }: { role: PlatformRole }) {
             setMembers((prev) => {
               const byId = new Map(prev.map((item) => [item.id, item]));
               for (const item of updated) byId.set(item.id, item);
-              return [...created, ...byId.values()];
+              return sortMembersByName([...created, ...byId.values()]);
             });
           }}
         />
@@ -2080,7 +2096,7 @@ function Membres({ role }: { role: PlatformRole }) {
           }}
           onCancel={() => setShowForm(false)}
           onSuccess={({ member, message }) => {
-            setMembers((prev) => [member, ...prev]);
+            setMembers((prev) => sortMembersByName([member, ...prev]));
             setShowForm(false);
             setMemberToast(message);
             void reloadMembers();
@@ -2495,18 +2511,18 @@ function Statistiques({ role }: { role: PlatformRole }) {
   const groupeLocked = Boolean(orgScope.groupe);
 
   const chapitreFilterOptions = useMemo(
-    () => ["Tous", ...orgTree.chapitres.map((item) => item.name)],
+    () => withTousSorted(orgTree.chapitres.map((item) => item.name)),
     [orgTree.chapitres],
   );
   const districtFilterOptions = useMemo(() => {
     if (chapitreFilter === "Tous") {
-      return ["Tous", ...orgTree.districts.map((item) => item.name)];
+      return withTousSorted(orgTree.districts.map((item) => item.name));
     }
     const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
     const districts = chapitre
       ? orgTree.districtsForChapitreId(chapitre.id).map((item) => item.name)
       : [];
-    return ["Tous", ...districts];
+    return withTousSorted(districts);
   }, [chapitreFilter, orgTree]);
   const groupeFilterOptions = useMemo(() => {
     if (districtFilter !== "Tous") {
@@ -2514,7 +2530,7 @@ function Statistiques({ role }: { role: PlatformRole }) {
       const groupes = district
         ? orgTree.groupesForDistrictId(district.id).map((item) => item.name)
         : [];
-      return ["Tous", ...groupes];
+      return withTousSorted(groupes);
     }
     if (chapitreFilter !== "Tous") {
       const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
@@ -2523,9 +2539,9 @@ function Statistiques({ role }: { role: PlatformRole }) {
             orgTree.groupesForDistrictId(district.id).map((item) => item.name),
           )
         : [];
-      return ["Tous", ...Array.from(new Set(groupes))];
+      return withTousSorted(groupes);
     }
-    return ["Tous", ...orgTree.groupes.map((item) => item.name)];
+    return withTousSorted(orgTree.groupes.map((item) => item.name));
   }, [chapitreFilter, districtFilter, orgTree]);
 
   const viewScope = useMemo(

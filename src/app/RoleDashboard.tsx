@@ -36,6 +36,7 @@ import {
   type OrgScope,
 } from "./memberListStats";
 import { fetchMyProfile, hasRemoteProfiles } from "../services/profileService";
+import { withTousSorted } from "./sortUtils";
 
 const TONE: Record<string, string> = {
   blue: "bg-[var(--sgi-blue)]/10 text-[var(--sgi-blue)]",
@@ -128,18 +129,18 @@ export default function RoleDashboard({
   const groupeLocked = Boolean(orgScope.groupe);
 
   const chapitreFilterOptions = useMemo(
-    () => ["Tous", ...orgTree.chapitres.map((item) => item.name)],
+    () => withTousSorted(orgTree.chapitres.map((item) => item.name)),
     [orgTree.chapitres],
   );
   const districtFilterOptions = useMemo(() => {
     if (chapitreFilter === "Tous") {
-      return ["Tous", ...orgTree.districts.map((item) => item.name)];
+      return withTousSorted(orgTree.districts.map((item) => item.name));
     }
     const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
     const districts = chapitre
       ? orgTree.districtsForChapitreId(chapitre.id).map((item) => item.name)
       : [];
-    return ["Tous", ...districts];
+    return withTousSorted(districts);
   }, [chapitreFilter, orgTree]);
   const groupeFilterOptions = useMemo(() => {
     if (districtFilter !== "Tous") {
@@ -147,7 +148,7 @@ export default function RoleDashboard({
       const groupes = district
         ? orgTree.groupesForDistrictId(district.id).map((item) => item.name)
         : [];
-      return ["Tous", ...groupes];
+      return withTousSorted(groupes);
     }
     if (chapitreFilter !== "Tous") {
       const chapitre = orgTree.chapitres.find((item) => item.name === chapitreFilter);
@@ -156,9 +157,9 @@ export default function RoleDashboard({
             orgTree.groupesForDistrictId(district.id).map((item) => item.name),
           )
         : [];
-      return ["Tous", ...Array.from(new Set(groupes))];
+      return withTousSorted(groupes);
     }
-    return ["Tous", ...orgTree.groupes.map((item) => item.name)];
+    return withTousSorted(orgTree.groupes.map((item) => item.name));
   }, [chapitreFilter, districtFilter, orgTree]);
 
   const viewScope = useMemo(

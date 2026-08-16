@@ -12,6 +12,7 @@ import type { CollecteRecord } from "./CollectesModule";
 import { hasRemoteMembers, listMembersRemote } from "../services/memberService";
 import { hasRemoteCollectes, listCollectesRemote } from "../services/collecteService";
 import { MEMBERS_SEED } from "./membersData";
+import { sortMembersByName } from "./sortUtils";
 
 type OpsDataContextValue = {
   members: MemberRecord[];
@@ -35,7 +36,7 @@ export function OpsDataProvider({ children }: { children: ReactNode }) {
 
   const reloadMembers = useCallback(async () => {
     if (!hasRemoteMembers()) {
-      setMembers(MEMBERS_SEED);
+      setMembers(sortMembersByName(MEMBERS_SEED));
       return;
     }
     const { data, error: loadError } = await listMembersRemote();
@@ -44,7 +45,7 @@ export function OpsDataProvider({ children }: { children: ReactNode }) {
       setMembers([]);
       return;
     }
-    setMembers(data);
+    setMembers(sortMembersByName(data));
   }, []);
 
   const reloadCollectes = useCallback(async () => {

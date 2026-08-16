@@ -57,6 +57,7 @@ import {
   updateProfileRemote,
 } from "../../services/profileService";
 import type { ProfileRow } from "../../types/supabase";
+import { compareFr } from "../sortUtils";
 
 function stableNumericId(uuid: string): number {
   let hash = 0;
@@ -306,16 +307,18 @@ export default function SettingsModule({ currentUserRole }: { currentUserRole: P
 
   const visibleProfiles = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return profiles.filter((profile) => {
-      if (roleFilter !== "all" && profile.role !== roleFilter) return false;
-      if (statusFilter !== "all" && profile.status !== statusFilter) return false;
-      if (!q) return true;
-      return (
-        profile.name.toLowerCase().includes(q) ||
-        profile.email.toLowerCase().includes(q) ||
-        ROLE_LABELS[profile.role].toLowerCase().includes(q)
-      );
-    });
+    return profiles
+      .filter((profile) => {
+        if (roleFilter !== "all" && profile.role !== roleFilter) return false;
+        if (statusFilter !== "all" && profile.status !== statusFilter) return false;
+        if (!q) return true;
+        return (
+          profile.name.toLowerCase().includes(q) ||
+          profile.email.toLowerCase().includes(q) ||
+          ROLE_LABELS[profile.role].toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => compareFr(a.name, b.name) || compareFr(a.email, b.email));
   }, [profiles, query, roleFilter, statusFilter]);
 
   const stats = useMemo(() => ({

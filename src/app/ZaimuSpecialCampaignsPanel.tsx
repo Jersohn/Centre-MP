@@ -20,6 +20,7 @@ import { useOpsData } from "./opsDataStore";
 import { fetchMyProfile } from "../services/profileService";
 import { RowActionsMenu } from "./RowActionsMenu";
 import { useConfirm } from "./ConfirmDialog";
+import { sortByLabel, sortMembersByName } from "./sortUtils";
 import {
   createSpecialCampaign,
   deleteSpecialCampaign,
@@ -351,15 +352,17 @@ export default function ZaimuSpecialCampaignsPanel({
       const chapitreId =
         profileScope.chapitre_id || district?.chapitre_id || groupe?.chapitre_id || null;
 
-      const groupMembers = members.filter((m) => {
-        if (m.source === "profile") return false;
-        if (!m.remoteId) return false;
-        if (groupeId && m.groupeId) return m.groupeId === groupeId;
-        if (groupe?.name) {
-          return m.groupe.trim().toLowerCase() === groupe.name.trim().toLowerCase();
-        }
-        return false;
-      });
+      const groupMembers = sortMembersByName(
+        members.filter((m) => {
+          if (m.source === "profile") return false;
+          if (!m.remoteId) return false;
+          if (groupeId && m.groupeId) return m.groupeId === groupeId;
+          if (groupe?.name) {
+            return m.groupe.trim().toLowerCase() === groupe.name.trim().toLowerCase();
+          }
+          return false;
+        }),
+      );
 
       setDrafts(
         groupMembers.map((m) => {

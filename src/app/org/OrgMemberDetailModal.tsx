@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { MemberAvatar } from "../MemberAvatar";
 import type { MemberRecord } from "../memberFormUtils";
+import { sortMembersByName } from "../sortUtils";
 
 export function OrgDetailField({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -98,12 +99,14 @@ export function membersOfGroupe(
   districtName?: string | null,
   chapitreName?: string | null,
 ) {
-  return members.filter((member) => {
-    if (member.groupeId && member.groupeId === groupe.id) return true;
-    return (
-      member.groupe === groupe.name &&
-      (!districtName || member.district === districtName) &&
-      (!chapitreName || member.chapitre === chapitreName)
-    );
-  });
+  return sortMembersByName(
+    members.filter((member) => {
+      if (member.groupeId && member.groupeId === groupe.id) return true;
+      return (
+        member.groupe === groupe.name &&
+        (!districtName || member.district === districtName) &&
+        (!chapitreName || member.chapitre === chapitreName)
+      );
+    }),
+  );
 }
