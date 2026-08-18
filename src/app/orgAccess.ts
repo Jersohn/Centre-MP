@@ -102,6 +102,23 @@ export function canEditMember(
 }
 
 /**
+ * Réaffectation chapitre / district / groupe.
+ * Les fiches membres du périmètre, et les profils responsables pour admin / centre.
+ */
+export function canReassignMember(
+  actorRole: PlatformRole,
+  member: { responsabilite: string; source?: "member" | "profile" },
+): boolean {
+  const targetRole = platformRoleFromResponsabilite(member.responsabilite);
+  if (targetRole === "admin") return false;
+  if (actorRole === "groupe") return false;
+  if (member.source === "profile") {
+    return actorRole === "admin" || actorRole === "centre";
+  }
+  return !isProtectedHierarchyTarget(actorRole, targetRole);
+}
+
+/**
  * Suppression définitive d’un membre :
  * admin et responsable centre, y compris les fiches responsables.
  * Un administrateur ne peut pas être supprimé.

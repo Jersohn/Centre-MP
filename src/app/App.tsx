@@ -81,6 +81,7 @@ import {
   canDeleteMember,
   canEditMember,
 } from "./orgAccess";
+import { ListCheckbox, useMemberBulkActions } from "./MemberBulkSelect";
 import { deleteMemberRemote, hasRemoteMembers, setMemberStatusRemote } from "../services/memberService";
 import { signOut } from "../services/authService";
 import { deleteUserRemote, fetchMyProfile, hasRemoteProfiles, inviteUserRemote } from "../services/profileService";
@@ -1601,6 +1602,18 @@ function Membres({ role }: { role: PlatformRole }) {
     return filtered.slice(start, start + MEMBERS_PAGE_SIZE);
   }, [filtered, currentPage]);
 
+  const memberBulk = useMemberBulkActions(role, filtered, {
+    pageMembers: paginatedMembers,
+    scopeLock:
+      role === "admin" || role === "centre"
+        ? undefined
+        : {
+            chapitre: orgScope.chapitre || undefined,
+            district: role === "district" || role === "groupe" ? orgScope.district || undefined : undefined,
+          },
+    onToast: setMemberToast,
+  });
+
   useEffect(() => {
     setPage(1);
   }, [chapitreFilter, districtFilter, groupeFilter, departementFilter, statutFilter, responsabiliteFilter, search, orgScope.label]);
@@ -2105,25 +2118,29 @@ function Membres({ role }: { role: PlatformRole }) {
       )}
 
       <div className="rounded-xl border border-border bg-card">
-        <div className="px-5 py-3 border-b border-border flex items-center justify-between gap-3">
-          <span className="text-sm font-medium text-foreground">
-            {membersLoading
-              ? "Chargement des membres…"
-              : `${filtered.length} membre${filtered.length !== 1 ? "s" : ""}`}
-            {!membersLoading && filtered.length > 0 && (
-              <span className="ml-2 font-normal text-muted-foreground">
-                · {Math.min((currentPage - 1) * MEMBERS_PAGE_SIZE + 1, filtered.length)}–
-                {Math.min(currentPage * MEMBERS_PAGE_SIZE, filtered.length)} sur {filtered.length}
-              </span>
-            )}
-          </span>
-          <button
-            type="button"
-            onClick={() => setActiveTab("import-export")}
-            className="text-xs font-medium text-[var(--sgi-blue)] hover:underline"
-          >
-            Import / Export →
-          </button>
+        {memberBulk.dialog}
+        <div className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:px-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium text-foreground">
+              {membersLoading
+                ? "Chargement des membres…"
+                : `${filtered.length} membre${filtered.length !== 1 ? "s" : ""}`}
+              {!membersLoading && filtered.length > 0 && (
+                <span className="ml-2 font-normal text-muted-foreground">
+                  · {Math.min((currentPage - 1) * MEMBERS_PAGE_SIZE + 1, filtered.length)}–
+                  {Math.min(currentPage * MEMBERS_PAGE_SIZE, filtered.length)} sur {filtered.length}
+                </span>
+              )}
+            </span>
+            <button
+              type="button"
+              onClick={() => setActiveTab("import-export")}
+              className="text-xs font-medium text-[var(--sgi-blue)] hover:underline"
+            >
+              Import / Export →
+            </button>
+          </div>
+          {memberBulk.bar}
         </div>
         <div className="space-y-3 p-3 md:hidden">
           {membersLoading ? (
@@ -2138,13 +2155,25 @@ function Membres({ role }: { role: PlatformRole }) {
               const zsPaye = getMemberZaimuPaid(collectes, m, "zaimu-special");
               const zsAssigne = m.remoteId ? memberZsAssigneById[m.remoteId] || 0 : 0;
               return (
-                <article key={m.id} className="rounded-xl border border-border bg-background/40 p-3">
+                <article
+                  key={m.id}
+                  className={`rounded-xl border p-3 ${
+                    memberBulk.selectedIds.has(m.id)
+                      ? "border-[var(--sgi-blue)]/35 bg-[var(--sgi-blue)]/8"
+                      : "border-border bg-background/40"
+                  }`}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2.5">
+                      <ListCheckbox
+                        checked={memberBulk.selectedIds.has(m.id)}
+                        onChange={() => memberBulk.toggle(m.id)}
+                        label={`Sélectionner ${m.prenom} ${m.nom}`}
+                      />
                       <MemberAvatar photo={m.photo} prenom={m.prenom} nom={m.nom} size="sm" />
                       <div className="min-w-0">
                         <p className="truncate font-semibold text-foreground">{m.prenom} {m.nom}</p>
-                        <p className="truncate text-[11px] text-muted-foreground">{m.email}</p>
+                        <p className="truncate text-[11px] text-muted-foreground">{m.email || "—"}</p>
                       </div>
                     </div>
                     <RowActionsMenu actions={memberRowActions(m)} />
@@ -2166,21 +2195,10 @@ function Membres({ role }: { role: PlatformRole }) {
           <table className="w-full min-w-[64rem] text-[12px]">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                {[
-                  "Membre",
-                  "Rôle",
-                  "Chapitre",
-                  "District",
-                  "Groupe",
-                  "Département",
-                  "Statut",
-                  "Z. ord.",
-                  "Z. sp. payé/cota",
-                  "VP",
-                  "Gohonzon",
-                  "Sokahan",
-                  "Actions",
-                ].map((h) => (
+                <th className="w-8 px-2.5 py-2">
+                  <span className="sr-only">Sélection</span>
+                </th>
+                {["Membre", "Rôle", "Chapitre", "District", "Groupe", "Département", "Statut", "Z. ord.", "Z. sp. payé/cota", "VP", "Gohonzon", "Sokahan", "Actions"].map((h) => (
                   <th
                     key={h}
                     className={`whitespace-nowrap px-2.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-muted-foreground ${
@@ -2197,13 +2215,13 @@ function Membres({ role }: { role: PlatformRole }) {
             <tbody>
               {membersLoading ? (
                 <tr>
-                  <td colSpan={13} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  <td colSpan={14} className="px-4 py-10 text-center text-sm text-muted-foreground">
                     Chargement de la liste des membres…
                   </td>
                 </tr>
               ) : paginatedMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  <td colSpan={14} className="px-4 py-10 text-center text-sm text-muted-foreground">
                     {members.length === 0
                       ? "Aucun membre enregistré pour le moment."
                       : "Aucun membre ne correspond aux filtres."}
@@ -2216,7 +2234,19 @@ function Membres({ role }: { role: PlatformRole }) {
                 const zsAssigne = m.remoteId ? memberZsAssigneById[m.remoteId] || 0 : 0;
                 const zsReste = Math.max(0, zsAssigne - zsPaye);
                 return (
-                <tr key={m.id} className={`group border-b border-border transition-colors hover:bg-muted/30 ${i === paginatedMembers.length - 1 ? "border-b-0" : ""}`}>
+                <tr
+                  key={m.id}
+                  className={`group border-b border-border transition-colors hover:bg-muted/30 ${
+                    i === paginatedMembers.length - 1 ? "border-b-0" : ""
+                  } ${memberBulk.selectedIds.has(m.id) ? "bg-[var(--sgi-blue)]/6" : ""}`}
+                >
+                  <td className="w-8 px-2.5 py-2">
+                    <ListCheckbox
+                      checked={memberBulk.selectedIds.has(m.id)}
+                      onChange={() => memberBulk.toggle(m.id)}
+                      label={`Sélectionner ${m.prenom} ${m.nom}`}
+                    />
+                  </td>
                   <td className="px-2.5 py-2">
                     <div className="flex min-w-0 items-center gap-2">
                       <MemberAvatar photo={m.photo} prenom={m.prenom} nom={m.nom} size="sm" />
@@ -2224,7 +2254,7 @@ function Membres({ role }: { role: PlatformRole }) {
                         <div className="truncate font-medium text-foreground">
                           {m.prenom} {m.nom}
                         </div>
-                        <div className="truncate text-[10px] text-muted-foreground">{m.email}</div>
+                        <div className="truncate text-[10px] text-muted-foreground">{m.email || "—"}</div>
                       </div>
                     </div>
                   </td>
@@ -3318,13 +3348,13 @@ export default function App() {
           {activeModule === "directives" && <Directives />}
           {activeModule === "statistiques" && <Statistiques role={currentUserRole} />}
           {activeModule === "chapitres" && (currentUserRole === "admin" || currentUserRole === "centre") && (
-            <ChapitresModule />
+            <ChapitresModule role={currentUserRole} />
           )}
           {activeModule === "districts" && (currentUserRole === "admin" || currentUserRole === "centre") && (
-            <DistrictsModule />
+            <DistrictsModule role={currentUserRole} />
           )}
           {activeModule === "groupes" && (currentUserRole === "admin" || currentUserRole === "centre") && (
-            <GroupesModule />
+            <GroupesModule role={currentUserRole} />
           )}
           {activeModule === "profil" && <ProfilePage role={currentUserRole} />}
           {activeModule === "settings" &&

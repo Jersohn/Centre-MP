@@ -38,6 +38,36 @@ describe("createMemberFromForm", () => {
     expect(member.sokahan).toBe(true);
     expect(member.gohonzon).toBe(true);
     expect(member.photo).toBe("data:image/png;base64,abc");
+  });
+
+  it("keeps email empty when omitted", () => {
+    const member = createMemberFromForm(
+      {
+        prenom: "Awa",
+        nom: "Traoré",
+        email: "  ",
+        telephone: "",
+        dateNaissance: "",
+        departement: "Femme",
+        categorie: "Femme",
+        responsabilite: "Membre simple",
+        dateDebutPratique: "",
+        abonnementVaguePaix: false,
+        sokahan: false,
+        gohonzon: false,
+        quartier: "",
+        chapitre: "",
+        district: "",
+        groupe: "",
+        statut: "Actif",
+        abonnement: false,
+        photo: "",
+      },
+      [],
+    );
+
+    expect(member.email).toBe("");
+  });
     expect(member.totalDons).toBe(0);
   });
 });

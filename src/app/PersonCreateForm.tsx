@@ -269,8 +269,16 @@ export default function PersonCreateForm({
     event.preventDefault();
     setError(null);
 
-    if (!values.prenom.trim() || !values.nom.trim() || !values.email.trim()) {
-      setError("Le prénom, le nom et l’e-mail sont obligatoires.");
+    if (!values.prenom.trim() || !values.nom.trim()) {
+      setError("Le prénom et le nom sont obligatoires.");
+      return;
+    }
+    if (mode === "responsable" && !values.email.trim()) {
+      setError("L’e-mail est obligatoire pour créer un accès responsable.");
+      return;
+    }
+    if (values.email.trim() && !values.email.includes("@")) {
+      setError("L’e-mail saisi n’est pas valide.");
       return;
     }
     if (!orgIds.chapitreId || !orgIds.districtId || !orgIds.groupeId) {
@@ -530,13 +538,14 @@ export default function PersonCreateForm({
           className="dash-field"
         />
       </Field>
-      <Field label="Email">
+      <Field label="Email" hint={mode === "member" ? "Optionnel" : undefined}>
         <input
-          required
+          required={mode === "responsable"}
           type="email"
           value={values.email}
           onChange={(e) => patch({ email: e.target.value })}
           className="dash-field"
+          placeholder={mode === "member" ? "Facultatif" : undefined}
         />
       </Field>
       <Field label="Téléphone">

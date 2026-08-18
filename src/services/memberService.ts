@@ -353,6 +353,32 @@ export async function updateMemberRemote(
   return { data: data as { id: string }, error: null };
 }
 
+export async function reassignMemberOrgRemote(
+  memberId: string,
+  orgIds: { chapitre_id: string; district_id: string; groupe_id: string },
+): Promise<{ error: Error | null }> {
+  if (!isSupabaseEnabled() || !supabase) {
+    return { error: new Error("Service indisponible.") };
+  }
+  if (!memberId.trim()) {
+    return { error: new Error("Identifiant membre manquant.") };
+  }
+  const { data, error } = await supabase
+    .from("members")
+    .update({
+      chapitre_id: orgIds.chapitre_id,
+      district_id: orgIds.district_id,
+      groupe_id: orgIds.groupe_id,
+    })
+    .eq("id", memberId)
+    .select("id");
+  if (error) return { error: new Error(error.message) };
+  if (!data?.length) {
+    return { error: new Error("Réaffectation refusée. Vérifiez vos droits ou le rattachement choisi.") };
+  }
+  return { error: null };
+}
+
 export async function deleteMemberRemote(
   memberId: string,
 ): Promise<{ error: Error | null }> {

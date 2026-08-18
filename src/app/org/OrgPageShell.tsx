@@ -25,6 +25,7 @@ type Props = {
   toast?: string | null;
   children: ReactNode;
   detail: ReactNode;
+  listHeader?: ReactNode;
 };
 
 export function OrgPageShell({
@@ -43,6 +44,7 @@ export function OrgPageShell({
   toast,
   children,
   detail,
+  listHeader,
 }: Props) {
   return (
     <div className="dash-page space-y-5">
@@ -129,6 +131,7 @@ export function OrgPageShell({
               </div>
             </FilterPanel>
           </div>
+          {listHeader ? <div className="border-b border-border px-3 py-2 sm:px-4">{listHeader}</div> : null}
           <div className="max-h-[36rem] space-y-2 overflow-y-auto p-3 sm:p-4">{children}</div>
         </section>
 

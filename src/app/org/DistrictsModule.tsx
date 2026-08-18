@@ -16,8 +16,9 @@ import {
   updateDistrict,
 } from "../../services/orgService";
 import type { ChapitreRow, DistrictRow, GroupeRow } from "../../types/supabase";
-import { MemberAvatar } from "../MemberAvatar";
 import type { MemberRecord } from "../memberFormUtils";
+import { OrgMemberRows } from "../MemberBulkSelect";
+import type { PlatformRole } from "../roles";
 import { useOpsData } from "../opsDataStore";
 import { RowActionsMenu } from "../RowActionsMenu";
 import { useConfirm } from "../ConfirmDialog";
@@ -27,7 +28,7 @@ import { sortByLabel } from "../sortUtils";
 
 type Level = "districts" | "groupes" | "membres";
 
-export default function DistrictsModule() {
+export default function DistrictsModule({ role }: { role: PlatformRole }) {
   const { confirm } = useConfirm();
   const { members } = useOpsData();
   const [items, setItems] = useState<DistrictRow[]>([]);
@@ -397,27 +398,14 @@ export default function DistrictsModule() {
       if (visibleMembers.length === 0) {
         return <OrgEmptyState label={loading ? "Chargement…" : "Aucun membre dans ce groupe."} />;
       }
-      return visibleMembers.map((member) => (
-        <button
-          key={member.id}
-          type="button"
-          onClick={() => setSelectedMember(member)}
-          className="flex w-full items-center gap-3 rounded-2xl border border-transparent bg-muted/25 px-4 py-4 text-left transition hover:border-border hover:bg-muted/50"
-        >
-          <MemberAvatar photo={member.photo} prenom={member.prenom} nom={member.nom} size="sm" />
-          <div className="min-w-0 flex-1">
-            <div className="truncate font-semibold text-foreground">
-              {member.prenom} {member.nom}
-            </div>
-            <div className="mt-1 truncate text-sm text-muted-foreground">
-              {member.responsabilite === "Membre" ? "Membre simple" : member.responsabilite}
-              {" · "}
-              {member.statut}
-            </div>
-          </div>
-          <ChevronRight size={16} className="shrink-0 text-muted-foreground" />
-        </button>
-      ));
+      return (
+        <OrgMemberRows
+          members={visibleMembers}
+          role={role}
+          onOpen={setSelectedMember}
+          onToast={setToast}
+        />
+      );
     }
 
     if (visibleDistricts.length === 0) {
