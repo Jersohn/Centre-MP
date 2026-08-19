@@ -19,7 +19,7 @@ import {
   Tooltip, Legend, ResponsiveContainer, ComposedChart
 } from "recharts";
 import sgiLogo from "../../image/logo-sgi.jpg";
-import { type MemberRecord } from "./memberFormUtils";
+import { memberToFormValues, type MemberRecord } from "./memberFormUtils";
 import { memberFullName } from "./membersData";
 import PersonCreateForm from "./PersonCreateForm";
 import { DashboardAiAssistant } from "../components/ai/DashboardAiAssistant";
@@ -80,14 +80,23 @@ import {
   canDeactivateMember,
   canDeleteMember,
   canEditMember,
+  platformRoleFromResponsabilite,
 } from "./orgAccess";
 import { ListCheckbox, useMemberBulkActions } from "./MemberBulkSelect";
-import { deleteMemberRemote, hasRemoteMembers, setMemberStatusRemote } from "../services/memberService";
+import { deleteMemberRemote, hasRemoteMembers, setMemberStatusRemote, updateMemberRemote } from "../services/memberService";
 import { signOut } from "../services/authService";
 import { deleteUserRemote, fetchMyProfile, hasRemoteProfiles, inviteUserRemote } from "../services/profileService";
 import { resolveOrgIds } from "../services/orgService";
 import { PROFILE_UPDATED_EVENT } from "./profilesData";
 import { sortMembersByName, withTousSorted } from "./sortUtils";
+import {
+  ResponsabiliteSelect,
+  displayResponsabilite,
+  isMembreSimple,
+  responsabilitesForAssignableRoles,
+  suggestedResponsabiliteForPromotion,
+  toDbResponsabilite,
+} from "./responsabilites";
 
 type SessionProfile = {
   name: string;
@@ -98,14 +107,6 @@ type SessionProfile = {
 // ─── Data ────────────────────────────────────────────────────────────────────
 
 const STATUTS = ["Tous", "Actif", "En attente", "Suspendu"];
-const RESPONSABILITES = [
-  "Membre simple",
-  "Responsable groupe",
-  "Responsable district",
-  "Responsable chapitre",
-  "Responsable centre",
-] as const;
-const RESPONSABILITE_FILTERS = ["Tous", ...RESPONSABILITES] as const;
 const DEPARTEMENTS = ["Homme", "Femme", "Jeune homme", "Jeune fille", "Avenir"] as const;
 const DEPARTEMENT_FILTERS = ["Tous", ...DEPARTEMENTS] as const;
 
@@ -1085,12 +1086,12 @@ function MembreDetail({
                 <StatutBadge statut={membre.statut} />
                 <span
                   className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide sm:px-2.5 sm:text-[11px] ${
-                    membre.responsabilite === "Membre" || membre.responsabilite === "Membre simple"
+                    isMembreSimple(membre.responsabilite)
                       ? "bg-muted text-muted-foreground"
                       : "bg-[var(--sgi-gold)]/15 text-[var(--sgi-gold)]"
                   }`}
                 >
-                  {membre.responsabilite === "Membre" ? "Membre simple" : membre.responsabilite}
+                  {displayResponsabilite(membre.responsabilite)}
                 </span>
                 {membre.abonnementVaguePaix && (
                   <span className="rounded-full bg-[var(--sgi-blue)]/12 px-2 py-0.5 text-[10px] font-bold text-[var(--sgi-blue)] sm:px-2.5 sm:text-[11px]">
@@ -1211,7 +1212,7 @@ function MembreDetail({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <MembreDetailField
               label="Responsabilité"
-              value={membre.responsabilite === "Membre" ? "Membre simple" : membre.responsabilite}
+              value={displayResponsabilite(membre.responsabilite)}
             />
             <MembreDetailField label="Chapitre" value={membre.chapitre} />
             <MembreDetailField label="District" value={membre.district} />
@@ -1413,19 +1414,7 @@ const MEMBRES_TABS: { key: MembresTab; label: string; short: string; icon: typeo
 ];
 
 function suggestedPlatformRole(responsabilite: string): PlatformRole {
-  const value = responsabilite === "Membre" ? "Membre simple" : responsabilite;
-  if (value === "Responsable centre") return "centre";
-  if (value === "Responsable chapitre") return "chapitre";
-  if (value === "Responsable district") return "district";
-  return "groupe";
-}
-
-function platformRoleToResponsabilite(role: PlatformRole): string {
-  if (role === "centre") return "Responsable centre";
-  if (role === "chapitre") return "Responsable chapitre";
-  if (role === "district") return "Responsable district";
-  if (role === "groupe") return "Responsable groupe";
-  return "Membre simple";
+  return platformRoleFromResponsabilite(responsabilite) || "groupe";
 }
 
 function Membres({ role }: { role: PlatformRole }) {
@@ -1440,6 +1429,10 @@ function Membres({ role }: { role: PlatformRole }) {
     error: membersError,
   } = useOpsData();
   const canPromote = assignableRoles(role).length > 0;
+  const promoteAssignable = useMemo(
+    () => responsabilitesForAssignableRoles(assignableRoles(role)),
+    [role],
+  );
   const [orgScope, setOrgScope] = useState<OrgScope>(() => DEMO_ORG_SCOPE[role]);
   const [activeTab, setActiveTab] = useState<MembresTab>("liste");
   const [chapitreFilter, setChapitreFilter] = useState("Tous");
@@ -1453,10 +1446,11 @@ function Membres({ role }: { role: PlatformRole }) {
   const [editingMember, setEditingMember] = useState<MemberRecord | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [promoteTarget, setPromoteTarget] = useState<MemberRecord | null>(null);
-  const [promoteRole, setPromoteRole] = useState<PlatformRole>("groupe");
+  const [promoteResponsabilite, setPromoteResponsabilite] = useState("Responsable groupe");
   const [promoteBusy, setPromoteBusy] = useState(false);
   const [promoteError, setPromoteError] = useState<string | null>(null);
   const [promoteInfo, setPromoteInfo] = useState<string | null>(null);
+  const promoteRole = platformRoleFromResponsabilite(promoteResponsabilite) || "groupe";
   const [memberToast, setMemberToast] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [memberZsAssigneById, setMemberZsAssigneById] = useState<Record<string, number>>({});
@@ -1577,7 +1571,7 @@ function Membres({ role }: { role: PlatformRole }) {
             if (dept !== departementFilter) return false;
           }
           if (statutFilter !== "Tous" && m.statut !== statutFilter) return false;
-          const roleLabel = m.responsabilite === "Membre" ? "Membre simple" : m.responsabilite;
+          const roleLabel = displayResponsabilite(m.responsabilite);
           if (responsabiliteFilter !== "Tous" && roleLabel !== responsabiliteFilter) return false;
           if (search && !`${m.prenom} ${m.nom}`.toLowerCase().includes(search.toLowerCase())) return false;
           return true;
@@ -1674,9 +1668,17 @@ function Membres({ role }: { role: PlatformRole }) {
           icon: <Shield size={14} />,
           onClick: () => {
             const roles = assignableRoles(role);
-            const suggested = suggestedPlatformRole(m.responsabilite);
+            const suggested = roles.includes(suggestedPlatformRole(m.responsabilite))
+              ? suggestedPlatformRole(m.responsabilite)
+              : roles[0] || "groupe";
             setPromoteTarget(m);
-            setPromoteRole(roles.includes(suggested) ? suggested : roles[0] || "groupe");
+            setPromoteResponsabilite(
+              suggestedResponsabiliteForPromotion(
+                m.responsabilite,
+                responsabilitesForAssignableRoles(roles),
+                suggested,
+              ),
+            );
             setPromoteError(null);
             setPromoteInfo(null);
           },
@@ -1730,6 +1732,16 @@ function Membres({ role }: { role: PlatformRole }) {
       setPromoteError("Impossible de modifier la responsabilité d’un responsable hiérarchique.");
       return;
     }
+    const nextResponsabilite = displayResponsabilite(promoteResponsabilite);
+    const nextRole = platformRoleFromResponsabilite(nextResponsabilite);
+    if (!nextRole || !assignableRoles(role).includes(nextRole)) {
+      setPromoteError("Choisissez une responsabilité que vous êtes autorisé à attribuer.");
+      return;
+    }
+    if (!promoteTarget.email.trim()) {
+      setPromoteError("L’e-mail du membre est obligatoire pour créer un accès responsable.");
+      return;
+    }
     setPromoteBusy(true);
     setPromoteError(null);
     setPromoteInfo(null);
@@ -1744,7 +1756,7 @@ function Membres({ role }: { role: PlatformRole }) {
           groupe: promoteTarget.groupe,
         });
         if (orgError) throw orgError;
-        if (promoteRole !== "admin" && promoteRole !== "centre") {
+        if (nextRole !== "admin" && nextRole !== "centre") {
           if (!orgIds.chapitre_id || !orgIds.district_id || !orgIds.groupe_id) {
             throw new Error(
               "Chapitre, district et groupe du membre sont requis pour créer le compte responsable.",
@@ -1754,21 +1766,45 @@ function Membres({ role }: { role: PlatformRole }) {
         const { data, error } = await inviteUserRemote({
           email: promoteTarget.email,
           full_name: fullName,
-          role: promoteRole,
+          role: nextRole,
           status: "actif",
           skip_email_confirm: true,
           telephone: promoteTarget.telephone,
-          department: promoteTarget.groupe || promoteTarget.district || promoteTarget.chapitre,
+          department: promoteTarget.departement || promoteTarget.groupe || promoteTarget.district || promoteTarget.chapitre,
           chapitre_id: orgIds.chapitre_id,
           district_id: orgIds.district_id,
           groupe_id: orgIds.groupe_id,
           member_id: promoteTarget.remoteId || null,
+          responsabilite: toDbResponsabilite(nextResponsabilite),
         });
         if (error || !data) throw error || new Error("Promotion impossible.");
+        if (hasRemoteMembers() && promoteTarget.remoteId && promoteTarget.source !== "profile") {
+          const orgOverride =
+            orgIds.chapitre_id && orgIds.district_id && orgIds.groupe_id
+              ? {
+                  chapitre_id: orgIds.chapitre_id,
+                  district_id: orgIds.district_id,
+                  groupe_id: orgIds.groupe_id,
+                }
+              : null;
+          const { error: memberError } = await updateMemberRemote(
+            promoteTarget.remoteId,
+            { ...memberToFormValues(promoteTarget), responsabilite: nextResponsabilite },
+            orgOverride,
+          );
+          if (memberError) throw memberError;
+        }
         const pwd = data.temporaryPassword
           ? ` Mot de passe temporaire : ${data.temporaryPassword}`
           : "";
         setPromoteInfo((data.message || "Responsable promu.") + pwd);
+      } else if (hasRemoteMembers() && promoteTarget.remoteId && promoteTarget.source !== "profile") {
+        const { error: memberError } = await updateMemberRemote(
+          promoteTarget.remoteId,
+          { ...memberToFormValues(promoteTarget), responsabilite: nextResponsabilite },
+        );
+        if (memberError) throw memberError;
+        setPromoteInfo("Responsabilité mise à jour.");
       } else {
         setPromoteInfo("Responsabilité mise à jour.");
       }
@@ -1776,14 +1812,12 @@ function Membres({ role }: { role: PlatformRole }) {
       setMembers((prev) =>
         prev.map((member) =>
           member.id === promoteTarget.id
-            ? { ...member, responsabilite: platformRoleToResponsabilite(promoteRole) }
+            ? { ...member, responsabilite: nextResponsabilite }
             : member,
         ),
       );
       setPromoteTarget((current) =>
-        current
-          ? { ...current, responsabilite: platformRoleToResponsabilite(promoteRole) }
-          : current,
+        current ? { ...current, responsabilite: nextResponsabilite } : current,
       );
     } catch (err) {
       setPromoteError(err instanceof Error ? err.message : "Échec de la promotion.");
@@ -1840,23 +1874,29 @@ function Membres({ role }: { role: PlatformRole }) {
               Promouvoir en responsable
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              {promoteTarget.prenom} {promoteTarget.nom} · {promoteTarget.email}
+              {promoteTarget.prenom} {promoteTarget.nom}
+              {promoteTarget.email ? ` · ${promoteTarget.email}` : " · e-mail manquant"}
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
-              Attribue à ce membre un accès à la plateforme avec le rôle choisi. Un mot de passe temporaire sera généré pour sa première connexion.
+              Attribue la responsabilité choisie et crée un accès plateforme (rôle{" "}
+              {ROLE_LABELS[promoteRole]}). Un mot de passe temporaire sera généré pour la première connexion.
             </p>
             <label className="mt-4 block space-y-1.5">
-              <span className="text-xs font-medium text-muted-foreground">Rôle plateforme</span>
-              <select
-                value={promoteRole}
-                onChange={(e) => setPromoteRole(e.target.value as PlatformRole)}
+              <span className="text-xs font-medium text-muted-foreground">Responsabilité</span>
+              <ResponsabiliteSelect
+                value={promoteResponsabilite}
+                excludeMembreSimple
+                allowedOptions={promoteAssignable}
+                onChange={setPromoteResponsabilite}
                 className="w-full rounded-xl border border-border bg-input-background px-3 py-2.5 text-sm outline-none"
-              >
-                {assignableRoles(role).map((item) => (
-                  <option key={item} value={item}>{ROLE_LABELS[item]}</option>
-                ))}
-              </select>
+              />
             </label>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Accès créé : {ROLE_LABELS[promoteRole]}
+              {displayResponsabilite(promoteTarget.responsabilite) !== "Membre simple"
+                ? ` · actuelle : ${displayResponsabilite(promoteTarget.responsabilite)}`
+                : ""}
+            </p>
             {promoteError && (
               <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                 {promoteError}
@@ -2053,7 +2093,6 @@ function Membres({ role }: { role: PlatformRole }) {
         {[
           ["Département", DEPARTEMENT_FILTERS, departementFilter, setDepartementFilter, false],
           ["Statut", STATUTS, statutFilter, setStatutFilter, false],
-          ["Responsabilité", RESPONSABILITE_FILTERS, responsabiliteFilter, setResponsabiliteFilter, false],
         ].map(([label, opts, val, set, locked]: any) => (
           <div key={label} className="w-full min-w-0 sm:w-auto sm:min-w-[9rem]">
             <label className="mb-1 block text-xs font-medium text-muted-foreground">{label}</label>
@@ -2067,6 +2106,14 @@ function Membres({ role }: { role: PlatformRole }) {
             </select>
           </div>
         ))}
+        <div className="w-full min-w-0 sm:w-auto sm:min-w-[14rem]">
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">Responsabilité</label>
+          <ResponsabiliteSelect
+            includeTous
+            value={responsabiliteFilter}
+            onChange={setResponsabiliteFilter}
+          />
+        </div>
         </div>
       </FilterPanel>
 
@@ -2158,7 +2205,7 @@ function Membres({ role }: { role: PlatformRole }) {
                 <article
                   key={m.id}
                   className={`rounded-xl border p-3 ${
-                    memberBulk.selectedIds.has(m.id)
+                    memberBulk.isSelected(m)
                       ? "border-[var(--sgi-blue)]/35 bg-[var(--sgi-blue)]/8"
                       : "border-border bg-background/40"
                   }`}
@@ -2166,8 +2213,8 @@ function Membres({ role }: { role: PlatformRole }) {
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <ListCheckbox
-                        checked={memberBulk.selectedIds.has(m.id)}
-                        onChange={() => memberBulk.toggle(m.id)}
+                        checked={memberBulk.isSelected(m)}
+                        onChange={() => memberBulk.toggleMember(m)}
                         label={`Sélectionner ${m.prenom} ${m.nom}`}
                       />
                       <MemberAvatar photo={m.photo} prenom={m.prenom} nom={m.nom} size="sm" />
@@ -2238,12 +2285,12 @@ function Membres({ role }: { role: PlatformRole }) {
                   key={m.id}
                   className={`group border-b border-border transition-colors hover:bg-muted/30 ${
                     i === paginatedMembers.length - 1 ? "border-b-0" : ""
-                  } ${memberBulk.selectedIds.has(m.id) ? "bg-[var(--sgi-blue)]/6" : ""}`}
+                  } ${memberBulk.isSelected(m) ? "bg-[var(--sgi-blue)]/6" : ""}`}
                 >
                   <td className="w-8 px-2.5 py-2">
                     <ListCheckbox
-                      checked={memberBulk.selectedIds.has(m.id)}
-                      onChange={() => memberBulk.toggle(m.id)}
+                      checked={memberBulk.isSelected(m)}
+                      onChange={() => memberBulk.toggleMember(m)}
                       label={`Sélectionner ${m.prenom} ${m.nom}`}
                     />
                   </td>
@@ -2260,14 +2307,14 @@ function Membres({ role }: { role: PlatformRole }) {
                   </td>
                   <td className="px-2.5 py-2">
                     <span
-                      className={`inline-flex max-w-[7.5rem] truncate rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                        (m.responsabilite === "Membre" || m.responsabilite === "Membre simple")
+                      className={`inline-flex max-w-[12rem] truncate rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        isMembreSimple(m.responsabilite)
                           ? "bg-muted text-muted-foreground"
                           : "bg-[var(--sgi-gold)]/15 text-[var(--sgi-gold)]"
                       }`}
-                      title={m.responsabilite === "Membre" ? "Membre simple" : m.responsabilite}
+                      title={displayResponsabilite(m.responsabilite)}
                     >
-                      {m.responsabilite === "Membre" ? "Membre simple" : m.responsabilite}
+                      {displayResponsabilite(m.responsabilite)}
                     </span>
                   </td>
                   <td className="max-w-[7rem] truncate px-2.5 py-2 text-[11px] text-muted-foreground" title={m.chapitre}>

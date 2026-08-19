@@ -1,3 +1,4 @@
+import { platformRoleFromResponsabiliteLabel } from "./responsabilites";
 import type { PlatformRole } from "./roles";
 
 /** Rang hiérarchique (plus élevé = autorité supérieure). */
@@ -15,14 +16,7 @@ export function roleRank(role: PlatformRole): number {
 
 /** Convertit une responsabilité membre vers un rôle plateforme, si applicable. */
 export function platformRoleFromResponsabilite(responsabilite: string): PlatformRole | null {
-  const value = (responsabilite || "").trim();
-  const normalized = value === "Membre" ? "Membre simple" : value;
-  if (normalized === "Administrateur" || normalized.toLowerCase() === "admin") return "admin";
-  if (normalized === "Responsable centre") return "centre";
-  if (normalized === "Responsable chapitre") return "chapitre";
-  if (normalized === "Responsable district") return "district";
-  if (normalized === "Responsable groupe") return "groupe";
-  return null;
+  return platformRoleFromResponsabiliteLabel(responsabilite);
 }
 
 /**

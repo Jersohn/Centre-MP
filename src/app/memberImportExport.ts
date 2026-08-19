@@ -2,6 +2,7 @@
 import * as XLSX from "xlsx";
 import type { MemberRecord } from "./memberFormUtils";
 import { memberFullName } from "./membersData";
+import { isMembreSimple, displayResponsabilite } from "./responsabilites";
 import {
   getMemberSpecialAssignment,
   getMemberZaimuPaid,
@@ -346,11 +347,6 @@ type MemberPdfSummaryCard = {
   hint?: string;
   accent: [number, number, number];
 };
-
-function isMembreSimple(responsabilite: string) {
-  const value = (responsabilite || "").trim();
-  return !value || value === "Membre" || value === "Membre simple";
-}
 
 /** Libellé de périmètre à partir des membres exportés. */
 export function inferExportOrgScope(members: MemberRecord[]): string {
@@ -699,7 +695,7 @@ const GUIDE_ROWS = [
   { Champ: "Departement / Categorie", Regle: "Optionnel. Homme | Femme | Jeune homme | Jeune fille | Avenir" },
   {
     Champ: "Responsabilite",
-    Regle: "Optionnel. Membre simple | Responsable groupe | Responsable district | Responsable chapitre | Responsable centre",
+    Regle: "Optionnel. Membre simple, ou Responsable / homme / femme / jeunesse / jeune homme / jeune fille pour Centre, Chapitre, District, Groupe (ex. Responsable femme chapitre).",
   },
   { Champ: "VagueDePaix / Gohonzon / Sokahan / Abonnement", Regle: "Optionnel. Oui ou Non (cellule vide = inchangé)" },
   { Champ: "Statut", Regle: "Optionnel. Actif | En attente | Suspendu" },
@@ -804,7 +800,7 @@ export function memberToImportRow(member: MemberRecord): Record<MemberImportColu
     DateNaissance: member.dateNaissance,
     Departement: memberDepartementLabel(member),
     Categorie: memberDepartementLabel(member) || member.categorie,
-    Responsabilite: member.responsabilite === "Membre" ? "Membre simple" : member.responsabilite,
+    Responsabilite: displayResponsabilite(member.responsabilite),
     DateDebutPratique: member.dateDebutPratique,
     VagueDePaix: yesNo(member.abonnementVaguePaix),
     Gohonzon: yesNo(member.gohonzon),
@@ -1229,7 +1225,9 @@ export function parseMembersImportWorkbook(data: ArrayBuffer | string): ImportPa
       dateNaissance: cell(row, "DateNaissance") || undefined,
       departement: cell(row, "Departement") || undefined,
       categorie: cell(row, "Categorie") || undefined,
-      responsabilite: cell(row, "Responsabilite") || undefined,
+      responsabilite: cell(row, "Responsabilite")
+        ? displayResponsabilite(cell(row, "Responsabilite"))
+        : undefined,
       dateDebutPratique: cell(row, "DateDebutPratique") || undefined,
       abonnementVaguePaix: parseYesNo(cell(row, "VagueDePaix")),
       gohonzon: parseYesNo(cell(row, "Gohonzon")),
@@ -1276,7 +1274,9 @@ function mergeImportedMember(base: MemberRecord, row: ParsedImportMember): Membe
     dateNaissance: row.dateNaissance ?? base.dateNaissance,
     departement,
     categorie,
-    responsabilite: row.responsabilite || base.responsabilite,
+    responsabilite: row.responsabilite
+      ? displayResponsabilite(row.responsabilite)
+      : base.responsabilite,
     dateDebutPratique: row.dateDebutPratique ?? base.dateDebutPratique,
     abonnementVaguePaix: row.abonnementVaguePaix ?? base.abonnementVaguePaix,
     gohonzon: row.gohonzon ?? base.gohonzon,
@@ -1305,7 +1305,7 @@ function createImportedMember(row: ParsedImportMember, id: number): MemberRecord
     dateNaissance: row.dateNaissance || "",
     departement,
     categorie: row.categorie || row.departement || "Homme",
-    responsabilite: row.responsabilite || "Membre simple",
+    responsabilite: displayResponsabilite(row.responsabilite || "Membre simple"),
     dateDebutPratique: row.dateDebutPratique || "",
     abonnementVaguePaix: row.abonnementVaguePaix ?? false,
     gohonzon: row.gohonzon ?? false,

@@ -24,6 +24,7 @@ type Body = {
   /** true = créer/activer sans lien d’invitation (défaut). */
   skip_email_confirm?: boolean;
   member_id?: string | null;
+  responsabilite?: string | null;
 };
 
 async function findUserIdByEmail(
@@ -185,18 +186,20 @@ Deno.serve(async (req) => {
     });
 
     if (body.member_id) {
+      const fromRole =
+        role === "centre"
+          ? "responsable_centre"
+          : role === "chapitre"
+            ? "responsable_chapitre"
+            : role === "district"
+              ? "responsable_district"
+              : role === "groupe"
+                ? "responsable_groupe"
+                : "membre_simple";
+      const slug = (body.responsabilite || "").trim() || fromRole;
       await service
         .from("members")
-        .update({
-          responsabilite:
-            role === "centre"
-              ? "responsable_centre"
-              : role === "chapitre"
-                ? "responsable_chapitre"
-                : role === "district"
-                  ? "responsable_district"
-                  : "responsable_groupe",
-        })
+        .update({ responsabilite: slug })
         .eq("id", body.member_id);
     }
 

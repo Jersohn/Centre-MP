@@ -14,6 +14,8 @@ describe("orgAccess hierarchy protection", () => {
   it("maps member responsabilite to platform roles", () => {
     expect(platformRoleFromResponsabilite("Responsable centre")).toBe("centre");
     expect(platformRoleFromResponsabilite("Responsable chapitre")).toBe("chapitre");
+    expect(platformRoleFromResponsabilite("Responsable homme centre")).toBe("centre");
+    expect(platformRoleFromResponsabilite("Responsable jeune fille district")).toBe("district");
     expect(platformRoleFromResponsabilite("Membre simple")).toBeNull();
   });
 

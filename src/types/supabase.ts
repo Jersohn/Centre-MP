@@ -3,6 +3,32 @@
 export type AppRole = "admin" | "centre" | "chapitre" | "district" | "groupe";
 export type ProfileStatus = "actif" | "en_attente" | "suspendu";
 export type MemberStatus = "actif" | "en_attente" | "suspendu";
+export type MemberResponsibility =
+  | "membre_simple"
+  | "responsable_groupe"
+  | "responsable_district"
+  | "responsable_chapitre"
+  | "responsable_centre"
+  | "responsable_homme_centre"
+  | "responsable_femme_centre"
+  | "responsable_jeunesse_centre"
+  | "responsable_jeune_homme_centre"
+  | "responsable_jeune_fille_centre"
+  | "responsable_homme_chapitre"
+  | "responsable_femme_chapitre"
+  | "responsable_jeunesse_chapitre"
+  | "responsable_jeune_homme_chapitre"
+  | "responsable_jeune_fille_chapitre"
+  | "responsable_homme_district"
+  | "responsable_femme_district"
+  | "responsable_jeunesse_district"
+  | "responsable_jeune_homme_district"
+  | "responsable_jeune_fille_district"
+  | "responsable_homme_groupe"
+  | "responsable_femme_groupe"
+  | "responsable_jeunesse_groupe"
+  | "responsable_jeune_homme_groupe"
+  | "responsable_jeune_fille_groupe";
 export type CollecteType = "vague_paix" | "zaimu_ordinaire" | "zaimu_special";
 export type CollecteStatus = "en_attente" | "valide" | "annule";
 
@@ -83,6 +109,7 @@ export type MemberRow = {
   district_id: string;
   groupe_id: string;
   statut: MemberStatus;
+  responsabilite?: MemberResponsibility | string | null;
   abonnement_vague_paix: boolean;
   sokahan: boolean;
   gohonzon: boolean;

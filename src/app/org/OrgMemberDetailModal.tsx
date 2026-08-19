@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { MemberAvatar } from "../MemberAvatar";
 import type { MemberRecord } from "../memberFormUtils";
+import { displayResponsabilite } from "../responsabilites";
 import { sortMembersByName } from "../sortUtils";
 
 export function OrgDetailField({ label, value }: { label: string; value: ReactNode }) {
@@ -61,7 +62,7 @@ export function OrgMemberDetailModal({
             <OrgDetailField label="Statut" value={membre.statut} />
             <OrgDetailField
               label="Responsabilité"
-              value={membre.responsabilite === "Membre" ? "Membre simple" : membre.responsabilite}
+              value={displayResponsabilite(membre.responsabilite)}
             />
             <OrgDetailField label="Catégorie" value={membre.categorie || membre.departement} />
             <OrgDetailField label="Date de naissance" value={membre.dateNaissance} />

@@ -3,6 +3,11 @@ import { resolveOrgIds } from "./orgService";
 import { listProfiles } from "./profileService";
 import type { MemberFormValues, MemberRecord } from "../app/memberFormUtils";
 import { sortMembersByName } from "../app/sortUtils";
+import {
+  mainResponsabiliteForRole,
+  displayResponsabilite,
+  toDbResponsabilite,
+} from "../app/responsabilites";
 import type { AppRole, MemberRow, ProfileRow } from "../types/supabase";
 
 const CATEGORIE_TO_DB: Record<string, string> = {
@@ -21,23 +26,6 @@ const CATEGORIE_FROM_DB: Record<string, string> = {
   avenir: "Avenir",
 };
 
-const RESPONSABILITE_TO_DB: Record<string, string> = {
-  "Membre simple": "membre_simple",
-  Membre: "membre_simple",
-  "Responsable groupe": "responsable_groupe",
-  "Responsable district": "responsable_district",
-  "Responsable chapitre": "responsable_chapitre",
-  "Responsable centre": "responsable_centre",
-};
-
-const RESPONSABILITE_FROM_DB: Record<string, string> = {
-  membre_simple: "Membre simple",
-  responsable_groupe: "Responsable groupe",
-  responsable_district: "Responsable district",
-  responsable_chapitre: "Responsable chapitre",
-  responsable_centre: "Responsable centre",
-};
-
 const STATUT_TO_DB: Record<string, string> = {
   Actif: "actif",
   "En attente": "en_attente",
@@ -51,11 +39,11 @@ const STATUT_FROM_DB: Record<string, string> = {
 };
 
 const ROLE_TO_RESPONSABILITE: Record<AppRole, string> = {
-  admin: "Responsable centre",
-  centre: "Responsable centre",
-  chapitre: "Responsable chapitre",
-  district: "Responsable district",
-  groupe: "Responsable groupe",
+  admin: mainResponsabiliteForRole("admin"),
+  centre: mainResponsabiliteForRole("centre"),
+  chapitre: mainResponsabiliteForRole("chapitre"),
+  district: mainResponsabiliteForRole("district"),
+  groupe: mainResponsabiliteForRole("groupe"),
 };
 
 function toSqlDate(value?: string | null) {
@@ -75,6 +63,13 @@ function stableNumericId(uuid: string): number {
     hash = (hash * 31 + uuid.charCodeAt(i)) >>> 0;
   }
   return hash || 1;
+}
+
+function mapMemberWriteError(message: string) {
+  if (/invalid input value for enum.*member_responsibility|member_responsibility/i.test(message)) {
+    return "Cette responsabilité n’est pas encore disponible en base. Exécutez la migration SQL des responsabilités (SQL Editor Supabase), puis réessayez.";
+  }
+  return message;
 }
 
 function splitFullName(fullName: string): { prenom: string; nom: string } {
@@ -113,7 +108,7 @@ export function mapMemberRow(row: MemberDbRow): MemberRecord {
     dateNaissance: row.date_naissance || "",
     departement: row.departement || categorie,
     categorie,
-    responsabilite: RESPONSABILITE_FROM_DB[row.responsabilite || ""] || "Membre simple",
+    responsabilite: displayResponsabilite(row.responsabilite),
     dateDebutPratique: row.date_debut_pratique || "",
     abonnementVaguePaix: Boolean(row.abonnement_vague_paix),
     sokahan: Boolean(row.sokahan),
@@ -283,7 +278,7 @@ export async function createMemberRemote(
       CATEGORIE_TO_DB[values.departement] ||
       CATEGORIE_TO_DB[values.categorie] ||
       "homme",
-    responsabilite: RESPONSABILITE_TO_DB[values.responsabilite] || "membre_simple",
+    responsabilite: toDbResponsabilite(values.responsabilite),
     date_debut_pratique: toSqlDate(values.dateDebutPratique),
     abonnement_vague_paix: Boolean(values.abonnementVaguePaix),
     sokahan: Boolean(values.sokahan),
@@ -298,7 +293,7 @@ export async function createMemberRemote(
   };
 
   const { data, error } = await supabase.from("members").insert(payload).select("id").single();
-  if (error) return { data: null, error: new Error(error.message) };
+  if (error) return { data: null, error: new Error(mapMemberWriteError(error.message)) };
   return { data: data as { id: string }, error: null };
 }
 
@@ -327,7 +322,7 @@ export async function updateMemberRemote(
       CATEGORIE_TO_DB[values.departement] ||
       CATEGORIE_TO_DB[values.categorie] ||
       "homme",
-    responsabilite: RESPONSABILITE_TO_DB[values.responsabilite] || "membre_simple",
+    responsabilite: toDbResponsabilite(values.responsabilite),
     date_debut_pratique: toSqlDate(values.dateDebutPratique),
     abonnement_vague_paix: Boolean(values.abonnementVaguePaix),
     sokahan: Boolean(values.sokahan),
@@ -349,7 +344,7 @@ export async function updateMemberRemote(
     .eq("id", memberId)
     .select("id")
     .single();
-  if (error) return { data: null, error: new Error(error.message) };
+  if (error) return { data: null, error: new Error(mapMemberWriteError(error.message)) };
   return { data: data as { id: string }, error: null };
 }
 

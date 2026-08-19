@@ -67,7 +67,6 @@ describe("createMemberFromForm", () => {
     );
 
     expect(member.email).toBe("");
-  });
     expect(member.totalDons).toBe(0);
   });
 });

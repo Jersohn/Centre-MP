@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowRightLeft, ChevronRight, Trash2, X } from "lucide-react";
 import type { MemberRecord } from "./memberFormUtils";
@@ -10,6 +10,7 @@ import { deleteMemberRemote, hasRemoteMembers, reassignMemberOrgRemote } from ".
 import { deleteUserRemote, hasRemoteProfiles, updateProfileRemote } from "../services/profileService";
 import { MemberAvatar } from "./MemberAvatar";
 import { useOpsData } from "./opsDataStore";
+import { displayResponsabilite } from "./responsabilites";
 
 export function ListCheckbox({
   checked,
@@ -43,25 +44,31 @@ export function ListCheckbox({
   );
 }
 
-export function useIdSelection(catalogIds?: number[]) {
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+export function memberSelectionKey(member: Pick<MemberRecord, "id" | "remoteId">): string {
+  return member.remoteId ? `remote:${member.remoteId}` : `local:${member.id}`;
+}
+
+export function useIdSelection(catalogIds?: string[]) {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const catalogKey = catalogIds && catalogIds.length > 0 ? catalogIds.join("\0") : "";
 
   useEffect(() => {
-    if (!catalogIds) return;
-    const valid = new Set(catalogIds);
+    // Catalogue vide = chargement / erreur de reload : ne pas vider la sélection.
+    if (!catalogKey) return;
+    const valid = new Set(catalogKey.split("\0"));
     setSelectedIds((prev) => {
       if (prev.size === 0) return prev;
       let changed = false;
-      const next = new Set<number>();
+      const next = new Set<string>();
       for (const id of prev) {
         if (valid.has(id)) next.add(id);
         else changed = true;
       }
       return changed ? next : prev;
     });
-  }, [catalogIds]);
+  }, [catalogKey]);
 
-  const toggle = (id: number) => {
+  const toggle = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -70,7 +77,7 @@ export function useIdSelection(catalogIds?: number[]) {
     });
   };
 
-  const setMany = (ids: number[], selected: boolean) => {
+  const setMany = (ids: string[], selected: boolean) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       for (const id of ids) {
@@ -103,11 +110,13 @@ type ScopeLock = {
 export function MemberBulkBar({
   selectedCount,
   hiddenCount,
+  hiddenMembers = [],
   pageIds,
   filteredIds,
   selectedIds,
   onTogglePage,
   onSelectFiltered,
+  onRemove,
   onClear,
   onDelete,
   onReassign,
@@ -117,11 +126,13 @@ export function MemberBulkBar({
 }: {
   selectedCount: number;
   hiddenCount: number;
-  pageIds: number[];
-  filteredIds: number[];
-  selectedIds: Set<number>;
+  hiddenMembers?: { key: string; name: string }[];
+  pageIds: string[];
+  filteredIds: string[];
+  selectedIds: Set<string>;
   onTogglePage: (selected: boolean) => void;
   onSelectFiltered: () => void;
+  onRemove?: (key: string) => void;
   onClear: () => void;
   onDelete: () => void;
   onReassign: () => void;
@@ -166,6 +177,26 @@ export function MemberBulkBar({
           </span>
         ) : null}
       </span>
+      {hiddenMembers.length > 0 ? (
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          {hiddenMembers.slice(0, 6).map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              disabled={busy}
+              onClick={() => onRemove?.(item.key)}
+              className="inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[10px] text-foreground hover:bg-muted disabled:opacity-50"
+              title={`Retirer ${item.name}`}
+            >
+              <span className="truncate">{item.name}</span>
+              <X size={10} />
+            </button>
+          ))}
+          {hiddenMembers.length > 6 ? (
+            <span className="text-[10px] text-muted-foreground">+{hiddenMembers.length - 6}</span>
+          ) : null}
+        </div>
+      ) : null}
       {!allFilteredSelected && filteredIds.length > 0 && (
         <button
           type="button"
@@ -432,18 +463,34 @@ export function useMemberBulkActions(
   const { confirm } = useConfirm();
   const { members: catalog, setMembers, reloadMembers } = useOpsData();
   const pageMembers = options?.pageMembers || members;
-  const catalogIds = useMemo(() => catalog.map((item) => item.id), [catalog]);
-  const visibleIds = useMemo(() => members.map((item) => item.id), [members]);
-  const pageIds = useMemo(() => pageMembers.map((item) => item.id), [pageMembers]);
+  const catalogIds = useMemo(() => catalog.map(memberSelectionKey), [catalog]);
+  const visibleIds = useMemo(() => members.map(memberSelectionKey), [members]);
+  const pageIds = useMemo(() => pageMembers.map(memberSelectionKey), [pageMembers]);
   const selection = useIdSelection(catalogIds);
+  const namesByKeyRef = useRef<Map<string, string>>(new Map());
   const [busy, setBusy] = useState(false);
   const [reassignOpen, setReassignOpen] = useState(false);
 
+  useEffect(() => {
+    for (const item of catalog) {
+      namesByKeyRef.current.set(memberSelectionKey(item), `${item.prenom} ${item.nom}`.trim());
+    }
+  }, [catalog]);
+
   const selectedMembers = useMemo(
-    () => catalog.filter((item) => selection.selectedIds.has(item.id)),
+    () => catalog.filter((item) => selection.selectedIds.has(memberSelectionKey(item))),
     [catalog, selection.selectedIds],
   );
-  const hiddenCount = selectedMembers.filter((item) => !visibleIds.includes(item.id)).length;
+  const hiddenMembers = useMemo(() => {
+    const visible = new Set(visibleIds);
+    const chips: { key: string; name: string }[] = [];
+    for (const key of selection.selectedIds) {
+      if (visible.has(key)) continue;
+      chips.push({ key, name: namesByKeyRef.current.get(key) || "Membre" });
+    }
+    return chips;
+  }, [selection.selectedIds, visibleIds, catalog]);
+  const hiddenCount = hiddenMembers.length;
   const deletable = selectedMembers.filter((item) => canDeleteMember(role, item));
   const reassignable = selectedMembers.filter((item) => canReassignMember(role, item));
 
@@ -460,7 +507,7 @@ export function useMemberBulkActions(
     });
     if (!ok) return;
     setBusy(true);
-    const deletedIds: number[] = [];
+    const deletedIds: string[] = [];
     let firstError: string | null = null;
     for (const member of deletable) {
       const error = await deleteOneMember(member);
@@ -468,10 +515,10 @@ export function useMemberBulkActions(
         firstError = error;
         break;
       }
-      deletedIds.push(member.id);
+      deletedIds.push(memberSelectionKey(member));
     }
     if (deletedIds.length > 0) {
-      setMembers((prev) => prev.filter((item) => !deletedIds.includes(item.id)));
+      setMembers((prev) => prev.filter((item) => !deletedIds.includes(memberSelectionKey(item))));
       selection.clear();
     }
     setBusy(false);
@@ -490,7 +537,7 @@ export function useMemberBulkActions(
       return;
     }
     setBusy(true);
-    const updatedIds: number[] = [];
+    const updatedIds: string[] = [];
     let firstError: string | null = null;
     for (const member of targets) {
       const error = await reassignOneMember(member, org);
@@ -498,12 +545,12 @@ export function useMemberBulkActions(
         firstError = error;
         break;
       }
-      updatedIds.push(member.id);
+      updatedIds.push(memberSelectionKey(member));
     }
     if (updatedIds.length > 0) {
       setMembers((prev) =>
         prev.map((item) =>
-          updatedIds.includes(item.id)
+          updatedIds.includes(memberSelectionKey(item))
             ? {
                 ...item,
                 chapitre: org.chapitre,
@@ -532,11 +579,13 @@ export function useMemberBulkActions(
     <MemberBulkBar
       selectedCount={selection.count}
       hiddenCount={hiddenCount}
+      hiddenMembers={hiddenMembers}
       pageIds={pageIds}
       filteredIds={visibleIds}
       selectedIds={selection.selectedIds}
       onTogglePage={(selected) => selection.setMany(pageIds, selected)}
       onSelectFiltered={() => selection.setMany(visibleIds, true)}
+      onRemove={(key) => selection.setMany([key], false)}
       onClear={selection.clear}
       onDelete={() => {
         void handleDelete();
@@ -563,6 +612,8 @@ export function useMemberBulkActions(
 
   return {
     ...selection,
+    isSelected: (member: MemberRecord) => selection.selectedIds.has(memberSelectionKey(member)),
+    toggleMember: (member: MemberRecord) => selection.toggle(memberSelectionKey(member)),
     bar,
     dialog,
     busy,
@@ -592,10 +643,10 @@ export function OrgMemberRows({
       <div className="rounded-xl border border-border bg-muted/20 px-3 py-2">{bulk.bar}</div>
       {bulk.dialog}
       {members.map((member) => {
-        const checked = bulk.selectedIds.has(member.id);
+        const checked = bulk.isSelected(member);
         return (
           <div
-            key={member.id}
+            key={memberSelectionKey(member)}
             className={`flex items-center gap-2 rounded-2xl border px-3 py-3 transition ${
               checked
                 ? "border-[var(--sgi-blue)]/35 bg-[var(--sgi-blue)]/8"
@@ -604,7 +655,7 @@ export function OrgMemberRows({
           >
             <ListCheckbox
               checked={checked}
-              onChange={() => bulk.toggle(member.id)}
+              onChange={() => bulk.toggleMember(member)}
               label={`Sélectionner ${member.prenom} ${member.nom}`}
             />
             <button
@@ -618,7 +669,7 @@ export function OrgMemberRows({
                   {member.prenom} {member.nom}
                 </div>
                 <div className="mt-1 truncate text-sm text-muted-foreground">
-                  {member.responsabilite === "Membre" ? "Membre simple" : member.responsabilite}
+                  {displayResponsabilite(member.responsabilite)}
                   {" · "}
                   {member.statut}
                 </div>

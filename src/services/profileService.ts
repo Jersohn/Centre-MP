@@ -14,6 +14,8 @@ export type InvitePayload = {
   password?: string;
   skip_email_confirm?: boolean;
   member_id?: string | null;
+  /** Slug `member_responsibility` (ex. responsable_femme_chapitre). */
+  responsabilite?: string | null;
 };
 
 export function hasRemoteProfiles() {

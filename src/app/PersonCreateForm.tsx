@@ -17,6 +17,15 @@ import {
   type MemberRecord,
 } from "./memberFormUtils";
 import { canChangeMemberResponsabilite } from "./orgAccess";
+import {
+  MEMBRE_SIMPLE,
+  ResponsabiliteSelect,
+  displayResponsabilite,
+  mainResponsabiliteForRole,
+  platformRoleFromResponsabiliteLabel,
+  responsabilitesForAssignableRoles,
+  toDbResponsabilite,
+} from "./responsabilites";
 import { ROLE_LABELS, type PlatformRole } from "./roles";
 import { assignableRoles, createManagedUser, type ManagedUser } from "./settings/usersStore";
 import { useOrgTree, type OrgSelectionIds } from "./useOrgTree";
@@ -26,19 +35,9 @@ import { supabase } from "../services/supabaseClient";
 
 const DEPARTEMENTS = ["Homme", "Femme", "Jeune homme", "Jeune fille", "Avenir"] as const;
 const MEMBER_STATUTS = ["Actif", "En attente", "Suspendu"] as const;
-const MEMBER_RESPONSABILITES = [
-  "Membre simple",
-  "Responsable groupe",
-  "Responsable district",
-  "Responsable chapitre",
-  "Responsable centre",
-] as const;
 
 function platformRoleToMemberResponsabilite(role: PlatformRole): string {
-  if (role === "centre" || role === "admin") return "Responsable centre";
-  if (role === "chapitre") return "Responsable chapitre";
-  if (role === "district") return "Responsable district";
-  return "Responsable groupe";
+  return mainResponsabiliteForRole(role);
 }
 
 export type PersonCreateResult = {
@@ -74,6 +73,10 @@ export default function PersonCreateForm({
 }: Props) {
   const isEdit = Boolean(editMember);
   const roles = useMemo(() => assignableRoles(actorRole), [actorRole]);
+  const assignableResponsabilites = useMemo(
+    () => responsabilitesForAssignableRoles(roles),
+    [roles],
+  );
   const orgTree = useOrgTree();
   const [orgIds, setOrgIds] = useState<OrgSelectionIds>({
     chapitreId: "",
@@ -91,8 +94,7 @@ export default function PersonCreateForm({
             dateNaissance: editMember.dateNaissance,
             departement: editMember.departement || editMember.categorie || "Homme",
             categorie: editMember.categorie || editMember.departement || "Homme",
-            responsabilite:
-              editMember.responsabilite === "Membre" ? "Membre simple" : editMember.responsabilite,
+            responsabilite: displayResponsabilite(editMember.responsabilite),
             dateDebutPratique: editMember.dateDebutPratique,
             abonnementVaguePaix: editMember.abonnementVaguePaix,
             sokahan: editMember.sokahan,
@@ -109,11 +111,13 @@ export default function PersonCreateForm({
             chapitre: initialOrg?.chapitre || "",
             district: initialOrg?.district || "",
             groupe: initialOrg?.groupe || "",
-            responsabilite: mode === "responsable" ? "Responsable groupe" : "Membre simple",
+            responsabilite: mode === "responsable" ? "Responsable groupe" : MEMBRE_SIMPLE,
           },
     ),
   );
-  const [platformRole, setPlatformRole] = useState<PlatformRole>(roles[0] || "groupe");
+  const [platformRole, setPlatformRole] = useState<PlatformRole>(
+    () => platformRoleFromResponsabiliteLabel("Responsable groupe") || roles[0] || "groupe",
+  );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const canEditResponsabilite =
@@ -156,8 +160,7 @@ export default function PersonCreateForm({
           dateNaissance: editMember.dateNaissance,
           departement: editMember.departement || editMember.categorie || "Homme",
           categorie: editMember.categorie || editMember.departement || "Homme",
-          responsabilite:
-            editMember.responsabilite === "Membre" ? "Membre simple" : editMember.responsabilite,
+          responsabilite: displayResponsabilite(editMember.responsabilite),
           dateDebutPratique: editMember.dateDebutPratique,
           abonnementVaguePaix: editMember.abonnementVaguePaix,
           sokahan: editMember.sokahan,
@@ -189,11 +192,17 @@ export default function PersonCreateForm({
         groupe: names.groupe,
         responsabilite:
           mode === "responsable"
-            ? platformRoleToMemberResponsabilite(roles[0] || "groupe")
+            ? assignableResponsabilites[0] || platformRoleToMemberResponsabilite(roles[0] || "groupe")
             : "Membre simple",
       }),
     );
-    setPlatformRole(roles[0] || "groupe");
+    setPlatformRole(
+      mode === "responsable"
+        ? platformRoleFromResponsabiliteLabel(assignableResponsabilites[0] || "") ||
+            roles[0] ||
+            "groupe"
+        : roles[0] || "groupe",
+    );
     setError(null);
   }, [
     open,
@@ -203,6 +212,7 @@ export default function PersonCreateForm({
     initialOrg?.district,
     initialOrg?.groupe,
     roles,
+    assignableResponsabilites,
     variant,
     orgTree.loading,
     orgTree.chapitres,
@@ -260,9 +270,10 @@ export default function PersonCreateForm({
     }
   };
 
-  const handlePlatformRoleChange = (role: PlatformRole) => {
-    setPlatformRole(role);
-    patch({ responsabilite: platformRoleToMemberResponsabilite(role) });
+  const handleResponsabiliteChange = (next: string) => {
+    patch({ responsabilite: next });
+    const mapped = platformRoleFromResponsabiliteLabel(next);
+    if (mapped) setPlatformRole(mapped);
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -303,11 +314,9 @@ export default function PersonCreateForm({
         ...values,
         responsabilite:
           mode === "responsable"
-            ? platformRoleToMemberResponsabilite(platformRole)
+            ? displayResponsabilite(values.responsabilite)
             : !canEditResponsabilite && editMember
-              ? editMember.responsabilite === "Membre"
-                ? "Membre simple"
-                : editMember.responsabilite
+              ? displayResponsabilite(editMember.responsabilite)
               : values.responsabilite,
       };
 
@@ -377,13 +386,14 @@ export default function PersonCreateForm({
           const { data, error: remoteError } = await inviteUserRemote({
             email: memberValues.email,
             full_name: fullName,
-            role: platformRole,
+            role: platformRoleFromResponsabiliteLabel(memberValues.responsabilite) || platformRole,
             status: "actif",
             skip_email_confirm: true,
             telephone: memberValues.telephone,
             department: memberValues.departement || memberValues.groupe || memberValues.chapitre,
             ...orgPayload,
             member_id: remoteId || null,
+            responsabilite: toDbResponsabilite(memberValues.responsabilite),
           });
           if (remoteError || !data) throw remoteError || new Error("Création du compte impossible.");
           temporaryPassword = data.temporaryPassword;
@@ -604,33 +614,24 @@ export default function PersonCreateForm({
       )}
 
       {mode === "responsable" ? (
-        <Field label="Espace / rôle plateforme" hint="Un compte de connexion sera créé avec un mot de passe temporaire.">
-          <select
-            value={platformRole}
-            onChange={(e) => handlePlatformRoleChange(e.target.value as PlatformRole)}
-            className="dash-field"
-          >
-            {roles.map((item) => (
-              <option key={item} value={item}>
-                {ROLE_LABELS[item]}
-              </option>
-            ))}
-          </select>
+        <Field
+          label="Responsabilité"
+          hint={`Un compte de connexion sera créé (${ROLE_LABELS[platformRole]}) avec un mot de passe temporaire.`}
+        >
+          <ResponsabiliteSelect
+            value={values.responsabilite}
+            excludeMembreSimple
+            allowedOptions={assignableResponsabilites}
+            onChange={handleResponsabiliteChange}
+          />
         </Field>
       ) : (
         <Field label="Responsabilité" hint="Fiche membre uniquement — aucun compte de connexion n’est créé.">
-          <select
+          <ResponsabiliteSelect
             value={values.responsabilite}
             disabled={!canEditResponsabilite}
-            onChange={(e) => patch({ responsabilite: e.target.value })}
-            className="dash-field disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {MEMBER_RESPONSABILITES.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
+            onChange={(next) => patch({ responsabilite: next })}
+          />
         </Field>
       )}
 
